@@ -8,6 +8,11 @@
  *
  * Hardware: NEMA 17 closed-loop stepper motors with integrated drivers,
  * 64-microstep DIP-switch setting, 300:1 total reduction.
+ *
+ * Level shifting: all output signals (EN, STEP, DIR for both axes) go
+ * through BC337 NPN transistors.  GPIO HIGH (3.3 V) turns the transistor
+ * ON, pulling the driver's optocoupler cathode to GND.  The optocoupler
+ * anode connects to 5 V.  This inverts the signal at the driver side.
  */
 
 #include "driver/gpio.h"
@@ -64,7 +69,9 @@ void motors_hw_disable(void) {
 }
 
 void motors_hw_set_direction_ra(MotorDirection direction) {
-    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 0 : 1;
+    /* With BC337: GPIO HIGH → transistor ON → driver sees LOW.
+     * RA positive rotation maps to GPIO 1 → driver DIR- = 0. */
+    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
     if (last_dir_ra != dir) {
         last_dir_ra = dir;
         gpio_set_level(RA_DIR_GPIO, dir);
@@ -72,7 +79,9 @@ void motors_hw_set_direction_ra(MotorDirection direction) {
 }
 
 void motors_hw_set_direction_dec(MotorDirection direction) {
-    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
+    /* With BC337: GPIO HIGH → transistor ON → driver sees LOW.
+     * DEC positive rotation maps to GPIO 0 → driver DIR- = 1. */
+    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 0 : 1;
     if (last_dir_dec != dir) {
         last_dir_dec = dir;
         gpio_set_level(DEC_DIR_GPIO, dir);
@@ -103,6 +112,10 @@ void motors_hw_alarm_init(void) {
 /*
  * Return true if either closed-loop driver has asserted its ALARM output.
  * ALARM is active-low: LOW = fault condition (position error, stall, overcurrent).
+ *
+ * The ISS42 driver ALARM output is normally-open (NO): floating when OK,
+ * conducting to GND on fault.  Internal pull-ups hold the GPIO HIGH when
+ * no alarm is present.
  */
 bool motors_hw_alarm_asserted(void) {
     return gpio_get_level(RA_ALARM_GPIO) == 0 ||

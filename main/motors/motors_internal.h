@@ -92,23 +92,40 @@ bool motors_is_valid_dec_steps(int64_t steps);
  * the closed-loop driver detected a position error (stall, overcurrent).
  *
  * NRM-HA pinout (ESP32-S3 44-pin board):
- *   GPIO 14: EN-  (both motors, active low)
- *   GPIO 13: STEP- RA
- *   GPIO 12: DIR- RA
- *   GPIO 11: ALARM- RA
- *   GPIO 10: STEP- DEC
- *   GPIO 9:  DIR- DEC
- *   GPIO 46: ALARM- DEC
+ *
+ *   Outputs (contiguous GPIO 14→10, for clean PCB routing):
+ *     GPIO 14: EN-  (both motors, active low)
+ *     GPIO 13: STEP- RA
+ *     GPIO 12: DIR- RA
+ *     GPIO 11: STEP- DEC
+ *     GPIO 10: DIR- DEC
+ *
+ *   Inputs:
+ *     GPIO 9:  ALARM- RA
+ *     GPIO 46: ALARM- DEC
+ *
+ *   All outputs go through BC337 NPN transistors (3.3 V → 5 V level shift)
+ *   because the integrated drivers use optocoupler inputs that require
+ *   5 V / ~10 mA.  See CLAUDE.md for the transistor wiring diagram.
  * ========================================================================= */
 #define MOTORS_ENABLE_GPIO GPIO_NUM_14
 #define RA_STEP_GPIO       GPIO_NUM_13
 #define RA_DIR_GPIO        GPIO_NUM_12
-#define RA_ALARM_GPIO      GPIO_NUM_11
-#define DEC_STEP_GPIO      GPIO_NUM_10
-#define DEC_DIR_GPIO       GPIO_NUM_9
+#define DEC_STEP_GPIO      GPIO_NUM_11
+#define DEC_DIR_GPIO       GPIO_NUM_10
+#define RA_ALARM_GPIO      GPIO_NUM_9
 #define DEC_ALARM_GPIO     GPIO_NUM_46
 
-/* EN- pin is active-low (common for both motors). */
+/*
+ * EN- logic levels at the GPIO (post-BC337 inversion).
+ *
+ * Driver manual: EN+ = 5V + EN- = LOW (GND) → motor FREE (disabled).
+ * With BC337:
+ *   GPIO LOW  → transistor OFF → EN- floating       → motor ENABLED
+ *   GPIO HIGH → transistor ON  → EN- = GND           → motor DISABLED
+ *
+ * Leave EN- floating (unconnected) when the enable function is not needed.
+ */
 #define MOTORS_ENABLE_ACTIVE_LEVEL   0
 #define MOTORS_ENABLE_INACTIVE_LEVEL 1
 
@@ -172,12 +189,12 @@ bool motors_hw_alarm_asserted(void);
 
 /* STEP pulse timing in RMT ticks (2 MHz reference).
  *
- * Driver requires STEP HIGH ≥ 100 ns and STEP LOW ≥ 100 ns.
- * We use 2 µs HIGH (4 ticks) and ≥ 1 µs LOW (2 ticks) for margin.
- * The minimum total period guarantees a valid LOW gap between pulses. */
-#define STEP_PULSE_TICKS     4U    /* 2 us HIGH */
+ * Driver manual (ISS42): STEP active on rising edge, pulse width > 2.5 µs.
+ * With BC337 inversion our GPIO HIGH → driver sees LOW (the active pulse).
+ * We use 3 µs HIGH (6 ticks) and ≥ 1 µs LOW (2 ticks) for margin. */
+#define STEP_PULSE_TICKS     6U    /* 3 us — exceeds driver 2.5 us minimum */
 #define STEP_MIN_LOW_TICKS   2U    /* 1 us LOW floor */
-#define STEP_MIN_PERIOD_TICKS (STEP_PULSE_TICKS + STEP_MIN_LOW_TICKS)  /* 6 ticks = 3 us */
+#define STEP_MIN_PERIOD_TICKS (STEP_PULSE_TICKS + STEP_MIN_LOW_TICKS)  /* 8 ticks = 4 us */
 
 /* =========================================================================
  * Position representation — int64_t absolute microstep counters.

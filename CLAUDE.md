@@ -59,22 +59,44 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 
 ### Pinout definitivo NRM-HA
 
-| GPIO | Funcion           | Notas                                 |
-|------|-------------------|---------------------------------------|
-| 14   | EN- ambos motores | Enable global RA y DEC (activo bajo)  |
-| 13   | STEP- RA          | Pulso STEP eje ascension recta        |
-| 12   | DIR- RA           | Direccion eje ascension recta         |
-| 11   | ALARM- RA         | Input con pull-up, activo bajo = falla|
-| 10   | STEP- DEC         | Pulso STEP eje declinacion            |
-| 9    | DIR- DEC          | Direccion eje declinacion             |
-| 46   | ALARM- DEC        | Input con pull-up, activo bajo = falla|
-| 4    | LED externo       | LEDC PWM, indicador de estado         |
+| GPIO | Funcion           | Notas                                              |
+|------|-------------------|----------------------------------------------------|
+| 14   | EN- ambos motores | Enable global RA y DEC (GPIO LOW = enabled, via BC337)|
+| 13   | STEP- RA          | Pulso STEP eje ascension recta (via BC337)         |
+| 12   | DIR- RA           | Direccion eje ascension recta (via BC337)           |
+| 11   | STEP- DEC         | Pulso STEP eje declinacion (via BC337)              |
+| 10   | DIR- DEC          | Direccion eje declinacion (via BC337)               |
+| 9    | ALARM- RA         | Input con pull-up, activo bajo = falla             |
+| 46   | ALARM- DEC        | Input con pull-up, activo bajo = falla             |
+| 4    | LED externo       | LEDC PWM, indicador de estado                      |
+
+**Level shifting (BC337 NPN):**
+Los drivers integrados usan optoacopladores en STEP/DIR/EN que requieren
+5 V / ~10 mA. La ESP32-S3 tiene logica de 3.3 V y no tolera 5 V. Cada senal
+de salida usa un transistor BC337 como switch:
+
+```
+  GPIO ──[1kΩ]── Base (centro)
+                  │
+  5V ──→ COM+ driver ──→ [opto] ──→ COM- driver ──→ Colector (izquierda)
+                                                     │
+                                                   Emisor (derecha) ──→ GND
+```
+
+Visto de frente (letras legibles), patas hacia abajo: izquierda=Colector,
+centro=Base, derecha=Emisor. 5 transistores + 5 resistencias 1kΩ en total.
+
+**IMPORTANTE — Logica de EN-:**
+El driver invierte la logica: EN+ = 5V + EN- = LOW (GND) → motor LIBRE
+(deshabilitado). Por lo tanto con el BC337:
+  GPIO LOW  → transistor OFF → EN- flotando → motor HABILITADO
+  GPIO HIGH → transistor ON  → EN- = GND    → motor DESHABILITADO
 
 **Alimentacion:**
 | Pin  | Funcion           |
 |------|-------------------|
-| 3V3  | Terminales + de datos de ambos motores |
-| GND  | Tierra comun                          |
+| 5V   | Terminales + de datos de ambos motores (COM+) |
+| GND  | Tierra comun                                   |
 
 **Uso futuro:**
 | GPIO | Funcion     | Notas                              |

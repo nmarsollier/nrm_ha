@@ -17,16 +17,16 @@ Este firmware corre en una placa ESP32-S3 44 pines, manejando dos motores NEMA 1
 
 ### Pin mapping
 
-| GPIO | Function           | Notes                        |
-|------|--------------------|------------------------------|
-| 4    | LED (PWM)          | External status indicator    |
-| 9    | DEC DIR            | Declination axis direction   |
-| 10   | DEC STEP           | Declination step pulse       |
-| 11   | ALARM- RA          | Input, internal pull-up, active low = fault |
-| 12   | RA DIR             | Right ascension axis dir     |
-| 13   | RA STEP            | Right ascension step pulse   |
-| 14   | MOTORS EN-         | Shared enable for both axes (active low) |
-| 46   | ALARM- DEC         | Input, internal pull-up, active low = fault |
+| GPIO | Function           | Notes                                              |
+|------|--------------------|----------------------------------------------------|
+| 4    | LED (PWM)          | External status indicator                          |
+| 9    | ALARM- RA          | Input, internal pull-up, active low = fault        |
+| 10   | DEC DIR            | Declination axis dir (via BC337)                   |
+| 11   | DEC STEP           | Declination step pulse (via BC337)                 |
+| 12   | RA DIR             | Right ascension axis dir (via BC337)               |
+| 13   | RA STEP            | Right ascension step pulse (via BC337)             |
+| 14   | MOTORS EN-         | Shared enable (GPIO LOW = enabled, via BC337)     |
+| 46   | ALARM- DEC         | Input, internal pull-up, active low = fault        |
 
 ### Comportamiento de ALARM
 
