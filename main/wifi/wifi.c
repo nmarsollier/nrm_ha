@@ -149,6 +149,9 @@ static void ip_event_handler(
     wifi_retry_count = 0;
     setup_ap_started = false;
 
+    /* Shut down SoftAP — keep only STA to stop beacon broadcasting. */
+    esp_wifi_set_mode(WIFI_MODE_STA);
+
     wifi_config_t config = {0};
     esp_err_t result = esp_wifi_get_config(WIFI_IF_STA, &config);
 

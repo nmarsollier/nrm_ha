@@ -1,36 +1,78 @@
 # NRM-HA — Harmonic Drive Equatorial Mount
 
-Montura ecuatorial con harmonic drives para astrofotografia, controlada por un ESP32-S3, compatible con N.I.N.A. (Alpaca / ASCOM) y su propia REST API.
+Equatorial mount with harmonic drives for astrophotography, controlled by an ESP32-S3, compatible with N.I.N.A. (Alpaca / ASCOM) and its own REST API.
 
-Este firmware corre en una placa ESP32-S3 44 pines, manejando dos motores NEMA 17 closed-loop con drivers integrados. Expone una interfaz ASCOM Alpaca completa en el puerto 11111 para que N.I.N.A. y otros clientes puedan descubrir y controlar la montura directamente.
+This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop stepper motors with integrated drivers. It exposes a full ASCOM Alpaca interface on port 11111 so that N.I.N.A. and other clients can discover and control the mount directly.
 
 ## Hardware
 
-- **Board**: ESP32-S3 44 pines (16 MB Flash, 8 MB PSRAM)
-- **Motor drivers**: Integrados en los motores closed-loop (64 microsteps via DIP switches)
-- **Motors**: 2× NEMA 17 Closed Loop (0.44 Nm torque, driver integrado)
-- **Harmonic Drives**: 100:1 de reduccion
-- **Reduccion poleas**: 3:1 (HTD3M 15T → 45T, correa 171mm)
-- **Reduccion total**: 300:1 en ambos ejes
-- **Power**: Fuente 12V 5A → Mini DC 360 (12V→5.5V para ESP32-S3). Motores alimentados directo de 12V.
+- **Board**: ESP32-S3 44-pin (16 MB Flash, 8 MB PSRAM)
+- **Motor drivers**: Integrated closed-loop (64 microsteps via DIP switches)
+- **Motors**: 2× NEMA 17 Closed Loop (0.44 Nm torque, integrated driver)
+- **Harmonic Drives**: 100:1 reduction
+- **Belt reduction**: 3:1 (HTD3M 15T → 45T, 171mm belt)
+- **Total reduction**: 300:1 on both axes
+- **Power**: 12V 5A supply → Mini DC 360 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
 - **LED**: PWM indicator (GPIO 4) — three states: dim (~10%) at idle, bright (100%) during slewing, slow breathing on error.
+
+### Harmonic Drives
+
+- Harmonic Drive 100:1 reduction (https://www.ebay.com/itm/286960016334)
+- Belt reduction 3:1 at harmonic input: HTD3M 15T → HTD3M 45T, 171mm belt
+- Total reduction on both axes: 300:1
+- DEC body threads onto the RA structure through the Harmonic output
+- DEC control cables pass through the Harmonic center
+
+### NEMA 17 Closed Loop Motors
+
+- NEMA 17 Closed Loop with integrated driver
+- https://www.amazon.com/dp/B0FHHWT8Q8
+- Configured at 64 microsteps via DIP switches
+- Torque: 0.44 Nm
+- Hardware torque limiting (SW6 ON)
+- Motors emit ALARM signal (active low) on position error
 
 ### Pin mapping
 
-| GPIO | Function           | Notes                                              |
-|------|--------------------|----------------------------------------------------|
-| 4    | LED (PWM)          | External status indicator                          |
-| 9    | ALARM- RA          | Input, internal pull-up, active low = fault        |
-| 10   | DEC DIR            | Declination axis dir (via BC337)                   |
-| 11   | DEC STEP           | Declination step pulse (via BC337)                 |
-| 12   | RA DIR             | Right ascension axis dir (via BC337)               |
-| 13   | RA STEP            | Right ascension step pulse (via BC337)             |
-| 14   | MOTORS EN-         | Shared enable (GPIO LOW = enabled, via BC337)     |
-| 46   | ALARM- DEC         | Input, internal pull-up, active low = fault        |
+| GPIO | Function   | Notes                                              |
+|------|------------|----------------------------------------------------|
+| 4    | LED (PWM)  | External status indicator                          |
+| 10   | DEC DIR    | Declination axis direction (via BC337)             |
+| 11   | DEC STEP   | Declination step pulse (via BC337)                 |
+| 12   | RA DIR     | Right ascension axis direction (via BC337)         |
+| 13   | RA STEP    | Right ascension step pulse (via BC337)             |
+| 14   | MOTORS EN- | Shared enable (GPIO LOW = enabled, via BC337)      |
+| 46   | ALARM- RA  | Input with pull-up, active low = fault             |
+| 3    | ALARM- DEC | Input with pull-up, active low = fault             |
 
-### Comportamiento de ALARM
+### Level shifting (BC337 NPN)
 
-Los motores closed-loop emiten señal ALARM (activo bajo) cuando detectan error de posicion (stall, sobrecorriente). Ante la activacion de cualquiera de los pines ALARM, la montura entra en estado ERROR irrecuperable: deshabilita motores inmediatamente y rechaza todo comando de movimiento hasta reboot.
+The integrated drivers use optocouplers on STEP/DIR/EN that require 5V / ~10mA. The ESP32-S3 has 3.3V logic and is not 5V tolerant. Each output signal uses a BC337 transistor as a switch:
+
+```
+GPIO ──[1kΩ]── Base (center)
+                 │
+5V ──→ COM+ driver ──→ [opto] ──→ COM- driver ──→ Collector (left)
+                                                    │
+                                                  Emitter (right) ──→ GND
+```
+
+Facing the flat side (label readable), pins down: left=Collector, center=Base, right=Emitter. 5 transistors + 5 1kΩ resistors total.
+
+**EN- logic:**
+The driver inverts the logic: EN+ = 5V + EN- = LOW (GND) → motor FREE (disabled). With the BC337:
+  GPIO LOW  → transistor OFF → EN- floating → motor ENABLED
+  GPIO HIGH → transistor ON  → EN- = GND    → motor DISABLED
+
+**Power connections:**
+| Pin | Purpose                                    |
+|-----|--------------------------------------------|
+| 5V  | COM+ data terminals for both motors        |
+| GND | Common ground                              |
+
+### ALARM behavior
+
+The closed-loop motors emit an ALARM signal (active low) when they detect a position error (stall, overcurrent, lost steps). If either ALARM pin goes LOW, the mount enters an unrecoverable ERROR state: motors are immediately disabled and all motion commands are rejected until reboot.
 
 ## Architecture
 

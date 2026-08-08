@@ -61,10 +61,12 @@ esp_err_t motors_hw_init(void) {
 }
 
 void motors_hw_enable(void) {
+    ESP_LOGI(TAG, "ENABLE — GPIO 14 → %d", MOTORS_ENABLE_ACTIVE_LEVEL);
     gpio_set_level(MOTORS_ENABLE_GPIO, MOTORS_ENABLE_ACTIVE_LEVEL);
 }
 
 void motors_hw_disable(void) {
+    ESP_LOGW(TAG, "DISABLE — GPIO 14 → %d", MOTORS_ENABLE_INACTIVE_LEVEL);
     gpio_set_level(MOTORS_ENABLE_GPIO, MOTORS_ENABLE_INACTIVE_LEVEL);
 }
 

@@ -101,8 +101,8 @@ bool motors_is_valid_dec_steps(int64_t steps);
  *     GPIO 10: DIR- DEC
  *
  *   Inputs:
- *     GPIO 9:  ALARM- RA
- *     GPIO 46: ALARM- DEC
+ *     GPIO 3:  ALARM- DEC
+ *     GPIO 46: ALARM- RA
  *
  *   All outputs go through BC337 NPN transistors (3.3 V → 5 V level shift)
  *   because the integrated drivers use optocoupler inputs that require
@@ -113,18 +113,20 @@ bool motors_is_valid_dec_steps(int64_t steps);
 #define RA_DIR_GPIO        GPIO_NUM_12
 #define DEC_STEP_GPIO      GPIO_NUM_11
 #define DEC_DIR_GPIO       GPIO_NUM_10
-#define RA_ALARM_GPIO      GPIO_NUM_9
-#define DEC_ALARM_GPIO     GPIO_NUM_46
+#define RA_ALARM_GPIO      GPIO_NUM_46
+#define DEC_ALARM_GPIO     GPIO_NUM_3
 
 /*
- * EN- logic levels at the GPIO (post-BC337 inversion).
+ * EN- logic levels at the GPIO.
  *
- * Driver manual: EN+ = 5V + EN- = LOW (GND) → motor FREE (disabled).
- * With BC337:
- *   GPIO LOW  → transistor OFF → EN- floating       → motor ENABLED
- *   GPIO HIGH → transistor ON  → EN- = GND           → motor DISABLED
+ * ⚠️  VERIFICADO EN HARDWARE — NO MODIFICAR ⚠️
  *
- * Leave EN- floating (unconnected) when the enable function is not needed.
+ * Este motor en particular (NEMA 17 closed-loop, driver integrado):
+ *   GPIO LOW  (0) → transistor BC337 OFF → EN- floating → motor ENABLED
+ *   GPIO HIGH (1) → transistor BC337 ON  → EN- = GND    → motor DISABLED
+ *
+ * El driver invierte la lógica respecto al manual ISS42 estándar.
+ * Active = 0 (LOW), Inactive = 1 (HIGH).
  */
 #define MOTORS_ENABLE_ACTIVE_LEVEL   0
 #define MOTORS_ENABLE_INACTIVE_LEVEL 1
@@ -234,6 +236,16 @@ esp_err_t motors_rmt_transmit_ra(const rmt_symbol_word_t *symbols,
 
 esp_err_t motors_rmt_transmit_dec(const rmt_symbol_word_t *symbols,
                                    uint32_t num_symbols);
+
+/*
+ * Pipelined transmit — no semaphore drain before launching.
+ * Used by the double-buffered slewing loop after the first batch.
+ */
+esp_err_t motors_rmt_transmit_no_drain_ra(const rmt_symbol_word_t *symbols,
+                                           uint32_t num_symbols);
+
+esp_err_t motors_rmt_transmit_no_drain_dec(const rmt_symbol_word_t *symbols,
+                                            uint32_t num_symbols);
 
 esp_err_t motors_rmt_wait_ra(TickType_t timeout_ticks);
 

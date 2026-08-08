@@ -33,8 +33,8 @@ static const char *TAG = "MOTORS_MOTION_TASK";
  * Task stack size — sized to accommodate batch encoding loops,
  * condition checks, and FreeRTOS queue operations.
  */
-#define MOTION_TASK_STACK_WORDS 4096
-#define MOTION_TASK_PRIORITY    5
+#define MOTION_TASK_STACK_WORDS 6144  /* 24 KB — room for 2×256-symbol ping-pong buffers */
+#define MOTION_TASK_PRIORITY    23  /* near real-time, above WiFi/lwIP */
 
 /* Step period ceiling in RMT ticks — used when velocity is zero or unknown. */
 #define MAX_STEP_PERIOD_TICKS (20U * 1000U * 1000U) /* 10 s at 2 MHz */
@@ -50,20 +50,11 @@ static const char *TAG = "MOTORS_MOTION_TASK";
 #define RMT_BATCH_TARGET_TICKS  40000U
 
 /*
- * Safety cap — never queue more than this many steps in one batch.
- *
- * On abort / timeout the position is optimistically advanced by the
- * full batch.  Keeping this small caps the worst-case position error.
- * 12 steps × ~0.00028°/step ≈ 0.003° with the current gear ratio.
+ * Buffer and batch limits — unified for both axes.
+ * 256 symbols (1 KB) fits one GDMA descriptor, batch ≤ 100 steps.
  */
-#define RMT_BATCH_MAX_STEPS  12U
-
-/*
- * RMT symbol buffer capacity.  Must not exceed the non-DMA channel's
- * internal memory (SOC_RMT_MEM_WORDS_PER_CHANNEL = 48 on ESP32-S3).
- * The DMA channel (RA) uses this same size for simplicity.
- */
-#define RMT_BUFFER_SYMBOLS   48U
+#define RMT_BUFFER_SYMBOLS  256U
+#define RMT_BATCH_MAX_STEPS  100U
 
 TaskHandle_t motors_motion_task_handle = NULL;
 
@@ -421,6 +412,53 @@ static void process_command(MotionCommand cmd) {
  * velocity from the first microstep so the client's time × rate
  * distance calculations are accurate.
  * -------------------------------------------------------------------------- */
+/*
+ * Encode one axis batch — shared between the initial batch and pre-encoded
+ * batches inside the double-buffered slewing loop.  Preserves the exact same
+ * encoding logic (MOVE_AXIS constant-period vs SLEW per-step ramp).
+ */
+static uint32_t encode_axis_batch(rmt_symbol_word_t *buf, uint32_t max_sym,
+                                   uint32_t batch, uint32_t period_ticks,
+                                   float speed_dps,
+                                   int64_t base_travelled, int64_t dist_steps,
+                                   int distance_cds, bool is_move_axis)
+{
+    if (batch == 0) return 0;
+
+    if (is_move_axis) {
+        return motors_rmt_encode_steps(buf, max_sym, period_ticks, batch);
+    }
+
+    uint32_t total_sym = 0;
+    rmt_symbol_word_t *sym = buf;
+    for (uint32_t i = 0; i < batch && total_sym < max_sym; i++) {
+        int64_t travelled = base_travelled + (int64_t)i;
+        float vel = ramp_velocity((int)(speed_dps * 100.0f),
+                                   travelled, dist_steps, distance_cds);
+        uint32_t period = step_period_ticks(vel);
+        uint32_t n = motors_rmt_encode_steps(sym, max_sym - total_sym,
+                                              period, 1);
+        sym += n;
+        total_sym += n;
+    }
+    return total_sym;
+}
+
+/*
+ * Double-buffered slewing / move-axis motion loop.
+ *
+ * Ping-pong strategy:
+ *   buf[ping]  — currently transmitting via RMT+DMA
+ *   buf[pong]  — pre-encoded while ping is in flight
+ *
+ *   First iteration:  encode → transmit (with semaphore drain)
+ *   Each subsequent:  pre-encode pong → wait ping → confirm ping →
+ *                      transmit pong (no drain, immediate) → swap
+ *
+ * This eliminates the software encoding gap between batches — when one
+ * batch's RMT transmission finishes, the next batch is already queued
+ * in the RMT TX FIFO and starts with zero gap.
+ */
 static void slewing_loop_rmt(void) {
     /* Total step counts — exact from int64_t targets. */
     int64_t ra_dist = s_motion.ra_target - s_motion.ra_start;
@@ -438,10 +476,6 @@ static void slewing_loop_rmt(void) {
 
     /*
      * Direction is constant for a slew — set DIR pins once.
-     * Driver requires DIR stable ≥ 200 ns before STEP rising edge.
-     * The GPIO write here precedes the first rmt_transmit() by
-     * at least several microseconds (function call + DMA setup),
-     * providing ample margin.
      */
     MotorDirection ra_dir = (s_motion.ra_target > motors_state.ra_steps)
                                 ? MOTOR_DIRECTION_POSITIVE
@@ -455,237 +489,279 @@ static void slewing_loop_rmt(void) {
     int ra_sign = (ra_dir == MOTOR_DIRECTION_POSITIVE) ? 1 : -1;
     int dec_sign = (dec_dir == MOTOR_DIRECTION_POSITIVE) ? 1 : -1;
 
-    /* RMT symbol buffers — stack-allocated, DMA-safe on ESP32-S3. */
-    rmt_symbol_word_t ra_symbols[RMT_BUFFER_SYMBOLS];
-    rmt_symbol_word_t dec_symbols[RMT_BUFFER_SYMBOLS];
+    /*
+     * Double-buffer: ping = in-flight, pong = being pre-encoded.
+     * Each holds one batch.  Stack-allocated, DMA-safe on ESP32-S3.
+     */
+    rmt_symbol_word_t ra_buf[2][RMT_BUFFER_SYMBOLS];
+    rmt_symbol_word_t dec_buf[2][RMT_BUFFER_SYMBOLS];
+    uint32_t ra_num[2] = {0, 0};
+    uint32_t dec_num[2] = {0, 0};
+    uint32_t ra_batch[2] = {0, 0};
+    uint32_t dec_batch[2] = {0, 0};
+    int ping = 0;   /* currently transmitting */
+    int pong = 1;   /* being pre-encoded for next */
 
     uint32_t ra_period = MAX_STEP_PERIOD_TICKS;
     uint32_t dec_period = MAX_STEP_PERIOD_TICKS;
     int64_t last_ramp_recalc_us = 0;
+    bool is_move_axis = (s_motion.active_cmd_type == MOTION_CMD_MOVE_AXIS);
+
+    /* ── Compute + encode + submit first batch (buf[0]) ── */
+
+    /* Recalculate velocity for the initial batch. */
+    if (is_move_axis) {
+        ra_period = step_period_ticks(motors_state.ra_speed);
+        dec_period = step_period_ticks(motors_state.dec_speed);
+    } else {
+        float ra_vel = ramp_velocity((int)(motors_state.ra_speed * 100.0f),
+                                      0, ra_dist, distance_ra_cds);
+        float dec_vel = ramp_velocity((int)(motors_state.dec_speed * 100.0f),
+                                       0, dec_dist, distance_dec_cds);
+        ra_period = step_period_ticks(ra_vel);
+        dec_period = step_period_ticks(dec_vel);
+    }
+    last_ramp_recalc_us = esp_timer_get_time();
+
+    /* Compute first batch sizes. */
+    ra_batch[0] = (ra_period < RMT_BATCH_TARGET_TICKS)
+                      ? (RMT_BATCH_TARGET_TICKS / ra_period) : 1;
+    dec_batch[0] = (dec_period < RMT_BATCH_TARGET_TICKS)
+                       ? (RMT_BATCH_TARGET_TICKS / dec_period) : 1;
+
+    uint32_t ra_rem = total_ra_steps - ra_steps_done;
+    uint32_t dec_rem = total_dec_steps - dec_steps_done;
+    if (ra_batch[0] > ra_rem) ra_batch[0] = ra_rem;
+    if (dec_batch[0] > dec_rem) dec_batch[0] = dec_rem;
+    if (ra_batch[0] > RMT_BATCH_MAX_STEPS) ra_batch[0] = RMT_BATCH_MAX_STEPS;
+    if (dec_batch[0] > RMT_BATCH_MAX_STEPS) dec_batch[0] = RMT_BATCH_MAX_STEPS;
+
+    /* Encode first batch. */
+    int64_t ra_trav_base = (int64_t)ra_sign
+                           * (motors_state.ra_steps - s_motion.ra_start);
+    int64_t dec_trav_base = (int64_t)dec_sign
+                            * (motors_state.dec_steps - s_motion.dec_start);
+
+    ra_num[0] = encode_axis_batch(ra_buf[0], RMT_BUFFER_SYMBOLS,
+                                   ra_batch[0], ra_period,
+                                   motors_state.ra_speed,
+                                   ra_trav_base, ra_dist, distance_ra_cds,
+                                   is_move_axis);
+    dec_num[0] = encode_axis_batch(dec_buf[0], RMT_BUFFER_SYMBOLS,
+                                    dec_batch[0], dec_period,
+                                    motors_state.dec_speed,
+                                    dec_trav_base, dec_dist, distance_dec_cds,
+                                    is_move_axis);
+
+    /* Check stop before touching hardware. */
+    if (!s_motion.active) return;
+
+    /* Submit first batch (with semaphore drain). */
+    esp_err_t tx_err = ESP_OK;
+    if (ra_batch[0] > 0) tx_err = motors_rmt_transmit_ra(ra_buf[0], ra_num[0]);
+    if (dec_batch[0] > 0 && tx_err == ESP_OK)
+        tx_err = motors_rmt_transmit_dec(dec_buf[0], dec_num[0]);
+    if (tx_err != ESP_OK) {
+        ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(tx_err));
+        motors_rmt_abort_both();
+        s_motion.active = false;
+        motors_state.status = MOTORS_STATUS_READY;
+        motors_state.tracking = TRACKING_NONE;
+        return;
+    }
+
+    /*
+     * Pre-encode AND pre-submit the second batch (buf[1]) while buf[0]
+     * is transmitting.  This is the key: by the time buf[0] finishes,
+     * buf[1] is already queued in the RMT TX FIFO and starts with
+     * zero CPU-dependent gap.
+     */
+    {
+        int64_t ra_proj = (int64_t)ra_sign
+            * (motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[0]
+               - s_motion.ra_start);
+        int64_t dec_proj = (int64_t)dec_sign
+            * (motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[0]
+               - s_motion.dec_start);
+
+        ra_batch[1] = (ra_period < RMT_BATCH_TARGET_TICKS)
+                          ? (RMT_BATCH_TARGET_TICKS / ra_period) : 1;
+        dec_batch[1] = (dec_period < RMT_BATCH_TARGET_TICKS)
+                           ? (RMT_BATCH_TARGET_TICKS / dec_period) : 1;
+
+        ra_rem = total_ra_steps - ra_steps_done - ra_batch[0];
+        dec_rem = total_dec_steps - dec_steps_done - dec_batch[0];
+        if (ra_batch[1] > ra_rem) ra_batch[1] = ra_rem;
+        if (dec_batch[1] > dec_rem) dec_batch[1] = dec_rem;
+        if (ra_batch[1] > RMT_BATCH_MAX_STEPS) ra_batch[1] = RMT_BATCH_MAX_STEPS;
+        if (dec_batch[1] > RMT_BATCH_MAX_STEPS) dec_batch[1] = RMT_BATCH_MAX_STEPS;
+
+        ra_num[1] = encode_axis_batch(ra_buf[1], RMT_BUFFER_SYMBOLS,
+                                       ra_batch[1], ra_period,
+                                       motors_state.ra_speed,
+                                       ra_proj, ra_dist, distance_ra_cds,
+                                       is_move_axis);
+        dec_num[1] = encode_axis_batch(dec_buf[1], RMT_BUFFER_SYMBOLS,
+                                        dec_batch[1], dec_period,
+                                        motors_state.dec_speed,
+                                        dec_proj, dec_dist, distance_dec_cds,
+                                        is_move_axis);
+
+        /* Submit buf[1] while buf[0] is still transmitting — ZERO GAP */
+        if (ra_batch[1] > 0 || dec_batch[1] > 0) {
+            tx_err = ESP_OK;
+            if (ra_batch[1] > 0)
+                tx_err = motors_rmt_transmit_no_drain_ra(ra_buf[1], ra_num[1]);
+            if (dec_batch[1] > 0 && tx_err == ESP_OK)
+                tx_err = motors_rmt_transmit_no_drain_dec(dec_buf[1], dec_num[1]);
+            if (tx_err != ESP_OK) {
+                ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(tx_err));
+                motors_rmt_abort_both();
+                s_motion.active = false;
+                motors_state.status = MOTORS_STATUS_READY;
+                motors_state.tracking = TRACKING_NONE;
+                return;
+            }
+        }
+    }
+
+    /* ── Main double-buffered loop — submit BEFORE wait ──
+     *
+     * Invariant at loop entry:
+     *   buf[0] — already submitted, currently transmitting
+     *   buf[1] — already submitted, queued in RMT TX FIFO
+     *
+     * Each iteration:
+     *   1. wait for oldest submitted batch (ping)
+     *   2. confirm position, check conditions
+     *   3. encode + submit next batch into the now-free ping buffer
+     *      (submit BEFORE the next wait — stays ahead by 1)
+     *   4. swap ping↔pong
+     */
+
+    ping = 0;   /* waiting for this one (just submitted above) */
+    pong = 1;   /* already queued (submitted right after ping) */
 
     while (s_motion.active) {
         /*
-         * 1. Throttled motion-conditions check — exit if target reached
-         *    or tracking was stopped externally.
+         * 1. Wait for ping to finish.  Pong is already queued in the
+         *    RMT TX FIFO — when ping's DMA completes, pong starts
+         *    immediately with zero CPU involvement.
          */
+        esp_err_t wait_err = ESP_OK;
+        if (ra_batch[ping] > 0) wait_err = motors_rmt_wait_ra(pdMS_TO_TICKS(500));
+        if (dec_batch[ping] > 0 && wait_err == ESP_OK)
+            wait_err = motors_rmt_wait_dec(pdMS_TO_TICKS(500));
+
+        if (wait_err != ESP_OK) {
+            ESP_LOGW(TAG, "RMT wait %s", (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
+            motors_rmt_abort_both();
+            s_motion.active = false;
+            motors_state.status = MOTORS_STATUS_READY;
+            motors_state.tracking = TRACKING_NONE;
+            break;
+        }
+
+        /* 2. Ping batch confirmed — apply its steps. */
+        motors_state.ra_steps += (int64_t)ra_sign * (int64_t)ra_batch[ping];
+        motors_state.dec_steps += (int64_t)dec_sign * (int64_t)dec_batch[ping];
+        ra_steps_done += ra_batch[ping];
+        dec_steps_done += dec_batch[ping];
+
+        /* Conditions check after position update. */
         if (!check_motion_conditions()) break;
-        if (!s_motion.active) break;
-
-        int64_t now = esp_timer_get_time();
-
-        /*
-         * 2. Recalculate velocities every ~5 ms (same cadence as the
-         *    original software loop).
-         *
-         *    MOVE_AXIS skips the ramp — constant commanded speed.
-         */
-        if (now - last_ramp_recalc_us > 5000) {
-            if (s_motion.active_cmd_type == MOTION_CMD_MOVE_AXIS) {
-                ra_period = step_period_ticks(motors_state.ra_speed);
-                dec_period = step_period_ticks(motors_state.dec_speed);
-            } else {
-                int target_ra = (int) (motors_state.ra_speed * 100.0f);
-                int target_dec = (int) (motors_state.dec_speed * 100.0f);
-                int64_t ra_travelled = (int64_t)ra_sign * (motors_state.ra_steps - s_motion.ra_start);
-                int64_t dec_travelled = (int64_t)dec_sign * (motors_state.dec_steps - s_motion.dec_start);
-
-                float ra_vel = ramp_velocity(target_ra, ra_travelled,
-                                             ra_dist, distance_ra_cds);
-                float dec_vel = ramp_velocity(target_dec, dec_travelled,
-                                              dec_dist, distance_dec_cds);
-                ra_period = step_period_ticks(ra_vel);
-                dec_period = step_period_ticks(dec_vel);
-            }
-            last_ramp_recalc_us = now;
-        }
-
-        /*
-         * 3. Compute batch sizes — target ~20 ms of motion per batch.
-         */
-        uint32_t ra_batch = (ra_period < RMT_BATCH_TARGET_TICKS)
-                                ? (RMT_BATCH_TARGET_TICKS / ra_period)
-                                : 1;
-        uint32_t dec_batch = (dec_period < RMT_BATCH_TARGET_TICKS)
-                                 ? (RMT_BATCH_TARGET_TICKS / dec_period)
-                                 : 1;
-
-        /* Clamp to remaining steps. */
-        uint32_t ra_remaining = total_ra_steps - ra_steps_done;
-        uint32_t dec_remaining = total_dec_steps - dec_steps_done;
-        if (ra_batch > ra_remaining) ra_batch = ra_remaining;
-        if (dec_batch > dec_remaining) dec_batch = dec_remaining;
-        if (ra_batch > RMT_BATCH_MAX_STEPS) ra_batch = RMT_BATCH_MAX_STEPS;
-        if (dec_batch > RMT_BATCH_MAX_STEPS) dec_batch = RMT_BATCH_MAX_STEPS;
-
-        if (ra_batch == 0 && dec_batch == 0) break;
-
-        /*
-         * 4. Encode step batches as RMT symbols.
-         *
-         *    For MOVE_AXIS (constant velocity) the entire batch uses
-         *    a single period — one encode call per axis.
-         *
-         *    For SLEW with ramps, velocity is recalculated per-step
-         *    within the batch to preserve the ramp curve's precision.
-         */
-        uint32_t ra_num_sym = 0;
-        uint32_t dec_num_sym = 0;
-
-        /* Travelled steps at batch start (signed, for ramp position). */
-        int64_t ra_base_travelled = (int64_t)ra_sign
-                                    * (motors_state.ra_steps - s_motion.ra_start);
-        int64_t dec_base_travelled = (int64_t)dec_sign
-                                     * (motors_state.dec_steps - s_motion.dec_start);
-
-        if (ra_batch > 0) {
-            if (s_motion.active_cmd_type == MOTION_CMD_MOVE_AXIS) {
-                ra_num_sym = motors_rmt_encode_steps(ra_symbols,
-                                                      RMT_BUFFER_SYMBOLS,
-                                                      ra_period, ra_batch);
-            } else {
-                uint32_t remaining_sym = RMT_BUFFER_SYMBOLS;
-                rmt_symbol_word_t *sym = ra_symbols;
-                for (uint32_t i = 0; i < ra_batch && remaining_sym > 0; i++) {
-                    int64_t travelled = ra_base_travelled + (int64_t)i;
-                    float vel = ramp_velocity(
-                        (int) (motors_state.ra_speed * 100.0f),
-                        travelled, ra_dist, distance_ra_cds);
-                    uint32_t period = step_period_ticks(vel);
-                    uint32_t n = motors_rmt_encode_steps(sym, remaining_sym,
-                                                          period, 1);
-                    sym += n;
-                    remaining_sym -= n;
-                    ra_num_sym += n;
-                }
-            }
-        }
-
-        if (dec_batch > 0) {
-            if (s_motion.active_cmd_type == MOTION_CMD_MOVE_AXIS) {
-                dec_num_sym = motors_rmt_encode_steps(dec_symbols,
-                                                       RMT_BUFFER_SYMBOLS,
-                                                       dec_period, dec_batch);
-            } else {
-                uint32_t remaining_sym = RMT_BUFFER_SYMBOLS;
-                rmt_symbol_word_t *sym = dec_symbols;
-                for (uint32_t i = 0; i < dec_batch && remaining_sym > 0; i++) {
-                    int64_t travelled = dec_base_travelled + (int64_t)i;
-                    float vel = ramp_velocity(
-                        (int) (motors_state.dec_speed * 100.0f),
-                        travelled, dec_dist, distance_dec_cds);
-                    uint32_t period = step_period_ticks(vel);
-                    uint32_t n = motors_rmt_encode_steps(sym, remaining_sym,
-                                                          period, 1);
-                    sym += n;
-                    remaining_sym -= n;
-                    dec_num_sym += n;
-                }
-            }
-        }
-
-        /*
-         * 5. Update positions optimistically BEFORE transmit.
-         *    If the transmit itself fails we roll back (no steps sent).
-         *    On abort / timeout the position stays — conservative
-         *    worst-case estimate, at most RMT_BATCH_MAX_STEPS ahead.
-         */
-        int64_t prev_ra = motors_state.ra_steps;
-        int64_t prev_dec = motors_state.dec_steps;
-        motors_state.ra_steps += (int64_t)ra_sign * (int64_t)ra_batch;
-        motors_state.dec_steps += (int64_t)dec_sign * (int64_t)dec_batch;
-
-        /*
-         * 5b. Check for external stop BEFORE touching the RMT hardware.
-         *     motors_motion_stop() from another task calls abort, which
-         *     re-enables the channels.  Without this check we could
-         *     start an unintended transmission on those re-enabled
-         *     channels, physically moving the motor after the STOP.
-         */
         if (!s_motion.active) {
-            ESP_LOGW(TAG, "Motion aborted before transmit — position may be off by ≤%u steps",
-                     RMT_BATCH_MAX_STEPS);
+            ESP_LOGW(TAG, "Motion aborted");
             break;
         }
 
-        /*
-         * 6. Transmit both axes in parallel (non-blocking).
-         */
-        esp_err_t ra_tx_err = ESP_OK;
-        esp_err_t dec_tx_err = ESP_OK;
-
-        if (ra_batch > 0) {
-            ra_tx_err = motors_rmt_transmit_ra(ra_symbols, ra_num_sym);
-        }
-        if (dec_batch > 0) {
-            dec_tx_err = motors_rmt_transmit_dec(dec_symbols, dec_num_sym);
-        }
-
-        /* Transmit failure → roll back (no steps were physically sent). */
-        if (ra_tx_err != ESP_OK) motors_state.ra_steps = prev_ra;
-        if (dec_tx_err != ESP_OK) motors_state.dec_steps = prev_dec;
-
-        if (ra_tx_err != ESP_OK || dec_tx_err != ESP_OK) {
-            ESP_LOGE(TAG, "RMT transmit failed (RA: %s, DEC: %s)",
-                     esp_err_to_name(ra_tx_err),
-                     esp_err_to_name(dec_tx_err));
-            motors_rmt_abort_both();
-            s_motion.active = false;
-            motors_state.status = MOTORS_STATUS_READY;
-            motors_state.tracking = TRACKING_NONE;
-            break;
-        }
-
-        /*
-         * 7. Block until both transmissions complete.
-         *    The RMT ISR gives the semaphore on completion.
-         *    A STOP / PARK / DISABLE aborts the channel, gives the
-         *    semaphore, and sets motion_active = false.
-         */
-        esp_err_t ra_wait_err = ESP_OK;
-        esp_err_t dec_wait_err = ESP_OK;
-
-        if (ra_batch > 0) {
-            ra_wait_err = motors_rmt_wait_ra(pdMS_TO_TICKS(500));
-        }
-        if (dec_batch > 0) {
-            dec_wait_err = motors_rmt_wait_dec(pdMS_TO_TICKS(500));
-        }
-
-        if (ra_wait_err != ESP_OK || dec_wait_err != ESP_OK) {
-            ESP_LOGW(TAG, "RMT wait %s — position may be off by ≤%u steps",
-                     (ra_wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error",
-                     RMT_BATCH_MAX_STEPS);
-            motors_rmt_abort_both();
-            s_motion.active = false;
-            motors_state.status = MOTORS_STATUS_READY;
-            motors_state.tracking = TRACKING_NONE;
-            break;
-        }
-
-        /* 8. External stop preemption — position already updated. */
-        if (!s_motion.active) {
-            ESP_LOGW(TAG, "Motion aborted — position may be off by ≤%u steps",
-                     RMT_BATCH_MAX_STEPS);
-            break;
-        }
-
-        /*
-         * 9. Batch confirmed — mark steps as done.
-         */
-        ra_steps_done += ra_batch;
-        dec_steps_done += dec_batch;
-
-        /*
-         * 10. Target reached?  check_motion_conditions at the top of the
-         *    loop will catch this, but an early exit here avoids one
-         *    unnecessary batch encode.
-         */
+        /* Target reached? */
         if (ra_steps_done >= total_ra_steps && dec_steps_done >= total_dec_steps) {
             motors_state.status = MOTORS_STATUS_READY;
             motors_state.tracking = TRACKING_NONE;
             s_motion.active = false;
             break;
         }
+
+        /*
+         * 3. Encode the next batch into the now-free ping buffer.
+         *    Pong is still queued/transmitting while we do this.
+         */
+        {
+            int64_t ra_proj_trav = (int64_t)ra_sign
+                * (motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[pong]
+                   - s_motion.ra_start);
+            int64_t dec_proj_trav = (int64_t)dec_sign
+                * (motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[pong]
+                   - s_motion.dec_start);
+
+            int64_t now = esp_timer_get_time();
+            if (now - last_ramp_recalc_us > 5000) {
+                if (is_move_axis) {
+                    ra_period = step_period_ticks(motors_state.ra_speed);
+                    dec_period = step_period_ticks(motors_state.dec_speed);
+                } else {
+                    float ra_vel = ramp_velocity(
+                        (int)(motors_state.ra_speed * 100.0f),
+                        ra_proj_trav, ra_dist, distance_ra_cds);
+                    float dec_vel = ramp_velocity(
+                        (int)(motors_state.dec_speed * 100.0f),
+                        dec_proj_trav, dec_dist, distance_dec_cds);
+                    ra_period = step_period_ticks(ra_vel);
+                    dec_period = step_period_ticks(dec_vel);
+                }
+                last_ramp_recalc_us = now;
+            }
+
+            ra_batch[ping] = (ra_period < RMT_BATCH_TARGET_TICKS)
+                                 ? (RMT_BATCH_TARGET_TICKS / ra_period) : 1;
+            dec_batch[ping] = (dec_period < RMT_BATCH_TARGET_TICKS)
+                                  ? (RMT_BATCH_TARGET_TICKS / dec_period) : 1;
+
+            ra_rem = total_ra_steps - ra_steps_done - ra_batch[pong];
+            dec_rem = total_dec_steps - dec_steps_done - dec_batch[pong];
+            if (ra_batch[ping] > ra_rem) ra_batch[ping] = ra_rem;
+            if (dec_batch[ping] > dec_rem) dec_batch[ping] = dec_rem;
+            if (ra_batch[ping] > RMT_BATCH_MAX_STEPS) ra_batch[ping] = RMT_BATCH_MAX_STEPS;
+            if (dec_batch[ping] > RMT_BATCH_MAX_STEPS) dec_batch[ping] = RMT_BATCH_MAX_STEPS;
+
+            ra_num[ping] = encode_axis_batch(ra_buf[ping], RMT_BUFFER_SYMBOLS,
+                                              ra_batch[ping], ra_period,
+                                              motors_state.ra_speed,
+                                              ra_proj_trav, ra_dist, distance_ra_cds,
+                                              is_move_axis);
+            dec_num[ping] = encode_axis_batch(dec_buf[ping], RMT_BUFFER_SYMBOLS,
+                                               dec_batch[ping], dec_period,
+                                               motors_state.dec_speed,
+                                               dec_proj_trav, dec_dist, distance_dec_cds,
+                                               is_move_axis);
+        }
+
+        /*
+         * 4. Submit the new batch NOW — before we wait for pong.
+         *    This puts it in the RMT TX queue behind pong.
+         *    When pong finishes → this batch starts with zero gap.
+         */
+        if (ra_batch[ping] > 0 || dec_batch[ping] > 0) {
+            tx_err = ESP_OK;
+            if (ra_batch[ping] > 0)
+                tx_err = motors_rmt_transmit_no_drain_ra(ra_buf[ping], ra_num[ping]);
+            if (dec_batch[ping] > 0 && tx_err == ESP_OK)
+                tx_err = motors_rmt_transmit_no_drain_dec(dec_buf[ping], dec_num[ping]);
+            if (tx_err != ESP_OK) {
+                ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(tx_err));
+                motors_rmt_abort_both();
+                s_motion.active = false;
+                motors_state.status = MOTORS_STATUS_READY;
+                motors_state.tracking = TRACKING_NONE;
+                break;
+            }
+        }
+
+        /* 5. Swap: the batch we just submitted (ping) becomes the queued
+         *    one; the previously queued one (pong) becomes what we wait
+         *    for next iteration. */
+        { int tmp = ping; ping = pong; pong = tmp; }
     }
 }
 
@@ -1016,6 +1092,18 @@ static void motion_loop(void) {
 static void motors_motion_task_run(void *arg) {
     (void) arg;
 
+    /* Initialize RMT from this task — pins the RMT ISR to core 1
+     * where WiFi/lwIP never runs, eliminating ISR latency jitter. */
+    esp_err_t rmt_err = motors_rmt_init();
+    if (rmt_err != ESP_OK) {
+        ESP_LOGE(TAG, "motors_rmt_init failed: %s — entering ERROR state",
+                 esp_err_to_name(rmt_err));
+        motors_enter_error_state();
+        vTaskDelete(NULL);
+        return;
+    }
+    ESP_LOGI(TAG, "RMT initialized on core 1");
+
     while (true) {
         MotionCommand cmd;
         if (xQueueReceive(motion_cmd_queue, &cmd, portMAX_DELAY) != pdTRUE)
@@ -1051,13 +1139,14 @@ static void motors_motion_task_run(void *arg) {
  * -------------------------------------------------------------------------- */
 
 void motors_motion_task_init(void) {
-    xTaskCreate(
+    xTaskCreatePinnedToCore(
         motors_motion_task_run,
         "motors_motion",
         MOTION_TASK_STACK_WORDS,
         NULL,
         MOTION_TASK_PRIORITY,
-        &motors_motion_task_handle);
+        &motors_motion_task_handle,
+        1);  /* dedicated core — isolated from WiFi/lwIP on CPU 0 */
 
     /* Report stack high-water mark for diagnostics. */
     if (motors_motion_task_handle != NULL) {

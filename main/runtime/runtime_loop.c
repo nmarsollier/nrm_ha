@@ -50,11 +50,12 @@ static void main_loop_task(void *arg) {
 void setup_runtime_start(void) {
     const SetupRuntimeConfig *config = setup_runtime_config_get();
 
-    xTaskCreate(
+    xTaskCreatePinnedToCore(
         main_loop_task,
         "main_loop",
         config->main_task_stack_size,
         (void *) config,
         config->main_task_priority,
-        nullptr);
+        nullptr,
+        0);  /* CPU 0 — keep CPU 1 isolated for the motion task */
 }
