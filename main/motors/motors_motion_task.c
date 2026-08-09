@@ -203,6 +203,140 @@ void motors_motion_stop(void) {
 }
 
 /* --------------------------------------------------------------------------
+ * Motion helpers — small reusable blocks extracted from the hot paths.
+ * -------------------------------------------------------------------------- */
+
+/* Clamp a batch to remaining steps and the hard max-step ceiling. */
+static uint32_t compute_batch_size(uint32_t period_ticks, uint32_t remaining) {
+    uint32_t batch = (period_ticks < RMT_BATCH_TARGET_TICKS)
+                         ? RMT_BATCH_TARGET_TICKS / period_ticks
+                         : 1;
+
+    if (batch > remaining)
+        batch = remaining;
+
+    if (batch > RMT_BATCH_MAX_STEPS)
+        batch = RMT_BATCH_MAX_STEPS;
+
+    return batch;
+}
+
+/* Clean shutdown: mark motion finished and return to READY. */
+static void finish_motion(void) {
+    s_motion.active = false;
+    motors_state.status = MOTORS_STATUS_READY;
+    motors_state.tracking = TRACKING_NONE;
+}
+
+/* Emergency abort: kill RMT + clean shutdown. */
+static void abort_motion(void) {
+    motors_rmt_abort_both();
+    finish_motion();
+}
+
+/* Recompute RA / DEC step-period ticks from current ramp or constant speed. */
+static void compute_slew_periods(
+        bool is_move_axis,
+        int64_t ra_travelled,
+        int64_t dec_travelled,
+        int64_t ra_dist,
+        int64_t dec_dist,
+        int ra_distance_cds,
+        int dec_distance_cds,
+        uint32_t *ra_period,
+        uint32_t *dec_period)
+{
+    if (is_move_axis) {
+        *ra_period = step_period_ticks(motors_state.ra_speed);
+        *dec_period = step_period_ticks(motors_state.dec_speed);
+        return;
+    }
+
+    float ra_vel = ramp_velocity(
+        (int)(motors_state.ra_speed * 100.0f),
+        ra_travelled, ra_dist, ra_distance_cds);
+    float dec_vel = ramp_velocity(
+        (int)(motors_state.dec_speed * 100.0f),
+        dec_travelled, dec_dist, dec_distance_cds);
+
+    *ra_period = step_period_ticks(ra_vel);
+    *dec_period = step_period_ticks(dec_vel);
+}
+
+/*
+ * Extend or replace a PulseGuide deadline for one axis.
+ * Same direction extends, opposite direction replaces.
+ */
+static void update_guide(
+        int64_t *deadline_us,
+        float *offset_dps,
+        const MotionCommand *cmd)
+{
+    int64_t new_deadline = esp_timer_get_time()
+                         + (int64_t)cmd->guide_duration_ms * 1000;
+
+    if (*deadline_us && *offset_dps == cmd->guide_offset_dps) {
+        if (new_deadline > *deadline_us)
+            *deadline_us = new_deadline;
+        return;
+    }
+
+    *deadline_us = new_deadline;
+    *offset_dps = cmd->guide_offset_dps;
+}
+
+/*
+ * Emit a single RA tracking step in the given direction.
+ * Returns true on success, false if motion must abort (limit hit, RMT error).
+ */
+static bool emit_ra_tracking_step(int direction, rmt_symbol_word_t *buffer) {
+    int64_t next = motors_state.ra_steps + (int64_t)direction;
+
+    if (!motors_is_valid_ra_steps(next)) {
+        ESP_LOGW(TAG, "RA limit at %.3f deg",
+                 (double)motors_steps_to_deg(motors_state.ra_steps));
+        s_motion.active = false;
+        motors_state.status = MOTORS_STATUS_READY;
+        motors_state.tracking = TRACKING_NONE;
+        motors_state.guiding = false;
+        return false;
+    }
+
+    if (!s_motion.active)
+        return false;
+
+    motors_rmt_encode_pulse(buffer);
+    esp_err_t tx_err = motors_rmt_transmit_ra(buffer, 1);
+    if (tx_err != ESP_OK) {
+        ESP_LOGE(TAG, "RMT RA tx fail: %s", esp_err_to_name(tx_err));
+        motors_rmt_abort_ra();
+        s_motion.active = false;
+        motors_state.status = MOTORS_STATUS_READY;
+        motors_state.tracking = TRACKING_NONE;
+        motors_state.guiding = false;
+        return false;
+    }
+
+    esp_err_t wait_err = motors_rmt_wait_ra(pdMS_TO_TICKS(2000));
+    if (wait_err != ESP_OK) {
+        ESP_LOGW(TAG, "RMT RA wait %s",
+                 (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
+        motors_rmt_abort_ra();
+        s_motion.active = false;
+        motors_state.status = MOTORS_STATUS_READY;
+        motors_state.tracking = TRACKING_NONE;
+        motors_state.guiding = false;
+        return false;
+    }
+
+    if (!s_motion.active)
+        return false;
+
+    motors_state.ra_steps = next;
+    return true;
+}
+
+/* --------------------------------------------------------------------------
  * Motion conditions check — returns false when the current motion should end.
  * -------------------------------------------------------------------------- */
 static bool check_motion_conditions(void) {
@@ -350,32 +484,12 @@ static void process_command(MotionCommand cmd) {
             break;
 
         case MOTION_CMD_PULSE_GUIDE:
-            /* Set or extend the guide for one axis.  Collision policy:
-             * same dir extends deadline, opposite dir replaces. */
             if (cmd.guide_axis == 0) {
-                if (s_motion.ra_guide_deadline_us
-                    && s_motion.ra_guide_offset_dps == cmd.guide_offset_dps) {
-                    int64_t dl = esp_timer_get_time()
-                               + (int64_t)cmd.guide_duration_ms * 1000;
-                    if (dl > s_motion.ra_guide_deadline_us)
-                        s_motion.ra_guide_deadline_us = dl;
-                } else {
-                    s_motion.ra_guide_deadline_us = esp_timer_get_time()
-                        + (int64_t)cmd.guide_duration_ms * 1000;
-                    s_motion.ra_guide_offset_dps = cmd.guide_offset_dps;
-                }
+                update_guide(&s_motion.ra_guide_deadline_us,
+                             &s_motion.ra_guide_offset_dps, &cmd);
             } else {
-                if (s_motion.dec_guide_deadline_us
-                    && s_motion.dec_guide_offset_dps == cmd.guide_offset_dps) {
-                    int64_t dl = esp_timer_get_time()
-                               + (int64_t)cmd.guide_duration_ms * 1000;
-                    if (dl > s_motion.dec_guide_deadline_us)
-                        s_motion.dec_guide_deadline_us = dl;
-                } else {
-                    s_motion.dec_guide_deadline_us = esp_timer_get_time()
-                        + (int64_t)cmd.guide_duration_ms * 1000;
-                    s_motion.dec_guide_offset_dps = cmd.guide_offset_dps;
-                }
+                update_guide(&s_motion.dec_guide_deadline_us,
+                             &s_motion.dec_guide_offset_dps, &cmd);
             }
             motors_state.guiding = true;
             /* Don't set s_motion.active — the existing loop handles it. */
@@ -497,32 +611,16 @@ static void slewing_loop_rmt(void) {
 
     /* ── Compute + encode + submit first batch (buf[0]) ── */
 
-    /* Recalculate velocity for the initial batch. */
-    if (is_move_axis) {
-        ra_period = step_period_ticks(motors_state.ra_speed);
-        dec_period = step_period_ticks(motors_state.dec_speed);
-    } else {
-        float ra_vel = ramp_velocity((int)(motors_state.ra_speed * 100.0f),
-                                      0, ra_dist, distance_ra_cds);
-        float dec_vel = ramp_velocity((int)(motors_state.dec_speed * 100.0f),
-                                       0, dec_dist, distance_dec_cds);
-        ra_period = step_period_ticks(ra_vel);
-        dec_period = step_period_ticks(dec_vel);
-    }
+    compute_slew_periods(is_move_axis, 0, 0,
+                         ra_dist, dec_dist,
+                         distance_ra_cds, distance_dec_cds,
+                         &ra_period, &dec_period);
     last_ramp_recalc_us = esp_timer_get_time();
-
-    /* Compute first batch sizes. */
-    ra_batch[0] = (ra_period < RMT_BATCH_TARGET_TICKS)
-                      ? (RMT_BATCH_TARGET_TICKS / ra_period) : 1;
-    dec_batch[0] = (dec_period < RMT_BATCH_TARGET_TICKS)
-                       ? (RMT_BATCH_TARGET_TICKS / dec_period) : 1;
 
     uint32_t ra_rem = total_ra_steps - ra_steps_done;
     uint32_t dec_rem = total_dec_steps - dec_steps_done;
-    if (ra_batch[0] > ra_rem) ra_batch[0] = ra_rem;
-    if (dec_batch[0] > dec_rem) dec_batch[0] = dec_rem;
-    if (ra_batch[0] > RMT_BATCH_MAX_STEPS) ra_batch[0] = RMT_BATCH_MAX_STEPS;
-    if (dec_batch[0] > RMT_BATCH_MAX_STEPS) dec_batch[0] = RMT_BATCH_MAX_STEPS;
+    ra_batch[0] = compute_batch_size(ra_period, ra_rem);
+    dec_batch[0] = compute_batch_size(dec_period, dec_rem);
 
     /* Encode first batch. */
     int64_t ra_trav_base = (int64_t)ra_sign
@@ -551,10 +649,7 @@ static void slewing_loop_rmt(void) {
         tx_err = motors_rmt_transmit_dec(dec_buf[0], dec_num[0]);
     if (tx_err != ESP_OK) {
         ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(tx_err));
-        motors_rmt_abort_both();
-        s_motion.active = false;
-        motors_state.status = MOTORS_STATUS_READY;
-        motors_state.tracking = TRACKING_NONE;
+        abort_motion();
         return;
     }
 
@@ -572,17 +667,10 @@ static void slewing_loop_rmt(void) {
             * (motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[0]
                - s_motion.dec_start);
 
-        ra_batch[1] = (ra_period < RMT_BATCH_TARGET_TICKS)
-                          ? (RMT_BATCH_TARGET_TICKS / ra_period) : 1;
-        dec_batch[1] = (dec_period < RMT_BATCH_TARGET_TICKS)
-                           ? (RMT_BATCH_TARGET_TICKS / dec_period) : 1;
-
         ra_rem = total_ra_steps - ra_steps_done - ra_batch[0];
         dec_rem = total_dec_steps - dec_steps_done - dec_batch[0];
-        if (ra_batch[1] > ra_rem) ra_batch[1] = ra_rem;
-        if (dec_batch[1] > dec_rem) dec_batch[1] = dec_rem;
-        if (ra_batch[1] > RMT_BATCH_MAX_STEPS) ra_batch[1] = RMT_BATCH_MAX_STEPS;
-        if (dec_batch[1] > RMT_BATCH_MAX_STEPS) dec_batch[1] = RMT_BATCH_MAX_STEPS;
+        ra_batch[1] = compute_batch_size(ra_period, ra_rem);
+        dec_batch[1] = compute_batch_size(dec_period, dec_rem);
 
         ra_num[1] = encode_axis_batch(ra_buf[1], RMT_BUFFER_SYMBOLS,
                                        ra_batch[1], ra_period,
@@ -604,10 +692,7 @@ static void slewing_loop_rmt(void) {
                 tx_err = motors_rmt_transmit_no_drain_dec(dec_buf[1], dec_num[1]);
             if (tx_err != ESP_OK) {
                 ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(tx_err));
-                motors_rmt_abort_both();
-                s_motion.active = false;
-                motors_state.status = MOTORS_STATUS_READY;
-                motors_state.tracking = TRACKING_NONE;
+                abort_motion();
                 return;
             }
         }
@@ -643,10 +728,7 @@ static void slewing_loop_rmt(void) {
 
         if (wait_err != ESP_OK) {
             ESP_LOGW(TAG, "RMT wait %s", (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
-            motors_rmt_abort_both();
-            s_motion.active = false;
-            motors_state.status = MOTORS_STATUS_READY;
-            motors_state.tracking = TRACKING_NONE;
+            abort_motion();
             break;
         }
 
@@ -665,9 +747,7 @@ static void slewing_loop_rmt(void) {
 
         /* Target reached? */
         if (ra_steps_done >= total_ra_steps && dec_steps_done >= total_dec_steps) {
-            motors_state.status = MOTORS_STATUS_READY;
-            motors_state.tracking = TRACKING_NONE;
-            s_motion.active = false;
+            finish_motion();
             break;
         }
 
@@ -685,33 +765,18 @@ static void slewing_loop_rmt(void) {
 
             int64_t now = esp_timer_get_time();
             if (now - last_ramp_recalc_us > 5000) {
-                if (is_move_axis) {
-                    ra_period = step_period_ticks(motors_state.ra_speed);
-                    dec_period = step_period_ticks(motors_state.dec_speed);
-                } else {
-                    float ra_vel = ramp_velocity(
-                        (int)(motors_state.ra_speed * 100.0f),
-                        ra_proj_trav, ra_dist, distance_ra_cds);
-                    float dec_vel = ramp_velocity(
-                        (int)(motors_state.dec_speed * 100.0f),
-                        dec_proj_trav, dec_dist, distance_dec_cds);
-                    ra_period = step_period_ticks(ra_vel);
-                    dec_period = step_period_ticks(dec_vel);
-                }
+                compute_slew_periods(is_move_axis,
+                                     ra_proj_trav, dec_proj_trav,
+                                     ra_dist, dec_dist,
+                                     distance_ra_cds, distance_dec_cds,
+                                     &ra_period, &dec_period);
                 last_ramp_recalc_us = now;
             }
 
-            ra_batch[ping] = (ra_period < RMT_BATCH_TARGET_TICKS)
-                                 ? (RMT_BATCH_TARGET_TICKS / ra_period) : 1;
-            dec_batch[ping] = (dec_period < RMT_BATCH_TARGET_TICKS)
-                                  ? (RMT_BATCH_TARGET_TICKS / dec_period) : 1;
-
             ra_rem = total_ra_steps - ra_steps_done - ra_batch[pong];
             dec_rem = total_dec_steps - dec_steps_done - dec_batch[pong];
-            if (ra_batch[ping] > ra_rem) ra_batch[ping] = ra_rem;
-            if (dec_batch[ping] > dec_rem) dec_batch[ping] = dec_rem;
-            if (ra_batch[ping] > RMT_BATCH_MAX_STEPS) ra_batch[ping] = RMT_BATCH_MAX_STEPS;
-            if (dec_batch[ping] > RMT_BATCH_MAX_STEPS) dec_batch[ping] = RMT_BATCH_MAX_STEPS;
+            ra_batch[ping] = compute_batch_size(ra_period, ra_rem);
+            dec_batch[ping] = compute_batch_size(dec_period, dec_rem);
 
             ra_num[ping] = encode_axis_batch(ra_buf[ping], RMT_BUFFER_SYMBOLS,
                                               ra_batch[ping], ra_period,
@@ -738,10 +803,7 @@ static void slewing_loop_rmt(void) {
                 tx_err = motors_rmt_transmit_no_drain_dec(dec_buf[ping], dec_num[ping]);
             if (tx_err != ESP_OK) {
                 ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(tx_err));
-                motors_rmt_abort_both();
-                s_motion.active = false;
-                motors_state.status = MOTORS_STATUS_READY;
-                motors_state.tracking = TRACKING_NONE;
+                abort_motion();
                 break;
             }
         }
@@ -849,84 +911,17 @@ static void tracking_loop_rmt(void) {
 
         /* ── Emit RA steps ─────────────────────────────────── */
         while (ra_phase >= 1.0) {
-            int64_t next = motors_state.ra_steps + (int64_t)ra_sign;
-            if (!motors_is_valid_ra_steps(next)) {
-                ESP_LOGW(TAG, "RA limit at %.3f deg",
-                         (double)motors_steps_to_deg(motors_state.ra_steps));
-                s_motion.active = false;
-                motors_state.status = MOTORS_STATUS_READY;
-                motors_state.tracking = TRACKING_NONE;
-                motors_state.guiding = false;
+            if (!emit_ra_tracking_step(ra_sign, ra_sym)) {
+                ra_phase = 0.0;
                 return;
             }
-            if (!s_motion.active) { ra_phase = 0.0; return; }
-
-            motors_rmt_encode_pulse(ra_sym);
-            esp_err_t tx_err = motors_rmt_transmit_ra(ra_sym, 1);
-            if (tx_err != ESP_OK) {
-                ESP_LOGE(TAG, "RMT RA tx fail: %s", esp_err_to_name(tx_err));
-                motors_rmt_abort_ra();
-                s_motion.active = false;
-                motors_state.status = MOTORS_STATUS_READY;
-                motors_state.tracking = TRACKING_NONE;
-                motors_state.guiding = false;
-                return;
-            }
-            esp_err_t wait_err = motors_rmt_wait_ra(pdMS_TO_TICKS(2000));
-            if (wait_err != ESP_OK) {
-                ESP_LOGW(TAG, "RMT RA wait %s",
-                         (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
-                motors_rmt_abort_ra();
-                s_motion.active = false;
-                motors_state.status = MOTORS_STATUS_READY;
-                motors_state.tracking = TRACKING_NONE;
-                motors_state.guiding = false;
-                return;
-            }
-            if (!s_motion.active) { ra_phase = 0.0; return; }
-
-            motors_state.ra_steps = next;
             ra_phase -= 1.0;
         }
         while (ra_phase <= -1.0) {
-            int rs = -1;
-            int64_t next = motors_state.ra_steps + (int64_t)rs;
-            if (!motors_is_valid_ra_steps(next)) {
-                ESP_LOGW(TAG, "RA limit at %.3f deg",
-                         (double)motors_steps_to_deg(motors_state.ra_steps));
-                s_motion.active = false;
-                motors_state.status = MOTORS_STATUS_READY;
-                motors_state.tracking = TRACKING_NONE;
-                motors_state.guiding = false;
+            if (!emit_ra_tracking_step(-1, ra_sym)) {
+                ra_phase = 0.0;
                 return;
             }
-            if (!s_motion.active) { ra_phase = 0.0; return; }
-
-            motors_rmt_encode_pulse(ra_sym);
-            esp_err_t tx_err = motors_rmt_transmit_ra(ra_sym, 1);
-            if (tx_err != ESP_OK) {
-                ESP_LOGE(TAG, "RMT RA tx fail: %s", esp_err_to_name(tx_err));
-                motors_rmt_abort_ra();
-                s_motion.active = false;
-                motors_state.status = MOTORS_STATUS_READY;
-                motors_state.tracking = TRACKING_NONE;
-                motors_state.guiding = false;
-                return;
-            }
-            esp_err_t wait_err = motors_rmt_wait_ra(pdMS_TO_TICKS(2000));
-            if (wait_err != ESP_OK) {
-                ESP_LOGW(TAG, "RMT RA wait %s",
-                         (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
-                motors_rmt_abort_ra();
-                s_motion.active = false;
-                motors_state.status = MOTORS_STATUS_READY;
-                motors_state.tracking = TRACKING_NONE;
-                motors_state.guiding = false;
-                return;
-            }
-            if (!s_motion.active) { ra_phase = 0.0; return; }
-
-            motors_state.ra_steps = next;
             ra_phase += 1.0;
         }
 
