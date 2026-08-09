@@ -23,12 +23,8 @@ typedef enum {
     MOTORS_STATUS_TRACKING,
     /* Parked: mount in safe parked position. */
     MOTORS_STATUS_PARKED,
-    /* Unrecoverable hardware error: motor driver init failed. Only reboot clears it.
-     * Higher precedence than DISABLED — ERROR means hardware fault, DISABLED
-     * is a soft state that should never override ERROR. */
-    MOTORS_STATUS_ERROR,
-    /* Disabled: motors unavailable or disabled by user. */
-    MOTORS_STATUS_DISABLED
+    /* Unrecoverable hardware error: motor driver init failed. Only reboot clears it. */
+    MOTORS_STATUS_ERROR
 } MotorsStatus;
 
 /*
@@ -100,15 +96,9 @@ typedef enum {
 
 /*
  * Initialize the motors subsystem.  Returns ESP_OK on success,
- * otherwise the subsystem is left in DISABLED state.
+ * otherwise the subsystem is left in ERROR state.
  */
 esp_err_t motors_init(void);
-
-/*
- * Enable motor drivers. Returns MOTOR_ERR_HARDWARE_ERROR if motors
- * are in the unrecoverable ERROR state.
- */
-MotorResultCode motors_enable(void);
 
 /*
  * Return a snapshot copy of the current `MotorsState`.
@@ -125,8 +115,7 @@ float motors_get_dec_deg(void);
 
 /*
  * Stop both axes and return to READY.
- * Returns MOTOR_ERR_HARDWARE_ERROR if motors are in ERROR state
- * (stop is rejected — motors are already physically disabled).
+ * Returns MOTOR_ERR_HARDWARE_ERROR if motors are in ERROR state.
  */
 MotorResultCode motors_stop(void);
 

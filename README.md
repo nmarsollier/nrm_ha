@@ -30,24 +30,20 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 - Configured at 64 microsteps via DIP switches
 - Torque: 0.44 Nm
 - Hardware torque limiting (SW6 ON)
-- Motors emit ALARM signal (active low) on position error
 
 ### Pin mapping
 
 | GPIO | Function   | Notes                                              |
 |------|------------|----------------------------------------------------|
 | 4    | LED (PWM)  | External status indicator                          |
-| 10   | DEC DIR    | Declination axis direction (via BC337)             |
-| 11   | DEC STEP   | Declination step pulse (via BC337)                 |
-| 12   | RA DIR     | Right ascension axis direction (via BC337)         |
-| 13   | RA STEP    | Right ascension step pulse (via BC337)             |
-| 14   | MOTORS EN- | Shared enable (GPIO LOW = enabled, via BC337)      |
-| 46   | ALARM- RA  | Input with pull-up, active low = fault             |
-| 3    | ALARM- DEC | Input with pull-up, active low = fault             |
+| 14   | RA STEP    | Right ascension step pulse (via BC337)             |
+| 13   | RA DIR     | Right ascension axis direction (via BC337)         |
+| 12   | DEC STEP   | Declination step pulse (via BC337)                 |
+| 11   | DEC DIR    | Declination axis direction (via BC337)             |
 
 ### Level shifting (BC337 NPN)
 
-The integrated drivers use optocouplers on STEP/DIR/EN that require 5V / ~10mA. The ESP32-S3 has 3.3V logic and is not 5V tolerant. Each output signal uses a BC337 transistor as a switch:
+The integrated drivers use optocouplers on STEP/DIR that require 5V / ~10mA. The ESP32-S3 has 3.3V logic and is not 5V tolerant. Each output signal uses a BC337 transistor as a switch:
 
 ```
 GPIO ──[1kΩ]── Base (center)
@@ -57,22 +53,16 @@ GPIO ──[1kΩ]── Base (center)
                                                   Emitter (right) ──→ GND
 ```
 
-Facing the flat side (label readable), pins down: left=Collector, center=Base, right=Emitter. 5 transistors + 5 1kΩ resistors total.
+Facing the flat side (label readable), pins down: left=Collector, center=Base, right=Emitter. 4 transistors + 4 1kΩ resistors total.
 
-**EN- logic:**
-The driver inverts the logic: EN+ = 5V + EN- = LOW (GND) → motor FREE (disabled). With the BC337:
-  GPIO LOW  → transistor OFF → EN- floating → motor ENABLED
-  GPIO HIGH → transistor ON  → EN- = GND    → motor DISABLED
+ENABLE is hardwired (always enabled) — no GPIO control needed.
+ALARM pins are not connected in this revision.
 
 **Power connections:**
 | Pin | Purpose                                    |
 |-----|--------------------------------------------|
 | 5V  | COM+ data terminals for both motors        |
 | GND | Common ground                              |
-
-### ALARM behavior
-
-The closed-loop motors emit an ALARM signal (active low) when they detect a position error (stall, overcurrent, lost steps). If either ALARM pin goes LOW, the mount enters an unrecoverable ERROR state: motors are immediately disabled and all motion commands are rejected until reboot.
 
 ## Architecture
 
@@ -81,7 +71,7 @@ N.I.N.A. / ASCOM client
 Alpaca REST API  (port 11111)  ◄── also: UDP discovery on 32227
 REST API  (port 80)  ── serves embedded SPA at /
   Mount  (orchestration, coordinates, settings)
-  Motors  (move / track, STEP/DIR/EN GPIO, RMT pulse generation, ALARM monitoring)
+  Motors  (move / track, STEP/DIR GPIO, RMT pulse generation)
 
 Network  (WiFi station + setup AP fallback)
 USB Net  (RNDIS/ECM gadget, 192.168.7.1, DHCP server)

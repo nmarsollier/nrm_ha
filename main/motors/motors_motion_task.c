@@ -6,7 +6,7 @@
  * The motion task is the sole writer of motors_state position fields
  * (ra_steps, dec_steps) during slews and tracking.
  * Status and tracking fields are updated cooperatively by the motion
- * task, motors_stop(), motors_park(), and motors_enable().
+ * task, motors_stop(), and motors_park().
  *
  * Two execution paths, dispatched by command type:
  *   slewing_loop_rmt  — distance-bounded, ramped accel/decel, batched RMT
@@ -207,18 +207,6 @@ void motors_motion_stop(void) {
  * -------------------------------------------------------------------------- */
 static bool check_motion_conditions(void) {
     /*
-     * Hardware ALARM — closed-loop driver fault (stall, position error,
-     * overcurrent).  Asserted LOW by either axis → unrecoverable ERROR.
-     * Cut all motion immediately and disable drivers.
-     */
-    if (motors_hw_alarm_asserted()) {
-        ESP_LOGE(TAG, "ALARM asserted by closed-loop driver — entering ERROR state");
-        motors_enter_error_state();
-        s_motion.active = false;
-        return false;
-    }
-
-    /*
      * Motor ERROR — immediate abort of any active motion.
      *
      * If the motors subsystem enters ERROR state while slewing or
@@ -275,7 +263,7 @@ static bool check_motion_conditions(void) {
  * Command processing — handle one MotionCommand and set up motion state.
  *
  * Only motion-producing commands (SLEW, TRACK, MOVE_AXIS) go through
- * the queue.  Stop / park / enable are handled directly by their
+ * the queue.  Stop / park are handled directly by their
  * callers via motors_motion_stop() + motors_state update.
  * -------------------------------------------------------------------------- */
 static void process_command(MotionCommand cmd) {
@@ -1086,7 +1074,7 @@ static void motion_loop(void) {
  * Blocks on the command queue when idle. When a motion-producing command
  * arrives (SLEW, TRACK, or MOVE_AXIS), enters motion_loop() which dispatches
  * to the appropriate RMT-driven execution path.
- * Stop / park / enable are handled directly by their callers via
+ * Stop / park are handled directly by their callers via
  * motors_motion_stop() + motors_state update.
  * -------------------------------------------------------------------------- */
 static void motors_motion_task_run(void *arg) {

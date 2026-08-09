@@ -9,7 +9,6 @@
  *   1. Aborts any in-flight RMT transmission (stops step pulses).
  *   2. Sets motors_state.status = MOTORS_STATUS_ERROR.
  *   3. Clears the guiding flag.
- *   4. Physically disables the motor drivers (ENABLE pin inactive).
  *
  * Once in ERROR, the motors module rejects all movement commands.
  * Only a full reboot can clear this state.
@@ -20,5 +19,4 @@ void motors_enter_error_state(void) {
     motors_rmt_abort_both();
     motors_state.status = MOTORS_STATUS_ERROR;
     motors_state.guiding = false;
-    motors_hw_disable();
 }

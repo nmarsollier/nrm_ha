@@ -23,8 +23,6 @@ const char *motors_status_to_string(MotorsStatus status) {
             return "parked";
         case MOTORS_STATUS_ERROR:
             return "error";
-        case MOTORS_STATUS_DISABLED:
-            return "disabled";
         default:
             return "error";
     }

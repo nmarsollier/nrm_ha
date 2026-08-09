@@ -13,8 +13,8 @@
  * structs to the queue.  The motors task is the sole consumer and the
  * sole writer of motors_state position fields.
  *
- * Only motion-producing commands go through the queue.  Stop / park /
- * enable are handled directly by their callers via
+ * Only motion-producing commands go through the queue.  Stop / park
+ * are handled directly by their callers via
  * motors_motion_stop() + motors_state update — no queue round-trip.
  * ========================================================================= */
 
@@ -87,49 +87,27 @@ bool motors_is_valid_dec_steps(int64_t steps);
  * GPIO pin assignments — single source of truth for the motors module.
  *
  * STEP pins are owned by the RMT peripheral (motors_rmt.c).
- * DIR and ENABLE pins remain under GPIO control (motors_hw.c).
- * ALARM pins are inputs with internal pull-ups — asserted LOW means
- * the closed-loop driver detected a position error (stall, overcurrent).
+ * DIR pins remain under GPIO control (motors_hw.c).
  *
  * NRM-HA pinout (ESP32-S3 44-pin board):
  *
- *   Outputs (contiguous GPIO 14→10, for clean PCB routing):
- *     GPIO 14: EN-  (both motors, active low)
- *     GPIO 13: STEP- RA
- *     GPIO 12: DIR- RA
- *     GPIO 11: STEP- DEC
- *     GPIO 10: DIR- DEC
- *
- *   Inputs:
- *     GPIO 3:  ALARM- DEC
- *     GPIO 46: ALARM- RA
+ *   Outputs (contiguous GPIO 14→11, for clean PCB routing):
+ *     GPIO 14: STEP- RA
+ *     GPIO 13: DIR- RA
+ *     GPIO 12: STEP- DEC
+ *     GPIO 11: DIR- DEC
  *
  *   All outputs go through BC337 NPN transistors (3.3 V → 5 V level shift)
  *   because the integrated drivers use optocoupler inputs that require
  *   5 V / ~10 mA.  See CLAUDE.md for the transistor wiring diagram.
+ *
+ *   ENABLE is hardwired (always enabled) — no GPIO control needed.
+ *   ALARM pins are not connected in this revision.
  * ========================================================================= */
-#define MOTORS_ENABLE_GPIO GPIO_NUM_14
-#define RA_STEP_GPIO       GPIO_NUM_13
-#define RA_DIR_GPIO        GPIO_NUM_12
-#define DEC_STEP_GPIO      GPIO_NUM_11
-#define DEC_DIR_GPIO       GPIO_NUM_10
-#define RA_ALARM_GPIO      GPIO_NUM_46
-#define DEC_ALARM_GPIO     GPIO_NUM_3
-
-/*
- * EN- logic levels at the GPIO.
- *
- * ⚠️  VERIFICADO EN HARDWARE — NO MODIFICAR ⚠️
- *
- * Este motor en particular (NEMA 17 closed-loop, driver integrado):
- *   GPIO LOW  (0) → transistor BC337 OFF → EN- floating → motor ENABLED
- *   GPIO HIGH (1) → transistor BC337 ON  → EN- = GND    → motor DISABLED
- *
- * El driver invierte la lógica respecto al manual ISS42 estándar.
- * Active = 0 (LOW), Inactive = 1 (HIGH).
- */
-#define MOTORS_ENABLE_ACTIVE_LEVEL   0
-#define MOTORS_ENABLE_INACTIVE_LEVEL 1
+#define RA_STEP_GPIO       GPIO_NUM_14
+#define RA_DIR_GPIO        GPIO_NUM_13
+#define DEC_STEP_GPIO      GPIO_NUM_12
+#define DEC_DIR_GPIO       GPIO_NUM_11
 
 /*
  * Angular displacement per microstep at the mount axis.
@@ -145,9 +123,10 @@ static inline float motors_get_deg_per_microstep(void) {
 }
 
 /* =========================================================================
- * Hardware layer — DIR/ENABLE GPIO control (motors_hw.c).
+ * Hardware layer — DIR GPIO control (motors_hw.c).
  *
  * STEP pulse generation is handled by the RMT peripheral (motors_rmt.c).
+ * ENABLE is hardwired (no GPIO control).  ALARM pins are not connected.
  * ========================================================================= */
 
 typedef enum {
@@ -157,25 +136,9 @@ typedef enum {
 
 esp_err_t motors_hw_init(void);
 
-void motors_hw_enable(void);
-
-void motors_hw_disable(void);
-
 void motors_hw_set_direction_ra(MotorDirection direction);
 
 void motors_hw_set_direction_dec(MotorDirection direction);
-
-/*
- * ALARM monitoring — closed-loop driver error detection.
- *
- * The integrated drivers assert ALARM LOW when the motor position error
- * exceeds the driver's internal threshold (stall, overcurrent, lost steps).
- * This is an unrecoverable hardware fault — the motors module must enter
- * ERROR state immediately.
- */
-void motors_hw_alarm_init(void);
-
-bool motors_hw_alarm_asserted(void);
 
 /* =========================================================================
  * RMT+DMA step pulse generation (motors_rmt.c).
@@ -285,7 +248,7 @@ void motors_queue_init(void);
 
 /*
  * Put the motors subsystem into the unrecoverable ERROR state.
- * Aborts RMT, sets MOTORS_STATUS_ERROR, clears guiding, disables HW.
+ * Aborts RMT, sets MOTORS_STATUS_ERROR, clears guiding.
  * Only a reboot can clear this state.
  */
 void motors_enter_error_state(void);

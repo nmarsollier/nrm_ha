@@ -29,7 +29,6 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 - Configurados a 64 microsteps via DIP switches
 - Torque: 0.44 Nm
 - Limitado de torque por hardware (SW6 en ON)
-- Los motores emiten señal ALARM (activo bajo) cuando detectan error de posicion
 
 ## Placa ESP32-S3
 
@@ -61,17 +60,14 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 
 | GPIO | Funcion           | Notas                                              |
 |------|-------------------|----------------------------------------------------|
-| 14   | EN- ambos motores | Enable global RA y DEC (GPIO LOW = enabled, via BC337)|
-| 13   | STEP- RA          | Pulso STEP eje ascension recta (via BC337)         |
-| 12   | DIR- RA           | Direccion eje ascension recta (via BC337)           |
-| 11   | STEP- DEC         | Pulso STEP eje declinacion (via BC337)              |
-| 10   | DIR- DEC          | Direccion eje declinacion (via BC337)               |
-| 9    | ALARM- RA         | Input con pull-up, activo bajo = falla             |
-| 46   | ALARM- DEC        | Input con pull-up, activo bajo = falla             |
+| 14   | STEP- RA          | Pulso STEP eje ascension recta (via BC337)         |
+| 13   | DIR- RA           | Direccion eje ascension recta (via BC337)           |
+| 12   | STEP- DEC         | Pulso STEP eje declinacion (via BC337)              |
+| 11   | DIR- DEC          | Direccion eje declinacion (via BC337)               |
 | 4    | LED externo       | LEDC PWM, indicador de estado                      |
 
 **Level shifting (BC337 NPN):**
-Los drivers integrados usan optoacopladores en STEP/DIR/EN que requieren
+Los drivers integrados usan optoacopladores en STEP/DIR que requieren
 5 V / ~10 mA. La ESP32-S3 tiene logica de 3.3 V y no tolera 5 V. Cada senal
 de salida usa un transistor BC337 como switch:
 
@@ -84,13 +80,10 @@ de salida usa un transistor BC337 como switch:
 ```
 
 Visto de frente (letras legibles), patas hacia abajo: izquierda=Colector,
-centro=Base, derecha=Emisor. 5 transistores + 5 resistencias 1kΩ en total.
+centro=Base, derecha=Emisor. 4 transistores + 4 resistencias 1kΩ en total.
 
-**IMPORTANTE — Logica de EN-:**
-El driver invierte la logica: EN+ = 5V + EN- = LOW (GND) → motor LIBRE
-(deshabilitado). Por lo tanto con el BC337:
-  GPIO LOW  → transistor OFF → EN- flotando → motor HABILITADO
-  GPIO HIGH → transistor ON  → EN- = GND    → motor DESHABILITADO
+ENABLE va cableado directo (siempre habilitado), sin control por GPIO.
+Los pines ALARM no se conectan en esta revision.
 
 **Alimentacion:**
 | Pin  | Funcion           |
@@ -121,26 +114,18 @@ El driver invierte la logica: EN+ = 5V + EN- = LOW (GND) → motor LIBRE
 Capas del sistema, de afuera hacia adentro:
 
 ```
-Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STEP/DIR/EN/ALARM (hardware)
+Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STEP/DIR (hardware)
 ```
 
 - **www/** — UI Web embebida programada con Alpine.js. Compila con `node www/build.js`, genera `www/dist/`.
 - **REST API** (`main/rest/`) — Expone endpoints HTTP para control de la montura.
 - **Mount** (`main/mount/`) — Orquestacion logica del montaje: estado, coordenadas, sincronizacion.
 - **Runtime** (`main/runtime/`) — Inicializacion y ciclo de vida del sistema.
-- **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR/EN/ALARM, RMT para STEP.
+- **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP.
 - **LED** (`main/led/`) — Control PWM del LED externo en GPIO 4. Estados: tenue (normal), brillante (slewing), respiracion (error).
 - **Network** (`main/network/`) — Conectividad WiFi.
 - **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo ECM/RNDIS.
 - **Tools** (`main/tools/`) — Utilidades transversales (parser, validacion).
-
-### Comportamiento de ALARM
-
-- Los pines ALARM- (GPIO 11 RA, GPIO 46 DEC) son monitoreados durante el movimiento
-- Si cualquiera de los dos se pone LOW, la montura entra en estado ERROR irrecuperable
-- En estado ERROR se deshabilitan los motores inmediatamente
-- No se acepta ningun comando de movimiento en estado ERROR
-- Solo un reboot puede sacar la montura del estado ERROR
 
 ## Reglas generales
 
@@ -177,4 +162,4 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 - Network es autocontenido y expone WiFi STA + AP fallback
 - USB Net depende de TinyUSB (componente gestionado `espressif/esp_tinyusb`) y esp_netif
 - REST API y Alpaca se enlazan a INADDR_ANY, accesibles tanto por WiFi como por USB Net
-- Motors es autocontenido: controla GPIOs, RMT, y monitorea ALARM
+- Motors es autocontenido: controla GPIOs DIR y RMT para STEP
