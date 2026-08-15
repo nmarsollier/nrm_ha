@@ -13,8 +13,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
-static const char *TAG = "BUZZER_PLAY";
-
 /* ── Pattern tables (sentinel = {0, false}) ────────────────── */
 
 static const BuzzerStep boot_steps[] = {
@@ -91,6 +89,4 @@ void buzzer_play(BuzzerPattern pattern) {
 
     s_index = 0;
     apply_step();
-
-    ESP_LOGI(TAG, "pattern %d", (int) pattern);
 }

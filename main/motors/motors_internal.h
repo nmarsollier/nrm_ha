@@ -157,10 +157,11 @@ void motors_hw_set_direction_dec(MotorDirection direction);
  *
  * Driver manual (ISS42): STEP active on rising edge, pulse width > 2.5 µs.
  * With UMC2003 (sinking output) our GPIO HIGH → driver sees LOW (the
- * active pulse).  We use 3 µs HIGH (6 ticks) and ≥ 1 µs LOW (2 ticks). */
-#define STEP_PULSE_TICKS     6U    /* 3 us — exceeds driver 2.5 us minimum */
-#define STEP_MIN_LOW_TICKS   2U    /* 1 us LOW floor */
-#define STEP_MIN_PERIOD_TICKS (STEP_PULSE_TICKS + STEP_MIN_LOW_TICKS)  /* 8 ticks = 4 us */
+ * active pulse).  The Darlington needs ~1 us to switch, so we drive 6 µs
+ * HIGH (12 ticks) to leave the driver a clean > 2.5 µs pulse. */
+#define STEP_PULSE_TICKS     12U   /* 6 us — margin for the UMC2003 Darlington */
+#define STEP_MIN_LOW_TICKS   4U    /* 2 us LOW floor — Darlington turn-off margin */
+#define STEP_MIN_PERIOD_TICKS (STEP_PULSE_TICKS + STEP_MIN_LOW_TICKS)  /* 16 ticks = 8 us */
 
 /* =========================================================================
  * Position representation — int64_t absolute microstep counters.

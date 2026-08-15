@@ -24,7 +24,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 
 ### Motores Nema 17 Closed Loop
 
-- Motores Nema 17 Closed Loop con driver integrado
+- Motores Nema 17 Closed Loop con driver integrado ISS42 (especificaciones en MOTOR.txt)
 - https://www.amazon.com/dp/B0FHHWT8Q8
 - Configurados a 64 microsteps via DIP switches
 - Torque: 0.44 Nm
@@ -89,14 +89,15 @@ de los diodos de proteccion) se ata al +V. No hay cargas inductivas en esta
 revision (los drivers se controlan por optoacopladores, que son LED), asi
 que los diodos no son estrictamente necesarios.
 
-ENABLE va cableado directo (siempre habilitado), sin control por GPIO.
+EN+ / EN- van **sin conectar** (habilitado por defecto). El ISS42 invierte la
+logica: EN+ a +V y EN- a GND lo *deshabilita*.
 Los pines ALARM no se conectan en esta revision.
 
 **Alimentacion:**
 | Pin  | Funcion           |
 |------|-------------------|
-| 5V   | Terminales + de datos de ambos motores (COM+) |
-| GND  | Tierra comun                                   |
+| 12V  | Alimentacion de potencia (DC+) y entradas de control (PU+/DR+). El ISS42 acepta 5-24 V en control |
+| GND  | Tierra comun (placa, UMC2003 y drivers comparten la misma tierra) |
 
 **Uso futuro:**
 | GPIO | Funcion     | Notas                              |
