@@ -7,6 +7,10 @@ idf_component_register(
         "led/led_update.c"
         "led/led_breathe_cb.c"
 
+        "buzzer/buzzer_init.c"
+        "buzzer/buzzer_play.c"
+        "buzzer/buzzer_update.c"
+
         "usb_net/usb_net_init.c"
         "usb_net/usb_net_data.c"
 
@@ -195,6 +199,7 @@ idf_component_register(
         INCLUDE_DIRS
         "."
         "alpaca_bridge"
+        "buzzer"
         "led"
         "mount"
         "rest"

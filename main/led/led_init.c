@@ -4,6 +4,10 @@
  *
  * Configures timer 0 at 5 kHz, 13-bit resolution (8192 steps),
  * binds channel 0 to GPIO 4, and starts with the dim (NORMAL) duty.
+ *
+ * GPIO 4 drives a UMC2003 Darlington channel (open-collector sink):
+ * GPIO HIGH → output sinks → LED on.  Higher duty = brighter, so no
+ * output inversion is required.
  */
 #include "led_internal.h"
 

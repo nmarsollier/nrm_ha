@@ -97,9 +97,10 @@ bool motors_is_valid_dec_steps(int64_t steps);
  *     GPIO 12: STEP- DEC
  *     GPIO 11: DIR- DEC
  *
- *   All outputs go through BC337 NPN transistors (3.3 V → 5 V level shift)
- *   because the integrated drivers use optocoupler inputs that require
- *   5 V / ~10 mA.  See CLAUDE.md for the transistor wiring diagram.
+ *   All outputs go through a UMC2003 Darlington array (open-collector
+ *   sinking outputs, 3.3 V → 5 V level shift) because the integrated
+ *   drivers use optocoupler inputs that require 5 V / ~10 mA.
+ *   See CLAUDE.md for the wiring diagram.
  *
  *   ENABLE is hardwired (always enabled) — no GPIO control needed.
  *   ALARM pins are not connected in this revision.
@@ -155,8 +156,8 @@ void motors_hw_set_direction_dec(MotorDirection direction);
 /* STEP pulse timing in RMT ticks (2 MHz reference).
  *
  * Driver manual (ISS42): STEP active on rising edge, pulse width > 2.5 µs.
- * With BC337 inversion our GPIO HIGH → driver sees LOW (the active pulse).
- * We use 3 µs HIGH (6 ticks) and ≥ 1 µs LOW (2 ticks) for margin. */
+ * With UMC2003 (sinking output) our GPIO HIGH → driver sees LOW (the
+ * active pulse).  We use 3 µs HIGH (6 ticks) and ≥ 1 µs LOW (2 ticks). */
 #define STEP_PULSE_TICKS     6U    /* 3 us — exceeds driver 2.5 us minimum */
 #define STEP_MIN_LOW_TICKS   2U    /* 1 us LOW floor */
 #define STEP_MIN_PERIOD_TICKS (STEP_PULSE_TICKS + STEP_MIN_LOW_TICKS)  /* 8 ticks = 4 us */

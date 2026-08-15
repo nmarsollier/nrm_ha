@@ -60,27 +60,34 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 
 | GPIO | Funcion           | Notas                                              |
 |------|-------------------|----------------------------------------------------|
-| 14   | STEP- RA          | Pulso STEP eje ascension recta (via BC337)         |
-| 13   | DIR- RA           | Direccion eje ascension recta (via BC337)           |
-| 12   | STEP- DEC         | Pulso STEP eje declinacion (via BC337)              |
-| 11   | DIR- DEC          | Direccion eje declinacion (via BC337)               |
-| 4    | LED externo       | LEDC PWM, indicador de estado                      |
+| 14   | STEP- RA          | Pulso STEP eje ascension recta (via UMC2003)         |
+| 13   | DIR- RA           | Direccion eje ascension recta (via UMC2003)           |
+| 12   | STEP- DEC         | Pulso STEP eje declinacion (via UMC2003)              |
+| 11   | DIR- DEC          | Direccion eje declinacion (via UMC2003)               |
+| 4    | LED externo       | LEDC PWM, indicador de estado (via UMC2003)                      |
+| 5    | BUZZER            | Buzzer pasivo 2 kHz (via UMC2003)                  |
 
-**Level shifting (BC337 NPN):**
+**Level shifting (UMC2003, array Darlington):**
 Los drivers integrados usan optoacopladores en STEP/DIR que requieren
-5 V / ~10 mA. La ESP32-S3 tiene logica de 3.3 V y no tolera 5 V. Cada senal
-de salida usa un transistor BC337 como switch:
+5 V / ~10 mA. La ESP32-S3 tiene logica de 3.3 V y no tolera 5 V. Todas las
+salidas (STEP, DIR de ambos ejes, el LED y el buzzer) pasan por un UMC2003, un array
+Darlington de 7 canales con salidas de colector abierto (sinking).
+
+Cada GPIO va directo a una entrada del UMC2003 (resistencia de base interna,
+no requiere resistor externo). La salida hunde corriente hacia GND:
 
 ```
-  GPIO ──[1kΩ]── Base (centro)
-                  │
-  5V ──→ COM+ driver ──→ [opto] ──→ COM- driver ──→ Colector (izquierda)
-                                                     │
-                                                   Emisor (derecha) ──→ GND
+GPIO (3.3V) → INx UMC2003        OUTx → carga → +V
+
+  GPIO HIGH → OUTx a GND (carga activa)
+  GPIO LOW  → OUTx en alta impedancia
 ```
 
-Visto de frente (letras legibles), patas hacia abajo: izquierda=Colector,
-centro=Base, derecha=Emisor. 4 transistores + 4 resistencias 1kΩ en total.
+Las salidas son "negativas" (active-low): la carga (opto del driver o el LED
+con su resistencia) se conecta entre +V y la salida. El pin COM (anodo comun
+de los diodos de proteccion) se ata al +V. No hay cargas inductivas en esta
+revision (los drivers se controlan por optoacopladores, que son LED), asi
+que los diodos no son estrictamente necesarios.
 
 ENABLE va cableado directo (siempre habilitado), sin control por GPIO.
 Los pines ALARM no se conectan en esta revision.
@@ -94,7 +101,6 @@ Los pines ALARM no se conectan en esta revision.
 **Uso futuro:**
 | GPIO | Funcion     | Notas                              |
 |------|-------------|------------------------------------|
-| 5    | I2C SDA     | Sensor / display                   |
 | 6    | I2C SCL     | Sensor / display                   |
 | 1    | Hall limit  | Sensor de fin de carrera           |
 | 2    | Hall limit  | Sensor de fin de carrera           |
@@ -123,6 +129,7 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 - **Runtime** (`main/runtime/`) — Inicializacion y ciclo de vida del sistema.
 - **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP.
 - **LED** (`main/led/`) — Control PWM del LED externo en GPIO 4. Estados: tenue (normal), brillante (slewing), respiracion (error).
+- **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 5 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
 - **Network** (`main/network/`) — Conectividad WiFi.
 - **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo ECM/RNDIS.
 - **Tools** (`main/tools/`) — Utilidades transversales (parser, validacion).

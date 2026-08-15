@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "buzzer.h"
 #include "led.h"
 
 #define MAIN_LOOP_PERIOD_MS     100
@@ -25,6 +26,7 @@ static void main_loop_task(void *arg) {
 
     while (true) {
         led_update();
+        buzzer_update();
         vTaskDelay(period);
     }
 }

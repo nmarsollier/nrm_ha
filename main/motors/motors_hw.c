@@ -11,9 +11,10 @@
  * 64-microstep DIP-switch setting, 300:1 total reduction.
  *
  * Level shifting: all output signals (STEP, DIR for both axes) go
- * through BC337 NPN transistors.  GPIO HIGH (3.3 V) turns the transistor
- * ON, pulling the driver's optocoupler cathode to GND.  The optocoupler
- * anode connects to 5 V.  This inverts the signal at the driver side.
+ * through a UMC2003 Darlington array (open-collector sinking output).
+ * GPIO HIGH (3.3 V) turns the channel ON, pulling the driver's
+ * optocoupler cathode to GND.  The optocoupler anode connects to 5 V.
+ * This inverts the signal at the driver side.
  */
 
 #include "driver/gpio.h"
@@ -58,7 +59,7 @@ esp_err_t motors_hw_init(void) {
 }
 
 void motors_hw_set_direction_ra(MotorDirection direction) {
-    /* With BC337: GPIO HIGH → transistor ON → driver sees LOW.
+    /* With UMC2003: GPIO HIGH → output sinks → driver sees LOW.
      * RA positive rotation maps to GPIO 1 → driver DIR- = 0. */
     int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
     if (last_dir_ra != dir) {
@@ -68,7 +69,7 @@ void motors_hw_set_direction_ra(MotorDirection direction) {
 }
 
 void motors_hw_set_direction_dec(MotorDirection direction) {
-    /* With BC337: GPIO HIGH → transistor ON → driver sees LOW.
+    /* With UMC2003: GPIO HIGH → output sinks → driver sees LOW.
      * DEC positive rotation maps to GPIO 0 → driver DIR- = 1. */
     int dir = direction == MOTOR_DIRECTION_POSITIVE ? 0 : 1;
     if (last_dir_dec != dir) {

@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 
+#include "buzzer.h"
 #include "led.h"
 #include "motors.h"
 #include "mount.h"
@@ -39,6 +40,7 @@ void setup_init(void) {
     wifi_start();
 
     led_init();
+    buzzer_init();
 
     /*
      * USB Ethernet (ECM/RNDIS) — non-fatal, mount works without USB.
