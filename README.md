@@ -15,6 +15,7 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 - **Power**: 12V 5A supply → Mini DC 360 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
 - **LED**: PWM indicator (GPIO 4) — three states: dim (~10%) at idle, bright (100%) during slewing, slow breathing on error.
 - **Buzzer**: passive event beeper (GPIO 5, 2 kHz) — beeps on boot and on goto/move-axis start & end.
+- **Accelerometer**: 2× ADXL345 on I2C (GPIO 18 SDA / GPIO 8 SCL) — tilt + rotation for polar alignment and axis limits (see `main/accelerometer/README.md`).
 - **Outputs**: STEP/DIR/LED/buzzer all pass through a UMC2003 Darlington array (open-collector sinking).
 
 ### Harmonic Drives
@@ -39,6 +40,8 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 |------|-----------|----------------------------------------------------|
 | 4    | LED (PWM) | External status indicator (via UMC2003)                          |
 | 5    | Buzzer    | Event beeper, 2 kHz PWM (via UMC2003)                          |
+| 18   | I2C SDA   | ADXL345 accelerometer (I2C)                             |
+| 8    | I2C SCL   | ADXL345 accelerometer (I2C)                             |
 | 14   | RA STEP   | Right ascension step pulse (via UMC2003)             |
 | 13   | RA DIR    | Right ascension axis direction (via UMC2003)         |
 | 12   | DEC STEP  | Declination step pulse (via UMC2003)                 |
@@ -98,6 +101,7 @@ Network  (WiFi station + setup AP fallback)
 USB Net  (RNDIS/ECM gadget, 192.168.7.1, DHCP server)
 LED  (GPIO 4 PWM: dim / bright / breathing)
 Buzzer  (GPIO 5, 2 kHz PWM beeps: boot / motion start / motion end)
+Accelerometer  (ADXL345 I2C: tilt / heading for polar align + limits)
 Runtime  (init sequence + periodic loop)
 ```
 

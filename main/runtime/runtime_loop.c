@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "accelerometer.h"
 #include "buzzer.h"
 #include "led.h"
 
@@ -27,6 +28,7 @@ static void main_loop_task(void *arg) {
     while (true) {
         led_update();
         buzzer_update();
+        accelerometer_update();
         vTaskDelay(period);
     }
 }

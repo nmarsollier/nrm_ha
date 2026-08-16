@@ -11,6 +11,10 @@ idf_component_register(
         "buzzer/buzzer_play.c"
         "buzzer/buzzer_update.c"
 
+        "accelerometer/accelerometer_init.c"
+        "accelerometer/accelerometer_read.c"
+        "accelerometer/accelerometer_update.c"
+
         "usb_net/usb_net_init.c"
         "usb_net/usb_net_data.c"
 
@@ -198,6 +202,7 @@ idf_component_register(
 
         INCLUDE_DIRS
         "."
+        "accelerometer"
         "alpaca_bridge"
         "buzzer"
         "led"
@@ -222,6 +227,7 @@ idf_component_register(
         esp_timer
         nvs_flash
         esp_driver_gpio
+        esp_driver_i2c
         esp_driver_ledc
         esp_driver_rmt
 )

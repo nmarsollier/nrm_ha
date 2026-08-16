@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 
+#include "accelerometer.h"
 #include "buzzer.h"
 #include "led.h"
 #include "motors.h"
@@ -41,6 +42,7 @@ void setup_init(void) {
 
     led_init();
     buzzer_init();
+    accelerometer_init();
 
     /*
      * USB Ethernet (ECM/RNDIS) — non-fatal, mount works without USB.

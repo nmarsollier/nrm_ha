@@ -66,6 +66,8 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 | 11   | DIR- DEC          | Direccion eje declinacion (via UMC2003)               |
 | 4    | LED externo       | LEDC PWM, indicador de estado (via UMC2003)                      |
 | 5    | BUZZER            | Buzzer pasivo 2 kHz (via UMC2003)                  |
+| 18   | I2C SDA           | Acelerometro ADXL345 (I2C, pull-ups internos)       |
+| 8    | I2C SCL           | Acelerometro ADXL345 (I2C, pull-ups internos)       |
 
 **Level shifting (UMC2003, array Darlington):**
 Los drivers integrados usan optoacopladores en STEP/DIR que requieren
@@ -102,7 +104,7 @@ Los pines ALARM no se conectan en esta revision.
 **Uso futuro:**
 | GPIO | Funcion     | Notas                              |
 |------|-------------|------------------------------------|
-| 6    | I2C SCL     | Sensor / display                   |
+| 6    | I2C SCL (2do bus) | Display / sensor adicional        |
 | 1    | Hall limit  | Sensor de fin de carrera           |
 | 2    | Hall limit  | Sensor de fin de carrera           |
 
@@ -131,6 +133,7 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 - **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP.
 - **LED** (`main/led/`) — Control PWM del LED externo en GPIO 4. Estados: tenue (normal), brillante (slewing), respiracion (error).
 - **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 5 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
+- **Accelerometer** (`main/accelerometer/`) — Acelerometro ADXL345 por I2C (GPIO18 SDA / GPIO8 SCL). Mide `tilt` y `heading` para alineacion polar y limites de RA/DEC. Ver `main/accelerometer/README.md`.
 - **Network** (`main/network/`) — Conectividad WiFi.
 - **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo ECM/RNDIS.
 - **Tools** (`main/tools/`) — Utilidades transversales (parser, validacion).
