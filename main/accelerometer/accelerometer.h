@@ -1,7 +1,7 @@
 #pragma once
 
 /*
- * ADXL345 accelerometer on the I2C bus (GPIO18 = SDA, GPIO8 = SCL).
+ * ADXL345 accelerometer on the I2C bus (GPIO2 = SDA, GPIO1 = SCL).
  *
  * Supports up to two sensors on the same bus, selected by the SDO pin:
  *

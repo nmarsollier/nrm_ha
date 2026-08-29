@@ -16,20 +16,18 @@
 /* ── Pattern tables (sentinel = {0, false}) ────────────────── */
 
 static const BuzzerStep boot_steps[] = {
-    { 400, true },
-    { 0,   false },
+    { 50, true },
+    { 0,  false },
 };
 
 static const BuzzerStep motion_start_steps[] = {
-    { 150, true },
-    { 0,   false },
+    { 75, true },
+    { 0,  false },
 };
 
 static const BuzzerStep motion_end_steps[] = {
-    { 150, true },
-    { 100, false },
-    { 150, true },
-    { 0,   false },
+    { 75, true },
+    { 0,  false },
 };
 
 /* ── Playback state ────────────────────────────────────────── */

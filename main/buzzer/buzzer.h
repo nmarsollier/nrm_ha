@@ -1,7 +1,7 @@
 #pragma once
 
 /*
- * Event buzzer (passive, 2 kHz) on GPIO 5 via UMC2003.
+ * Event buzzer (passive, 2 kHz) on GPIO 9 via UMC2003.
  *
  * Produces short audible beeps for lifecycle events: power-on, and the
  * start / end of a goto or move-axis motion.
@@ -11,7 +11,7 @@
  * other module should call buzzer_play() directly.
  */
 
-/* Initialise LEDC PWM (2 kHz) on GPIO 5 and emit the power-on beep. */
+/* Initialise LEDC PWM (2 kHz) on GPIO 9 and emit the power-on beep. */
 void buzzer_init(void);
 
 /*

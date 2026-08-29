@@ -12,7 +12,7 @@
 #define BUZZER_MODE        LEDC_LOW_SPEED_MODE
 #define BUZZER_TIMER       LEDC_TIMER_1
 #define BUZZER_CHANNEL     LEDC_CHANNEL_1
-#define BUZZER_GPIO        5
+#define BUZZER_GPIO        9
 #define BUZZER_FREQ_HZ     2000
 #define BUZZER_DUTY_RES    LEDC_TIMER_13_BIT
 #define BUZZER_DUTY_MAX    8191

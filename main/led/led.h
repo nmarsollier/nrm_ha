@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 /*
- * LED states for the external indicator on GPIO 4.
+ * LED states for the external indicator on GPIO 10.
  *
  * NORMAL     — dim brightness (~10 %), mount idle.
  * SLEWING    — full brightness (100 %), mount in motion.
@@ -23,7 +23,7 @@ typedef enum {
     LED_STATE_WIFI_WAIT
 } LedState;
 
-/* Initialise LEDC PWM on GPIO 4 and start in NORMAL (dim). */
+/* Initialise LEDC PWM on GPIO 10 and start in NORMAL (dim). */
 void led_init(void);
 
 /*

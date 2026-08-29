@@ -12,8 +12,8 @@ se encuentran, se ignoran y la montura funciona igual (sin errores).
 
 | Señal | Pin     | Notas                    |
 |-------|---------|--------------------------|
-| SDA   | GPIO 18 | ADXL345                  |
-| SCL   | GPIO 8  | ADXL345                  |
+| SDA   | GPIO 2  | ADXL345                  |
+| SCL   | GPIO 1  | ADXL345                  |
 
 - Bus `I2C_NUM_0`, 100 kHz.
 - Pull-ups internos habilitados. Para 100 kHz conviene añadir 4.7–10 kΩ
@@ -35,13 +35,25 @@ se encuentran, se ignoran y la montura funciona igual (sin errores).
 
 Fórmulas: `tilt = acos(|z| / |g|)` y `heading = atan2(y, x)` (normalizado a 0–360°).
 
-## Regla de montaje (clave)
+## Regla de montaje
 
-Para que los ángulos signifiquen lo correcto, montar cada sensor con su
-**eje Z paralelo al eje que se quiere medir**:
+Lo más simple (sin calibración) es montar cada sensor con su **eje Z paralelo
+al eje que se quiere medir**:
 
 - **Sensor de RA** (fijo dentro de la caja DEC) → eje Z ∥ eje RA (apuntando al polo).
 - **Sensor de DEC** (en el rotor del eje DEC) → eje Z ∥ eje DEC.
+
+Pero **no es obligatorio**: cualquier posición fija funciona. La única
+condición es que el sensor vaya **rígido** a la parte que rota (que no se
+mueva respecto a ella). Con una calibración única — rotar el eje una cantidad
+conocida para aprender la orientación del sensor — se calcula el ángulo igual,
+sin importar cómo quede montado.
+
+**Restricción real** (independiente de la orientación del sensor): el eje de
+rotación no puede quedar **paralelo a la vertical** (gravedad), porque el
+acelerómetro no detecta giro alrededor de esa dirección. A latitud ~33° el eje
+DEC queda siempre lejos de la vertical (como mínimo ~33°), así que no hay
+degeneración.
 
 ## Funciones previstas (para más adelante)
 

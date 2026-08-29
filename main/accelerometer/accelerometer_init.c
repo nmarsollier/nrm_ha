@@ -2,7 +2,7 @@
  *
  * Purpose: bring up the I2C bus and the ADXL345 sensors on it.
  *
- * Creates the bus on GPIO18 (SDA) / GPIO8 (SCL), adds a device handle
+ * Creates the bus on GPIO2 (SDA) / GPIO1 (SCL), adds a device handle
  * for each of the two possible addresses (0x53 and 0x1D), probes them and
  * configures the ones that answer.  Missing sensors are logged and left
  * disabled — the mount keeps working without them.

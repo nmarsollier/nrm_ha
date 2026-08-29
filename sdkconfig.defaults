@@ -1,9 +1,9 @@
 # sdkconfig.defaults — project-specific overrides for Montura
 # Applied automatically by idf.py build on top of ESP-IDF defaults.
 
-# Flash: ESP32-S3 N16R8 has 16 MB
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+# Flash: ESP32-S3 N8R8 has 8 MB
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
 
 # Partition table: large single-app (3 MB factory partition)
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y

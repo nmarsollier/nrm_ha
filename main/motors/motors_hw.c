@@ -22,8 +22,6 @@
 #include "esp_log.h"
 #include "motors_internal.h"
 
-static const char *TAG = "MOTORS_HW";
-
 /* Cached last directions to avoid redundant GPIO writes. */
 static int last_dir_ra = -1;
 static int last_dir_dec = -1;
@@ -31,7 +29,7 @@ static int last_dir_dec = -1;
 esp_err_t motors_hw_init(void) {
     /*
      * DIR pins are managed via GPIO.
-     * STEP pins (GPIO 13, GPIO 11) are owned by the RMT peripheral and
+     * STEP pins (GPIO 14, GPIO 12) are owned by the RMT peripheral and
      * configured by motors_rmt_init().
      */
     const uint64_t pin_mask =

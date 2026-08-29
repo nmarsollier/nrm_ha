@@ -1,12 +1,12 @@
 /* Buzzer — buzzer_init.c
  *
- * Purpose: initialise LEDC PWM on GPIO 5 for the passive event buzzer.
+ * Purpose: initialise LEDC PWM on GPIO 9 for the passive event buzzer.
  *
  * Configures timer 1 at 2 kHz, 13-bit resolution (8192 steps), binds
- * channel 1 to GPIO 5, starts silent (duty 0), and emits the power-on
+ * channel 1 to GPIO 9, starts silent (duty 0), and emits the power-on
  * beep.
  *
- * GPIO 5 drives a UMC2003 Darlington channel (open-collector sink):
+ * GPIO 9 drives a UMC2003 Darlington channel (open-collector sink):
  * GPIO HIGH → output sinks → buzzer active.  No output inversion.
  */
 #include "buzzer_internal.h"
