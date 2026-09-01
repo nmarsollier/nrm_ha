@@ -13,10 +13,8 @@ function mountApp() {
         errorTimer: null,
         slew: {degrees: 5, speed: 4},
         joySpeed: 4,
-        wifi: {ssid: '', password: ''},
         slewTarget: {ra: {h: 0, m: 0, s: 0}, dec: {d: 0, m: 0, s: 0}, speed: 4},
         serverTracking: 'none',
-        wifiAp: false,
         isHome: false,
         isParked: false,
         selectedTracking: null,
@@ -54,7 +52,6 @@ function mountApp() {
                 this.pierSide = j.pier_side || '--';
                 this.mountTime = j.time || '--';
                 this.serverTracking = j.tracking || 'none';
-                this.wifiAp = j.wifi_ap || false;
                 this.isHome = j.is_home || false;
                 this.isParked = (j.status === 'parked');
                 this.isError = (j.status === 'error');

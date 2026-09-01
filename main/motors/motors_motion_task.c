@@ -34,7 +34,7 @@ static const char *TAG = "MOTORS_MOTION_TASK";
  * condition checks, and FreeRTOS queue operations.
  */
 #define MOTION_TASK_STACK_WORDS 6144  /* 24 KB — room for 2×256-symbol ping-pong buffers */
-#define MOTION_TASK_PRIORITY    23  /* near real-time, above WiFi/lwIP */
+#define MOTION_TASK_PRIORITY    23  /* near real-time, above lwIP */
 
 /* Step period ceiling in RMT ticks — used when velocity is zero or unknown. */
 #define MAX_STEP_PERIOD_TICKS (20U * 1000U * 1000U) /* 10 s at 2 MHz */
@@ -1076,7 +1076,7 @@ static void motors_motion_task_run(void *arg) {
     (void) arg;
 
     /* Initialize RMT from this task — pins the RMT ISR to core 1
-     * where WiFi/lwIP never runs, eliminating ISR latency jitter. */
+     * where lwIP never runs, eliminating ISR latency jitter. */
     esp_err_t rmt_err = motors_rmt_init();
     if (rmt_err != ESP_OK) {
         ESP_LOGE(TAG, "motors_rmt_init failed: %s — entering ERROR state",
@@ -1129,7 +1129,7 @@ void motors_motion_task_init(void) {
         NULL,
         MOTION_TASK_PRIORITY,
         &motors_motion_task_handle,
-        1);  /* dedicated core — isolated from WiFi/lwIP on CPU 0 */
+        1);  /* dedicated core — isolated from lwIP on CPU 0 */
 
     /* Report stack high-water mark for diagnostics. */
     if (motors_motion_task_handle != NULL) {

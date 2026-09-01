@@ -12,10 +12,10 @@
  * ESP32-S3 static IP: 192.168.7.1
  * DHCP pool:          192.168.7.2 – 192.168.7.10
  *
- * WiFi and USB networking coexist — servers bound to INADDR_ANY
- * are reachable on both interfaces.
+ * USB networking is the device's only network interface — servers bound
+ * to INADDR_ANY are reachable over it.
  *
- * Call once during startup, after wifi_start() and led_init().
+ * Call once during startup, after esp_netif_init() and led_init().
  * Failure is logged but is not fatal.
  */
 esp_err_t usb_net_init(void);

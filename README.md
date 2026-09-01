@@ -97,34 +97,33 @@ REST API  (port 80)  ── serves embedded SPA at /
   Mount  (orchestration, coordinates, settings)
   Motors  (move / track, STEP/DIR GPIO, RMT pulse generation)
 
-Network  (WiFi station + setup AP fallback)
-USB Net  (RNDIS/ECM gadget, 192.168.7.1, DHCP server)
+USB Net  (CDC-NCM gadget, 192.168.7.1, DHCP server)
 LED  (GPIO 10 PWM: dim / bright / breathing)
 Buzzer  (GPIO 9, 2 kHz PWM beeps: boot / motion start / motion end)
 Accelerometer  (ADXL345 I2C: tilt / heading for polar align + limits)
 Runtime  (init sequence + periodic loop)
 ```
 
-## USB Ethernet (RNDIS/ECM)
+## USB Ethernet (CDC-NCM)
 
-The ESP32-S3 acts as a USB Ethernet gadget via its native USB-OTG peripheral. Connect the mount to a laptop with a USB-C cable and it appears as a network adapter — no WiFi needed in the field.
+The ESP32-S3 acts as a USB Ethernet gadget via its native USB-OTG peripheral. Connect the mount to a laptop with a USB-C cable and it appears as a network adapter — the mount's only network interface.
 
 | Property        | Value                    |
 |-----------------|--------------------------|
-| Protocol        | ECM (Linux/macOS) / RNDIS (Windows) |
+| Protocol        | CDC-NCM (Linux/macOS/Windows) |
 | ESP32-S3 IP     | `192.168.7.1` (static)   |
 | Host IP         | `192.168.7.2` – `192.168.7.10` (DHCP) |
 | REST API        | `http://192.168.7.1/api/status` |
 | Alpaca API      | `http://192.168.7.1:11111` |
 | UDP Discovery   | `192.168.7.1:32227`      |
 
-WiFi and USB Ethernet work simultaneously — all servers bind to `INADDR_ANY`.
+USB Ethernet is the mount's only network interface — all servers bind to `INADDR_ANY`.
 
 ### OS-specific notes
 
-- **Windows 10/11**: RNDIS driver is built-in. The device appears as "Mount USB Ethernet" in Network adapters.
-- **macOS**: CDC-ECM is natively supported. The interface appears as `usb0`.
-- **Linux**: CDC-ECM is handled by the `cdc_ether` kernel module (loaded automatically).
+- **Windows 10/11**: CDC-NCM is supported natively; the device appears as a USB Ethernet adapter.
+- **macOS**: CDC-NCM is supported natively (AppleUSBNCM); the device appears as "Mount USB Ethernet".
+- **Linux**: CDC-NCM is handled by the `cdc_ncm` kernel module (loaded automatically).
 
 ## Setup
 

@@ -67,11 +67,6 @@
                 <div class="debug-row"><span>RA</span> <span x-text="'[' + debug.limits?.ra_min + ', ' + debug.limits?.ra_max + ']'"></span></div>
                 <div class="debug-row"><span>DEC</span> <span x-text="'[' + debug.limits?.dec_min + ', ' + debug.limits?.dec_max + ']'"></span></div>
             </div>
-            <div class="debug-group">
-                <div class="debug-label">Network</div>
-                <div class="debug-row"><span>WiFi IP</span> <span x-text="debug.wifi_ip || '—'"></span></div>
-                <div class="debug-row"><span>Uptime</span> <span x-text="fmtUptime(debug.uptime_s)"></span></div>
-            </div>
         </div>
     </div>
 
@@ -287,23 +282,6 @@
                 <button class="primary" @click="doSlewToCoordinates()" :disabled="isError">SLEW</button>
             </div>
         </div>
-    </div>
-
-    <!-- ═══ WiFi Setup ═══ -->
-    <div class="panel" x-show="wifiAp">
-        <div class="panel-header">
-            <div class="panel-dot"></div>
-            <strong>Wi-Fi Setup</strong>
-        </div>
-        <div class="row">
-            <input placeholder="SSID" x-model="wifi.ssid">
-            <input placeholder="Password" x-model="wifi.password" type="text">
-            <button class="primary"
-                    @click="apiPost('/api/wifi-config', {ssid: wifi.ssid, password: wifi.password}).then(() => fetchStatus())">
-                Connect
-            </button>
-        </div>
-        <div class="wifi-warning">Network not configured. Connect now to leave AP mode.</div>
     </div>
 
     <!-- ═══ Error banner ═══ -->

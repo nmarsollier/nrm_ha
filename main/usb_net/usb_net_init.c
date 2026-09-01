@@ -51,7 +51,7 @@ static esp_err_t create_netif(void)
     if (!s_netif) return ESP_ERR_NO_MEM;
 
     uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    esp_read_mac(mac, ESP_MAC_ETH);
     mac[0] |= 0x02;
     /* The host mirrors the advertised NCM MAC as its own interface MAC
      * (AppleUSBNCM does this).  lwIP's MAC must therefore differ from the
@@ -137,7 +137,7 @@ static esp_err_t init_tinyusb(void)
         .on_init_callback = usb_net_tinyusb_init_cb,
         .user_context     = s_netif,
     };
-    esp_read_mac(net_cfg.mac_addr, ESP_MAC_WIFI_STA);
+    esp_read_mac(net_cfg.mac_addr, ESP_MAC_ETH);
     net_cfg.mac_addr[0] |= 0x02;
 
     err = tinyusb_net_init(&net_cfg);

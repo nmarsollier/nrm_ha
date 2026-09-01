@@ -508,24 +508,6 @@ input::placeholder {
 }
 
 /* ═══════════════════════════════════════════════════
-   WiFi warning
-   ═══════════════════════════════════════════════════ */
-
-.wifi-warning {
-    margin-top: 10px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    background: #181425;
-    border: 1px solid #302845;
-    color: #a59cc0;
-    font-size: 13px;
-}
-
-.wifi-warning::before {
-    content: '⚠ ';
-}
-
-/* ═══════════════════════════════════════════════════
    Error banner
    ═══════════════════════════════════════════════════ */
 
@@ -717,11 +699,6 @@ footer code {
                 <div class="debug-label">Limits (°)</div>
                 <div class="debug-row"><span>RA</span> <span x-text="'[' + debug.limits?.ra_min + ', ' + debug.limits?.ra_max + ']'"></span></div>
                 <div class="debug-row"><span>DEC</span> <span x-text="'[' + debug.limits?.dec_min + ', ' + debug.limits?.dec_max + ']'"></span></div>
-            </div>
-            <div class="debug-group">
-                <div class="debug-label">Network</div>
-                <div class="debug-row"><span>WiFi IP</span> <span x-text="debug.wifi_ip || '—'"></span></div>
-                <div class="debug-row"><span>Uptime</span> <span x-text="fmtUptime(debug.uptime_s)"></span></div>
             </div>
         </div>
     </div>
@@ -940,23 +917,6 @@ footer code {
         </div>
     </div>
 
-    <!-- ═══ WiFi Setup ═══ -->
-    <div class="panel" x-show="wifiAp">
-        <div class="panel-header">
-            <div class="panel-dot"></div>
-            <strong>Wi-Fi Setup</strong>
-        </div>
-        <div class="row">
-            <input placeholder="SSID" x-model="wifi.ssid">
-            <input placeholder="Password" x-model="wifi.password" type="text">
-            <button class="primary"
-                    @click="apiPost('/api/wifi-config', {ssid: wifi.ssid, password: wifi.password}).then(() => fetchStatus())">
-                Connect
-            </button>
-        </div>
-        <div class="wifi-warning">Network not configured. Connect now to leave AP mode.</div>
-    </div>
-
     <!-- ═══ Error banner ═══ -->
     <div class="fatal-banner" x-show="isError">
         MOTOR ERROR &mdash; reboot required. Mount will not accept movement commands.
@@ -981,10 +941,8 @@ footer code {
         errorTimer: null,
         slew: {degrees: 5, speed: 4},
         joySpeed: 4,
-        wifi: {ssid: '', password: ''},
         slewTarget: {ra: {h: 0, m: 0, s: 0}, dec: {d: 0, m: 0, s: 0}, speed: 4},
         serverTracking: 'none',
-        wifiAp: false,
         isHome: false,
         isParked: false,
         selectedTracking: null,
@@ -1022,7 +980,6 @@ footer code {
                 this.pierSide = j.pier_side || '--';
                 this.mountTime = j.time || '--';
                 this.serverTracking = j.tracking || 'none';
-                this.wifiAp = j.wifi_ap || false;
                 this.isHome = j.is_home || false;
                 this.isParked = (j.status === 'parked');
                 this.isError = (j.status === 'error');

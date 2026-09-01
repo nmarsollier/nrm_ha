@@ -38,8 +38,6 @@ esp_err_t rest_zero_handler(httpd_req_t *request);
 
 esp_err_t rest_settings_handler(httpd_req_t *request);
 
-esp_err_t rest_wifi_handler(httpd_req_t *request);
-
 esp_err_t rest_limits_handler(httpd_req_t *request);
 
 void rest_send_result(

@@ -16,7 +16,7 @@ static const char *TAG = "USB_NET_DATA";
 
 /*
  * lwIP calls usb_net_transmit() from its TCP/IP thread.  A long timeout
- * would stall the entire stack (WiFi included).  100 ms is enough for the
+ * would stall the entire lwIP stack.  100 ms is enough for the
  * TinyUSB task to process a deferred send under normal conditions while
  * keeping lwIP responsive — the USB frame interval is 1 ms in Full Speed.
  */

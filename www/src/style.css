@@ -500,24 +500,6 @@ input::placeholder {
 }
 
 /* ═══════════════════════════════════════════════════
-   WiFi warning
-   ═══════════════════════════════════════════════════ */
-
-.wifi-warning {
-    margin-top: 10px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    background: #181425;
-    border: 1px solid #302845;
-    color: #a59cc0;
-    font-size: 13px;
-}
-
-.wifi-warning::before {
-    content: '⚠ ';
-}
-
-/* ═══════════════════════════════════════════════════
    Error banner
    ═══════════════════════════════════════════════════ */
 

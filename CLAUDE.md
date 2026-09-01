@@ -44,10 +44,8 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 ### Especificaciones tecnicas
 
 - **CPU**: Tensilica Xtensa 32-bit LX7, doble nucleo, hasta 240 MHz
-- **WiFi**: 802.11 b/g/n (2.4 GHz)
-- **Bluetooth**: v5.0 BLE + Bluetooth Mesh
-- **Alimentacion**: 5.5V via Mini DC 360 (convierte 12V a 5.5V)
-- **Logica I/O**: 3.3V (no tolera 5V)
+- **Alimentacion**: 5.5V via LM2596
+- **Logica I/O**: 3.3V (no tolera 5V, leds y buzzer conectados con resistencia en serie a 5.5v+ y y al UMC2003 en -)
 - **GPIO digitales**: 45 (configurables)
 - **ADC**: 2 conversores SAR ADC de 12 bits, hasta 20 canales
 - **UART**: 3 controladores UART
@@ -133,8 +131,7 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 - **LED** (`main/led/`) — Control PWM del LED externo en GPIO 10. Estados: tenue (normal), brillante (slewing), respiracion (error).
 - **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 9 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
 - **Accelerometer** (`main/accelerometer/`) — Acelerometro ADXL345 por I2C (GPIO2 SDA / GPIO1 SCL). Mide `tilt` y `heading` para alineacion polar y limites de RA/DEC. Ver `main/accelerometer/README.md`.
-- **Network** (`main/network/`) — Conectividad WiFi.
-- **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo ECM/RNDIS.
+- **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo NCM.
 - **Tools** (`main/tools/`) — Utilidades transversales (parser, validacion).
 
 ## Reglas generales
@@ -169,7 +166,6 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 
 ## Relaciones entre modulos (dependencias)
 
-- Network es autocontenido y expone WiFi STA + AP fallback
 - USB Net depende de TinyUSB (componente gestionado `espressif/esp_tinyusb`) y esp_netif
-- REST API y Alpaca se enlazan a INADDR_ANY, accesibles tanto por WiFi como por USB Net
+- REST API y Alpaca se enlazan a INADDR_ANY, accesibles por USB Net
 - Motors es autocontenido: controla GPIOs DIR y RMT para STEP

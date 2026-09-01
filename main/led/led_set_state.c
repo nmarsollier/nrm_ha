@@ -55,11 +55,7 @@ void led_set_state(LedState state) {
         break;
     case LED_STATE_ERROR:
         led_breathe_stop();
-        led_breathe_start(BREATHE_PATTERN_SMOOTH);
-        break;
-    case LED_STATE_WIFI_WAIT:
-        led_breathe_stop();
-        led_breathe_start(BREATHE_PATTERN_HEARTBEAT);
+        led_breathe_start();
         break;
     }
 }

@@ -62,11 +62,6 @@ idf_component_register(
         "mount/mount_pulse_guide.c"
         "mount/mount_set_zero.c"
 
-        "wifi/wifi.c"
-        "wifi/wifi_configure_home_wifi.c"
-        "wifi/wifi_is_setup_ap_started.c"
-        "wifi/wifi_sntp.c"
-
         "rest/rest_server_start.c"
         "rest/rest_slew_to_coordinates_handler.c"
         "rest/rest_home_handler.c"
@@ -81,7 +76,6 @@ idf_component_register(
         "rest/rest_tools.c"
         "rest/rest_tracking_handler.c"
         "rest/rest_unpark_handler.c"
-        "rest/rest_wifi_handler.c"
         "rest/rest_zero_handler.c"
 
         "rest_alpaca/rest_alpaca_abortslew_handler.c"
@@ -213,7 +207,6 @@ idf_component_register(
         "runtime"
         "utils"
         "udp_alpaca"
-        "wifi"
         "usb_net"
 
         EMBED_TXTFILES
@@ -223,7 +216,6 @@ idf_component_register(
         esp_http_server
         esp_netif
         esp_event
-        esp_wifi
         esp_timer
         nvs_flash
         esp_driver_gpio

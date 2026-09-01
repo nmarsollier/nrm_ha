@@ -5,7 +5,9 @@
 #include "runtime.h"
 
 #include "esp_err.h"
+#include "esp_event.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "nvs_flash.h"
 
 #include "accelerometer.h"
@@ -13,7 +15,6 @@
 #include "led.h"
 #include "motors.h"
 #include "mount.h"
-#include "wifi.h"
 #include "usb_net.h"
 
 static const char *TAG = "RUNTIME_SETUP";
@@ -26,7 +27,7 @@ static const char *TAG = "RUNTIME_SETUP";
  *
  * LED state is managed exclusively by led_update() in the runtime loop —
  * no explicit led_set_state() calls are needed here.  The loop picks up
- * motor status and WiFi status on its first tick.
+ * motor status on its first tick.
  */
 void setup_init(void) {
     ESP_LOGI(TAG, "Setting up mount");
@@ -38,7 +39,9 @@ void setup_init(void) {
     }
     ESP_ERROR_CHECK(nvs_result);
 
-    wifi_start();
+    /* Network stack bootstrap — required by USB net and the HTTP servers. */
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     led_init();
     buzzer_init();

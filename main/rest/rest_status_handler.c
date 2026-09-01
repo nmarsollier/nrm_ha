@@ -9,7 +9,6 @@
 #include "motors/motors.h"
 
 #include "utils/utils.h"
-#include "wifi/wifi.h"
 
 /*
  * Business use case: expose the mount's current status via the API.
@@ -53,7 +52,6 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
             "\"lon\":%.6f,"
             "\"elevation\":%d"
             "},"
-            "\"wifi_ap\":%s,"
             "\"is_home\":%s,"
             "\"debug\":{"
             "\"ra_axis_deg\":%.6f,"
@@ -70,7 +68,6 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
             "\"dec_min\":%.1f,"
             "\"dec_max\":%.1f"
             "},"
-            "\"wifi_ip\":\"%s\","
             "\"uptime_s\":%lu"
             "}"
             "}";
@@ -78,7 +75,6 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
     const char *status = motors_status_to_string(data.status);
     const char *tracking = motors_tracking_to_string(data.tracking);
     char dec_sign = data.dec.sign >= 0 ? '+' : '-';
-    bool wifi_ap = wifi_is_setup_ap_started();
 
     /* Debug: raw motor state for diagnostics. */
     MotorsState ms = motors_current_state();
@@ -95,7 +91,6 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
              pier_str,
              time_buf,
              data.settings.lat, data.settings.lon, data.settings.elevation,
-             wifi_ap ? "true" : "false",
              is_home ? "true" : "false",
              /* debug */
              motors_get_ra_deg(), motors_get_dec_deg(),
@@ -105,7 +100,6 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
              MOTORS_TARGET_MICROSTEPS,
              ms.limits.ra_min, ms.limits.ra_max,
              ms.limits.dec_min, ms.limits.dec_max,
-             wifi_ip,
              (unsigned long) (esp_timer_get_time() / 1000000));
 
     http_response_json(request, response);
