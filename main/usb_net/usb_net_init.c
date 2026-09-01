@@ -9,6 +9,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_netif.h"
 #include "lwip/esp_netif_net_stack.h"
 
 #include "dhcpserver/dhcpserver.h"
@@ -52,6 +53,11 @@ static esp_err_t create_netif(void)
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     mac[0] |= 0x02;
+    /* The host mirrors the advertised NCM MAC as its own interface MAC
+     * (AppleUSBNCM does this).  lwIP's MAC must therefore differ from the
+     * advertised one, otherwise ARP replies come back with a source MAC
+     * equal to the host's own and macOS drops them. */
+    mac[5] ^= 0x01;
     esp_netif_set_mac(s_netif, mac);
 
     ESP_LOGI(TAG, "USB netif MAC %02x:%02x:%02x:%02x:%02x:%02x",
@@ -98,10 +104,16 @@ static void usb_net_event_cb(tinyusb_event_t *event, void *arg)
     case TINYUSB_EVENT_ATTACHED:
         ESP_LOGI(TAG, "USB host attached, link up");
         esp_netif_action_connected(netif, NULL, 0, NULL);
+        /* esp_netif_action_connected() only raises the link inside lwIP.
+         * tud_network_link_state() is what sends the CDC NetworkConnection
+         * notification to the host; without it macOS keeps the interface
+         * "inactive" and never runs DHCP. */
+        tud_network_link_state(TINYUSB_PORT_FULL_SPEED_0, true);
         break;
     case TINYUSB_EVENT_DETACHED:
         ESP_LOGW(TAG, "USB host detached, link down");
         esp_netif_action_disconnected(netif, NULL, 0, NULL);
+        tud_network_link_state(TINYUSB_PORT_FULL_SPEED_0, false);
         break;
     default:
         break;
@@ -176,6 +188,8 @@ esp_err_t usb_net_init(void)
         ESP_LOGE(TAG, "dhcps_start: %s", esp_err_to_name(r));
         goto rollback_tusb;
     }
+
+    ESP_LOGI(TAG, "USB Net IP: http://" IPSTR, IP2STR(&s_ip.ip));
 
     return ESP_OK;
 
