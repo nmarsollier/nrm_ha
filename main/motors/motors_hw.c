@@ -8,7 +8,7 @@
  * ENABLE is hardwired (always enabled) — no GPIO control needed.
  *
  * Hardware: NEMA 17 closed-loop stepper motors with integrated drivers,
- * 64-microstep DIP-switch setting, 300:1 total reduction.
+ * 32-microstep DIP-switch setting, 300:1 total reduction.
  *
  * Level shifting: all output signals (STEP, DIR for both axes) go
  * through a UMC2003 Darlington array (open-collector sinking output).
@@ -58,8 +58,8 @@ esp_err_t motors_hw_init(void) {
 
 void motors_hw_set_direction_ra(MotorDirection direction) {
     /* With UMC2003: GPIO HIGH → output sinks → driver sees LOW.
-     * RA positive rotation maps to GPIO 1 → driver DIR- = 0. */
-    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
+     * RA positive rotation maps to GPIO 0 → driver DIR- = 1. */
+    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 0 : 1;
     if (last_dir_ra != dir) {
         last_dir_ra = dir;
         gpio_set_level(RA_DIR_GPIO, dir);
@@ -68,8 +68,8 @@ void motors_hw_set_direction_ra(MotorDirection direction) {
 
 void motors_hw_set_direction_dec(MotorDirection direction) {
     /* With UMC2003: GPIO HIGH → output sinks → driver sees LOW.
-     * DEC positive rotation maps to GPIO 0 → driver DIR- = 1. */
-    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 0 : 1;
+     * DEC positive rotation maps to GPIO 1 → driver DIR- = 0. */
+    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
     if (last_dir_dec != dir) {
         last_dir_dec = dir;
         gpio_set_level(DEC_DIR_GPIO, dir);

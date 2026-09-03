@@ -114,11 +114,11 @@ bool motors_is_valid_dec_steps(int64_t steps);
  * Angular displacement per microstep at the mount axis.
  *
  *   1.8° = NEMA 17 full-step angle
- *   MOTORS_TARGET_MICROSTEPS = 64 (DIP-switch on integrated closed-loop driver)
+ *   MOTORS_MICROSTEPS        = 32 (DIP-switch on integrated closed-loop driver)
  *   TOTAL_GEAR_REDUCTION     = 300:1 (3:1 belts × 100:1 harmonic drive)
  */
 static inline float motors_get_deg_per_microstep(void) {
-    return 1.8f / ((float) MOTORS_TARGET_MICROSTEPS *
+    return 1.8f / ((float) MOTORS_MICROSTEPS *
                     TOTAL_GEAR_REDUCTION *
                     MOTION_CALIBRATION_FACTOR);
 }

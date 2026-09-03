@@ -9,10 +9,10 @@
  */
 
 /*
- * Microstep resolution — hardcoded to match the closed-loop driver's
- * DIP-switch setting (NRM-HA: 64 microsteps).
+ * Microstep resolution — the closed-loop driver's actual DIP-switch
+ * setting (NRM-HA: 32 microsteps / 6400 steps per revolution).
  */
-#define MOTORS_TARGET_MICROSTEPS 64
+#define MOTORS_MICROSTEPS 32
 
 typedef enum {
     /* Ready to accept slews/tracking requests. */
@@ -90,8 +90,7 @@ typedef enum {
     MOTOR_ERR_INVALID_AXIS = 1,
     MOTOR_ERR_OUT_OF_RANGE = 2,
     MOTOR_ERR_NOT_READY = 3,
-    MOTOR_ERR_HARDWARE_ERROR = 4,
-    MOTOR_ERR_INTERNAL = 99
+    MOTOR_ERR_HARDWARE_ERROR = 4
 } MotorResultCode;
 
 /*

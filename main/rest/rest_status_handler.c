@@ -97,7 +97,7 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
              ms.ra_steps, ms.dec_steps,
              ms.ra_speed, ms.dec_speed,
              ms.guiding ? "true" : "false",
-             MOTORS_TARGET_MICROSTEPS,
+             MOTORS_MICROSTEPS,
              ms.limits.ra_min, ms.limits.ra_max,
              ms.limits.dec_min, ms.limits.dec_max,
              (unsigned long) (esp_timer_get_time() / 1000000));
