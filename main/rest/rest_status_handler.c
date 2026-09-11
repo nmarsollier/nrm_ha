@@ -8,6 +8,7 @@
 #include "mount.h"
 #include "motors/motors.h"
 
+#include "accelerometer.h"
 #include "utils/utils.h"
 
 /*
@@ -55,11 +56,14 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
             "\"is_home\":%s,"
             "\"debug\":{"
             "\"ra_axis_deg\":%.6f,"
+            "\"accel_ra_deg\":%.2f,"
             "\"dec_axis_deg\":%.6f,"
             "\"ra_steps\":%lld,"
             "\"dec_steps\":%lld,"
             "\"ra_speed\":%.6f,"
             "\"dec_speed\":%.6f,"
+            "\"elevation_deg\":%.2f,"
+            "\"accel_calibrating\":%s,"
             "\"guiding\":%s,"
             "\"microsteps\":%u,"
             "\"limits\":{"
@@ -82,7 +86,7 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
     /*
      * Fixed-size buffer — the JSON response with debug section fits in 1280 bytes.
      */
-    char response[1280];
+    char response[1536];
     snprintf(response, sizeof(response), format,
              status, tracking,
              data.ra.hours, data.ra.minutes, data.ra.seconds,
@@ -93,9 +97,12 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
              data.settings.lat, data.settings.lon, data.settings.elevation,
              is_home ? "true" : "false",
              /* debug */
-             motors_get_ra_deg(), motors_get_dec_deg(),
+             motors_get_ra_deg(), accelerometer_get_ra_signed_deg(),
+             motors_get_dec_deg(),
              ms.ra_steps, ms.dec_steps,
              ms.ra_speed, ms.dec_speed,
+             accelerometer_get_elevation_deg(),
+             accelerometer_is_calibrating() ? "true" : "false",
              ms.guiding ? "true" : "false",
              MOTORS_MICROSTEPS,
              ms.limits.ra_min, ms.limits.ra_max,

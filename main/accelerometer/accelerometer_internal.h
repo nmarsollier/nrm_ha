@@ -37,7 +37,12 @@
 
 /* ── Read cadence ─────────────────────────────────────────── */
 
-#define ACCEL_READ_PERIOD_US  500000   /* 500 ms */
+#define ACCEL_READ_PERIOD_US       500000   /* 500 ms — idle / tracking */
+#define ACCEL_READ_PERIOD_SLEW_US  100000   /* 100 ms — slewing, limit responsiveness */
+
+/* ── Validity ─────────────────────────────────────────────── */
+
+#define ACCEL_G_TOLERANCE  0.25f   /* |g| - 1 tolerance — loose, to accept zero-g offset */
 
 /* ── Shared state ─────────────────────────────────────────── */
 
@@ -47,16 +52,13 @@ typedef struct {
     bool                     present;
 } AccelSensor;
 
-/* One physical reading, already converted to engineering units. */
-typedef struct {
-    float x_g;
-    float y_g;
-    float z_g;
-    float tilt_deg;      /* deviation from level, 0-90° */
-    float heading_deg;   /* tilt direction in the X-Y plane, 0-360° */
-} AccelSample;
-
 extern AccelSensor accel_sensor;
+
+/* Store the latest validated reading for accelerometer_get_sample(). */
+void accelerometer_sample_store(const AccelSample *sample);
+
+/* Load the persisted polar axis (called once from accelerometer_init()). */
+void accelerometer_calibrate_load(void);
 
 /* ── Internal helpers ─────────────────────────────────────── */
 

@@ -313,6 +313,12 @@ button.primary:hover {
     width: 90px;
 }
 
+/* Standalone speed field (Move Axis) — centered and constrained like Manual Slew. */
+.move-axis-speed {
+    max-width: 240px;
+    margin: 0 auto 14px;
+}
+
 /* Right column: directional pad */
 
 .slew-pad {
@@ -383,6 +389,25 @@ button.primary:hover {
     font-size: 10px;
     color: var(--text-dim);
     font-weight: normal;
+}
+
+/* Pulsing badge shown while the accelerometer calibration runs. */
+.calibrating-badge {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .6px;
+    text-transform: uppercase;
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid rgba(251, 191, 36, 0.4);
+    padding: 3px 10px;
+    border-radius: 20px;
+    animation: calibrating-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes calibrating-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
 }
 
 
@@ -670,6 +695,23 @@ footer code {
         </div>
     </div>
 
+    <!-- ═══ Orientation ═══ -->
+    <div class="panel">
+        <div class="panel-header">
+            <div class="panel-dot"></div>
+            <strong>Accelerometer</strong>
+            <span class="calibrating-badge" x-show="accelCalibrating">Calibrating…</span>
+        </div>
+        <div class="info-row">
+            <div>RA (accel) <span x-text="accelRaAngle != null && accelRaAngle > -999 ? accelRaAngle.toFixed(2) + '°' : '—'"></span></div>
+            <div>Elevation <span x-text="elevation != null && elevation >= 0 ? elevation.toFixed(1) + '°' : '—'"></span></div>
+        </div>
+        <div class="row">
+            <button @click="calibrateAccel()" :disabled="isError || accelCalibrating"
+                    x-text="accelCalibrating ? 'Calibrating…' : 'Calibrate'"></button>
+        </div>
+    </div>
+
     <!-- ═══ Debug ═══ -->
     <div class="panel">
         <div class="panel-header">
@@ -689,11 +731,6 @@ footer code {
                 <div class="debug-row"><span>Angle</span> <span x-text="debug.dec_axis_deg?.toFixed(4) + '°'"></span></div>
                 <div class="debug-row"><span>Steps</span> <span x-text="debug.dec_steps"></span></div>
                 <div class="debug-row"><span>Speed</span> <span x-text="debug.dec_speed?.toFixed(6) + ' °/s'"></span></div>
-            </div>
-            <div class="debug-group">
-                <div class="debug-label">Hardware</div>
-                <div class="debug-row"><span>Microsteps</span> <span x-text="debug.microsteps"></span></div>
-                <div class="debug-row"><span>Guiding</span> <span x-text="debug.guiding ? '✓' : '—'"></span></div>
             </div>
             <div class="debug-group">
                 <div class="debug-label">Limits (°)</div>
@@ -745,7 +782,6 @@ footer code {
             <div class="row">
                 <button class="danger" @click="stop()" :disabled="isError">STOP</button>
                 <button @click="home()" :disabled="isError">HOME</button>
-                <button @click="zeroPosition()" :disabled="isError">ZERO</button>
                 <button @click="park()" x-show="!isParked" :disabled="isError">PARK</button>
                 <button @click="unpark()" x-show="isParked" :disabled="isError">UNPARK</button>
             </div>
@@ -834,12 +870,17 @@ footer code {
         <div class="panel-header">
             <div class="panel-dot"></div>
             <strong>Move Axis</strong> <span class="hint">(hold to move, release to stop)</span>
-            <select x-model.number="joySpeed" style="margin-left:auto">
-                <option value="1">1×</option>
-                <option value="2">2×</option>
-                <option value="3">3×</option>
-                <option value="4">4×</option>
-            </select>
+        </div>
+        <div class="move-axis-speed">
+            <div class="slew-field">
+                <label>Speed</label>
+                <select x-model.number="joySpeed">
+                    <option value="1">1×</option>
+                    <option value="2">2×</option>
+                    <option value="3">3×</option>
+                    <option value="4">4×</option>
+                </select>
+            </div>
         </div>
         <div class="axis-grid">
             <div class="axis-row">
@@ -934,6 +975,9 @@ footer code {
         statusText: 'UNKNOWN',
         isError: false,
         debug: {},
+        accelRaAngle: null,
+        elevation: null,
+        accelCalibrating: false,
         settings: {lat: 0, lon: 0, elevation: 0},
         mountTime: '--',
         timeAutoSet: false,
@@ -984,6 +1028,9 @@ footer code {
                 this.isParked = (j.status === 'parked');
                 this.isError = (j.status === 'error');
                 this.debug = j.debug || {};
+                this.accelRaAngle = (j.debug && j.debug.accel_ra_deg != null) ? j.debug.accel_ra_deg : null;
+                this.elevation = (j.debug && j.debug.elevation_deg != null) ? j.debug.elevation_deg : null;
+                this.accelCalibrating = (j.debug && j.debug.accel_calibrating === true);
 
                 const s = j.settings;
                 if (s) {
@@ -1011,9 +1058,6 @@ footer code {
         home() {
             this.apiPost('/api/home').then(() => this.fetchStatus());
         },
-        zeroPosition() {
-            this.apiPost('/api/zero').then(() => this.fetchStatus());
-        },
         park() {
             this.apiPost('/api/park').then(() => this.fetchStatus());
         },
@@ -1028,6 +1072,10 @@ footer code {
 
         setLimit(action) {
             this.apiPost('/api/limits', {action: action}).then(() => this.fetchStatus());
+        },
+
+        calibrateAccel() {
+            this.apiPost('/api/accel/calibrate', {action: 'start'}).then(() => this.fetchStatus());
         },
 
         // --- Joystick (continuous move via /api/move-axis-speed) ---

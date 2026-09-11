@@ -3,23 +3,30 @@
  * Purpose: periodic read-and-log of every present sensor.
  *
  * Called from the runtime loop every ~100 ms.  Uses esp_timer_get_time()
- * to throttle actual reads to one every ACCEL_READ_PERIOD_US (500 ms),
- * so the cadence does not depend on the loop period.
+ * to throttle reads with an adaptive cadence: fast during a slew, slow
+ * otherwise.
  */
 #include "accelerometer_internal.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include "motors/motors.h"
+
 static const char *TAG = "ACCELEROMETER_UPDATE";
 
-int last_degree = 0;
-
 void accelerometer_update(void) {
+    if (accelerometer_is_calibrating()) {
+        return;  /* the calibration task owns the sensor */
+    }
+
     static int64_t last_read_us = 0;
 
     int64_t now_us = esp_timer_get_time();
-    if (now_us - last_read_us < ACCEL_READ_PERIOD_US) {
+    int64_t period_us = (motors_current_state().status == MOTORS_STATUS_SLEWING)
+                            ? ACCEL_READ_PERIOD_SLEW_US
+                            : ACCEL_READ_PERIOD_US;
+    if (now_us - last_read_us < period_us) {
         return;
     }
     last_read_us = now_us;
@@ -37,12 +44,5 @@ void accelerometer_update(void) {
         return;
     }
 
-    if ((int) sample.tilt_deg != last_degree) {
-        last_degree = (int) sample.tilt_deg;
-        ESP_LOGI(TAG,
-                 "addr 0x%02X: x=%.3f y=%.3f z=%.3f | tilt=%.1f° heading=%.1f°",
-                 sensor->address,
-                 sample.x_g, sample.y_g, sample.z_g,
-                 sample.tilt_deg, sample.heading_deg);
-    }
+    accelerometer_sample_store(&sample);
 }

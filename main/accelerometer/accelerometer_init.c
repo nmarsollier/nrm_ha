@@ -43,6 +43,8 @@ static esp_err_t configure_sensor(AccelSensor *sensor) {
 }
 
 esp_err_t accelerometer_init(void) {
+    accelerometer_calibrate_load();
+
     accel_sensor.address    = ACCEL_ADDR_SDO_GND;
     accel_sensor.dev_handle = NULL;
     accel_sensor.present    = false;

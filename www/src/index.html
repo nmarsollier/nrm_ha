@@ -37,6 +37,23 @@
         </div>
     </div>
 
+    <!-- ═══ Orientation ═══ -->
+    <div class="panel">
+        <div class="panel-header">
+            <div class="panel-dot"></div>
+            <strong>Accelerometer</strong>
+            <span class="calibrating-badge" x-show="accelCalibrating">Calibrating…</span>
+        </div>
+        <div class="info-row">
+            <div>RA (accel) <span x-text="accelRaAngle != null && accelRaAngle > -999 ? accelRaAngle.toFixed(2) + '°' : '—'"></span></div>
+            <div>Elevation <span x-text="elevation != null && elevation >= 0 ? elevation.toFixed(1) + '°' : '—'"></span></div>
+        </div>
+        <div class="row">
+            <button @click="calibrateAccel()" :disabled="isError || accelCalibrating"
+                    x-text="accelCalibrating ? 'Calibrating…' : 'Calibrate'"></button>
+        </div>
+    </div>
+
     <!-- ═══ Debug ═══ -->
     <div class="panel">
         <div class="panel-header">
@@ -56,11 +73,6 @@
                 <div class="debug-row"><span>Angle</span> <span x-text="debug.dec_axis_deg?.toFixed(4) + '°'"></span></div>
                 <div class="debug-row"><span>Steps</span> <span x-text="debug.dec_steps"></span></div>
                 <div class="debug-row"><span>Speed</span> <span x-text="debug.dec_speed?.toFixed(6) + ' °/s'"></span></div>
-            </div>
-            <div class="debug-group">
-                <div class="debug-label">Hardware</div>
-                <div class="debug-row"><span>Microsteps</span> <span x-text="debug.microsteps"></span></div>
-                <div class="debug-row"><span>Guiding</span> <span x-text="debug.guiding ? '✓' : '—'"></span></div>
             </div>
             <div class="debug-group">
                 <div class="debug-label">Limits (°)</div>
@@ -112,7 +124,6 @@
             <div class="row">
                 <button class="danger" @click="stop()" :disabled="isError">STOP</button>
                 <button @click="home()" :disabled="isError">HOME</button>
-                <button @click="zeroPosition()" :disabled="isError">ZERO</button>
                 <button @click="park()" x-show="!isParked" :disabled="isError">PARK</button>
                 <button @click="unpark()" x-show="isParked" :disabled="isError">UNPARK</button>
             </div>
@@ -201,12 +212,17 @@
         <div class="panel-header">
             <div class="panel-dot"></div>
             <strong>Move Axis</strong> <span class="hint">(hold to move, release to stop)</span>
-            <select x-model.number="joySpeed" style="margin-left:auto">
-                <option value="1">1×</option>
-                <option value="2">2×</option>
-                <option value="3">3×</option>
-                <option value="4">4×</option>
-            </select>
+        </div>
+        <div class="move-axis-speed">
+            <div class="slew-field">
+                <label>Speed</label>
+                <select x-model.number="joySpeed">
+                    <option value="1">1×</option>
+                    <option value="2">2×</option>
+                    <option value="3">3×</option>
+                    <option value="4">4×</option>
+                </select>
+            </div>
         </div>
         <div class="axis-grid">
             <div class="axis-row">

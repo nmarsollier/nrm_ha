@@ -19,6 +19,8 @@
 
 #include "motors_internal.h"
 
+#include "accelerometer/accelerometer.h"
+
 #include <math.h>
 
 #include "esp_log.h"
@@ -388,6 +390,27 @@ static bool check_motion_conditions(void) {
         s_motion.active = false;
 
         return false;
+    }
+
+    /*
+     * Accelerometer RA limit — backup safety net, independent of the step
+     * counter (catches a lost zero or clutch slip).  Throttled: the sensor
+     * sample only refreshes every ~500 ms anyway.
+     */
+    {
+        static int64_t last_accel_check_us = 0;
+        int64_t now_us = esp_timer_get_time();
+        if (now_us - last_accel_check_us >= 100000) {
+            last_accel_check_us = now_us;
+            if (accelerometer_ra_limit_exceeded()) {
+                ESP_LOGW(TAG, "accelerometer RA limit exceeded — stopping");
+                s_motion.active = false;
+                motors_state.status = MOTORS_STATUS_READY;
+                motors_state.tracking = TRACKING_NONE;
+                motors_state.guiding = false;
+                return false;
+            }
+        }
     }
 
     return true;

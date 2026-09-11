@@ -14,6 +14,8 @@ idf_component_register(
         "accelerometer/accelerometer_init.c"
         "accelerometer/accelerometer_read.c"
         "accelerometer/accelerometer_update.c"
+        "accelerometer/accelerometer_sample.c"
+        "accelerometer/accelerometer_calibrate.c"
 
         "usb_net/usb_net_init.c"
         "usb_net/usb_net_data.c"
@@ -67,6 +69,7 @@ idf_component_register(
         "rest/rest_slew_to_coordinates_handler.c"
         "rest/rest_home_handler.c"
         "rest/rest_limits_handler.c"
+        "rest/rest_accel_calibrate_handler.c"
         "rest/rest_move_axis_handler.c"
         "rest/rest_move_axis_speed_handler.c"
         "rest/rest_park_handler.c"

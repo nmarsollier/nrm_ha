@@ -81,6 +81,7 @@ void motors_limits_save(void) {
 /* ── Runtime setters ─────────────────────────────────────── */
 
 void motors_set_current_as_home(void) {
+    motors_stop();
     motors_state.ra_steps  = 0;
     motors_state.dec_steps = 0;
     motors_state.status    = MOTORS_STATUS_READY;
