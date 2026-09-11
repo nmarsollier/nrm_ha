@@ -14,8 +14,8 @@
  * apparent motion during observations while respecting state rules.
  */
 MountResult mount_set_tracking(TrackingMode tracking) {
-    if (mount_is_motors_error()) {
-        return mount_result_motors_error();
+    if (mount_is_error()) {
+        return mount_result_error_state();
     }
 
     MotorResultCode rc = motors_start_tracking(tracking);

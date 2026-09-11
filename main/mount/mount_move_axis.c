@@ -13,8 +13,8 @@
  * current position.
  */
 MountResult mount_move_axis_ra(float degrees, int speed_rate) {
-    if (mount_is_motors_error()) {
-        return mount_result_motors_error();
+    if (mount_is_error()) {
+        return mount_result_error_state();
     }
 
     if (degrees == 0.0f) {
@@ -37,8 +37,8 @@ MountResult mount_move_axis_ra(float degrees, int speed_rate) {
  * current position.
  */
 MountResult mount_move_axis_dec(float degrees, int speed_rate) {
-    if (mount_is_motors_error()) {
-        return mount_result_motors_error();
+    if (mount_is_error()) {
+        return mount_result_error_state();
     }
 
     if (degrees == 0.0f) {

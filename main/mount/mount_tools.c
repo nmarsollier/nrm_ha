@@ -53,7 +53,7 @@ MountResult motors_result_code_error_result(MotorResultCode rc) {
         case MOTOR_ERR_NOT_READY:
             return mount_result_error("Motors not ready");
         case MOTOR_ERR_HARDWARE_ERROR:
-            return mount_result_motors_error();
+            return mount_result_error_state();
         default:
             return mount_result_error("Motor error");
     }

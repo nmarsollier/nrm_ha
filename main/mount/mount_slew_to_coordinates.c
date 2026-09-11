@@ -8,8 +8,8 @@
 #include "motors.h"
 
 MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate) {
-    if (mount_is_motors_error()) {
-        return mount_result_motors_error();
+    if (mount_is_error()) {
+        return mount_result_error_state();
     }
 
     EquatorialCoordinates eq = {

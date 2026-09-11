@@ -14,8 +14,8 @@
  * commands can be accepted again.
  */
 MountResult mount_unpark(void) {
-    if (mount_is_motors_error()) {
-        return mount_result_motors_error();
+    if (mount_is_error()) {
+        return mount_result_error_state();
     }
 
     MotorResultCode rc = motors_stop();

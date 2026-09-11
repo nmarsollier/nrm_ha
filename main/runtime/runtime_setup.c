@@ -45,7 +45,7 @@ void setup_init(void) {
 
     led_init();
     buzzer_init();
-    accelerometer_init();
+    esp_err_t accel_err = accelerometer_init();
 
     /*
      * USB Ethernet (ECM/RNDIS) — non-fatal, mount works without USB.
@@ -62,6 +62,10 @@ void setup_init(void) {
     if (motors_err != ESP_OK) {
         ESP_LOGE(TAG, "motors_init failed: %s — mount in ERROR state, reboot required",
                  esp_err_to_name(motors_err));
+    } else if (accel_err != ESP_OK) {
+        ESP_LOGE(TAG, "accelerometer_init failed: %s — mount in ERROR state",
+                 esp_err_to_name(accel_err));
+        motors_enter_accel_error_state();
     }
 
     ESP_LOGI(TAG, "Mount ready");

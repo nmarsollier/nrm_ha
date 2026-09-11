@@ -14,7 +14,7 @@
 static const char *TAG = "MOTORS_SLEW_AXIS";
 
 static MotorResultCode motors_slew_axis_impl(float ra_delta_deg, float dec_delta_deg) {
-    if (motors_state.status == MOTORS_STATUS_ERROR) {
+    if (motors_status_is_error(motors_state.status)) {
         return MOTOR_ERR_HARDWARE_ERROR;
     }
 

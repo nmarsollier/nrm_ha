@@ -6,6 +6,9 @@
 #include "usb_net.h"
 #include "usb_net_internal.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -20,6 +23,26 @@
 
 static const char *TAG = "USB_NET_INIT";
 static esp_netif_t *s_netif;
+
+/* USB string descriptors — NCM-only layout.
+ *
+ * The serial (index 3) is written at runtime from the device MAC so the
+ * host can tell this board apart from another on the same machine.  A fixed
+ * serial makes macOS reuse a stale network service after a reflash, leaving
+ * the interface without an IP.  Indexes: 0 LANGID, 1 manufacturer, 2 product,
+ * 3 serial, 4 net interface, 5 MAC (replaced by tinyusb_net_init()).
+ */
+#define USB_NET_STRING_COUNT 6
+static const char s_langid[2] = { 0x09, 0x04 };   /* 0x0409 English (US), little-endian */
+static char s_serial[13];                          /* "XXXXXXXXXXXX" + NUL */
+static const char *s_usb_string_desc[USB_NET_STRING_COUNT] = {
+    s_langid,
+    CONFIG_TINYUSB_DESC_MANUFACTURER_STRING,
+    CONFIG_TINYUSB_DESC_PRODUCT_STRING,
+    s_serial,
+    "USB net",
+    "",
+};
 
 static esp_netif_ip_info_t s_ip = {
     .ip      = { .addr = ESP_IP4TOADDR(USB_NET_IP_OCTET1, USB_NET_IP_OCTET2, USB_NET_IP_OCTET3, USB_NET_IP_OCTET4) },
@@ -123,7 +146,18 @@ static void usb_net_event_cb(tinyusb_event_t *event, void *arg)
 static esp_err_t init_tinyusb(void)
 {
     esp_err_t err;
-    const tinyusb_config_t cfg = TINYUSB_DEFAULT_CONFIG(usb_net_event_cb, s_netif);
+
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_ETH);
+    mac[0] |= 0x02;
+
+    snprintf(s_serial, sizeof(s_serial), "%02X%02X%02X%02X%02X%02X",
+             (unsigned)mac[0], (unsigned)mac[1], (unsigned)mac[2],
+             (unsigned)mac[3], (unsigned)mac[4], (unsigned)mac[5]);
+
+    tinyusb_config_t cfg = TINYUSB_DEFAULT_CONFIG(usb_net_event_cb, s_netif);
+    cfg.descriptor.string = s_usb_string_desc;
+    cfg.descriptor.string_count = USB_NET_STRING_COUNT;
 
     err = tinyusb_driver_install(&cfg);
     if (err != ESP_OK) {
@@ -137,8 +171,7 @@ static esp_err_t init_tinyusb(void)
         .on_init_callback = usb_net_tinyusb_init_cb,
         .user_context     = s_netif,
     };
-    esp_read_mac(net_cfg.mac_addr, ESP_MAC_ETH);
-    net_cfg.mac_addr[0] |= 0x02;
+    memcpy(net_cfg.mac_addr, mac, sizeof(mac));
 
     err = tinyusb_net_init(&net_cfg);
     if (err != ESP_OK) {

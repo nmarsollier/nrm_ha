@@ -82,7 +82,7 @@ static void udp_alpaca_task(void *arg) {
                  buf);
 
         if (strstr(buf, "alpacadiscovery1") != NULL) {
-            if (motors_current_state().status == MOTORS_STATUS_ERROR) {
+            if (motors_status_is_error(motors_current_state().status)) {
                 ESP_LOGW(TAG, "motors in ERROR — suppressing discovery response");
             } else {
                 sendto(sock, response, strlen(response), 0,

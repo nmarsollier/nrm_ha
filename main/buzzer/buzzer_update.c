@@ -24,7 +24,7 @@ void buzzer_update(void) {
 
     if (slewing && !last_slewing) {
         buzzer_play(BUZZER_PATTERN_MOTION_START);
-    } else if (!slewing && last_slewing && status != MOTORS_STATUS_ERROR) {
+    } else if (!slewing && last_slewing && !motors_status_is_error(status)) {
         buzzer_play(BUZZER_PATTERN_MOTION_END);
     }
 

@@ -1,12 +1,13 @@
 # Acelerómetro (ADXL345)
 
-Módulo que lee hasta dos acelerómetros ADXL345 por I2C, para medir la
-inclinación y la rotación de los ejes de la montura. Destinado a
+Módulo que lee un acelerómetro ADXL345 por I2C, para medir la
+inclinación y la rotación de un eje de la montura. Destinado a
 **alineación polar** y **límites de RA y DEC**.
 
-**Estado**: implementado y verificado en banco (dos sensores leyendo).
-Durante el desarrollo se puede flashear **sin sensores conectados**: si no
-se encuentran, se ignoran y la montura funciona igual (sin errores).
+**Estado**: implementado y verificado en banco (un sensor leyendo).
+El sensor es **obligatorio**: si al arrancar no responde al probe I2C, la
+montura entra en **estado de error** (LED en respiración y comandos
+rechazados) y solo se recupera reconectando el sensor y reiniciando.
 
 ## Hardware
 
@@ -18,14 +19,13 @@ se encuentran, se ignoran y la montura funciona igual (sin errores).
 - Bus `I2C_NUM_0`, 100 kHz.
 - Pull-ups internos habilitados. Para 100 kHz conviene añadir 4.7–10 kΩ
   externos (los internos ~45 kΩ son débiles).
-- Dos direcciones según el pin SDO, ambos sensores en el mismo bus:
+- Dirección única con el pin SDO a GND:
 
-| SDO    | Dirección I2C |
-|--------|---------------|
-| → GND  | `0x53`        |
-| → 3V3  | `0x1D`        |
+| SDO   | Dirección I2C |
+|-------|---------------|
+| → GND | `0x53`        |
 
-## Qué mide (por sensor)
+## Qué mide
 
 | Valor     | Significado |
 |-----------|-------------|
@@ -37,7 +37,7 @@ Fórmulas: `tilt = acos(|z| / |g|)` y `heading = atan2(y, x)` (normalizado a 0�
 
 ## Regla de montaje
 
-Lo más simple (sin calibración) es montar cada sensor con su **eje Z paralelo
+Lo más simple (sin calibración) es montar el sensor con su **eje Z paralelo
 al eje que se quiere medir**:
 
 - **Sensor de RA** (fijo dentro de la caja DEC) → eje Z ∥ eje RA (apuntando al polo).
@@ -75,8 +75,8 @@ degeneración.
 
 ## Pendiente (cuando se arme la montura)
 
-- Identificar qué dirección física (`0x53` / `0x1D`) corresponde al sensor de
-  RA y cuál al de DEC (mover un eje a mano y ver qué dirección cambia).
+- Con un único sensor en `0x53`, elegir en qué eje (RA o DEC) montarlo y
+  verificar que el log cambia al mover ese eje a mano.
 - Calibración de offset del `heading` (home → cero).
 - Exponer `tilt` / `heading` por REST para que la lógica de límites de la
   montura los consuma.
@@ -94,7 +94,7 @@ degeneración.
 - El log de cada lectura sale con tag `ACCELEROMETER_UPDATE` a nivel INFO:
 
   ```
-  addr 0x1D: x=-0.70g y=-0.16g z=0.63g | tilt=49.0 deg heading=193.0 deg
+  addr 0x53: x=-0.70g y=-0.16g z=0.63g | tilt=49.0 deg heading=193.0 deg
   ```
 
 ## Archivos
@@ -102,7 +102,7 @@ degeneración.
 ```
 main/accelerometer/
   accelerometer.h            API pública (init / update)
-  accelerometer_internal.h   pines, direcciones, registros, estado
+  accelerometer_internal.h   pines, dirección, registros, estado
   accelerometer_init.c       bus I2C + probe + configuración
   accelerometer_read.c       lectura I2C + conversión a g / tilt / heading
   accelerometer_update.c     refresco 500 ms + log

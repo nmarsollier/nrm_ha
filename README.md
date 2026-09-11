@@ -15,7 +15,7 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 - **Power**: 12V 5A supply → Mini DC 360 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
 - **LED**: PWM indicator (GPIO 10) — three states: dim (~10%) at idle, bright (100%) during slewing, slow breathing on error.
 - **Buzzer**: passive event beeper (GPIO 9, 2 kHz) — beeps on boot and on goto/move-axis start & end.
-- **Accelerometer**: 2× ADXL345 on I2C (GPIO 2 SDA / GPIO 1 SCL) — tilt + rotation for polar alignment and axis limits (see `main/accelerometer/README.md`).
+- **Accelerometer**: 1× ADXL345 on I2C (GPIO 2 SDA / GPIO 1 SCL) — tilt + rotation for polar alignment and axis limits (see `main/accelerometer/README.md`).
 - **Outputs**: STEP/DIR/LED/buzzer all pass through a UMC2003 Darlington array (open-collector sinking).
 
 ### Harmonic Drives

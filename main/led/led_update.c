@@ -3,12 +3,13 @@
  * Purpose: periodic LED state decision — the single public entry point
  * for all LED state changes.
  *
- * Called from the runtime loop every ~50 ms.  Inspects the motors to
- * pick the correct LED state:
+ * Called from the runtime loop every ~50 ms.  Inspects the motors status
+ * (which carries the accelerometer error) to pick the correct LED state:
  *
- *   1. Motor ERROR   -> slow smooth breathing (permanent, reboot required)
- *   2. Motor SLEWING -> full brightness
- *   3. Otherwise     -> dim (normal idle)
+ *   1. Fatal error (motor fault or missing accelerometer)
+ *                     -> slow smooth breathing (permanent, reboot required)
+ *   2. Motor SLEWING  -> full brightness
+ *   3. Otherwise      -> dim (normal idle)
  *
  * No other module calls led_set_state() directly.  This keeps all LED
  * logic cohesive in one place and prevents scattered, conflicting calls.
@@ -22,11 +23,10 @@ void led_update(void) {
     MotorsState ms = motors_current_state();
 
     /*
-     * 1. Motor ERROR is permanent and overrides everything.
-     *    Only a reboot can clear MOTORS_STATUS_ERROR, so the LED
-     *    will breathe slowly until the device is power-cycled.
+     * 1. Fatal conditions override everything and breathe in ERROR until
+     *    reboot: a motor hardware fault or a missing accelerometer.
      */
-    if (ms.status == MOTORS_STATUS_ERROR) {
+    if (motors_status_is_error(ms.status)) {
         led_set_state(LED_STATE_ERROR);
         return;
     }

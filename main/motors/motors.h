@@ -24,7 +24,9 @@ typedef enum {
     /* Parked: mount in safe parked position. */
     MOTORS_STATUS_PARKED,
     /* Unrecoverable hardware error: motor driver init failed. Only reboot clears it. */
-    MOTORS_STATUS_ERROR
+    MOTORS_STATUS_ERROR,
+    /* Accelerometer (required peripheral) not found at boot. Only reboot clears it. */
+    MOTORS_STATUS_ACCEL_ERROR
 } MotorsStatus;
 
 /*
@@ -100,6 +102,13 @@ typedef enum {
 esp_err_t motors_init(void);
 
 /*
+ * Put the motors subsystem into the accelerometer-not-found error state.
+ * Called at boot when the required ADXL345 fails its I2C probe.  Only a
+ * reboot clears this state.
+ */
+void motors_enter_accel_error_state(void);
+
+/*
  * Return a snapshot copy of the current `MotorsState`.
  */
 MotorsState motors_current_state(void);
@@ -159,6 +168,9 @@ float motors_get_slewing_speed(int speed_rate);
  * Canonical status and tracking name helpers.
  */
 const char *motors_status_to_string(MotorsStatus status);
+
+/* True if `status` is a fatal error state (motor fault or missing accelerometer). */
+bool motors_status_is_error(MotorsStatus status);
 
 const char *motors_tracking_to_string(TrackingMode tracking);
 

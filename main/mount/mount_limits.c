@@ -13,8 +13,8 @@
 #include <string.h>
 
 MountResult mount_limits_set(const char *action) {
-    if (mount_is_motors_error()) {
-        return mount_result_motors_error();
+    if (mount_is_error()) {
+        return mount_result_error_state();
     }
 
     if (action == NULL) {

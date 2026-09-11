@@ -13,8 +13,8 @@
  * Objective: leave the mount ready for the next command after a STOP request.
  */
 MountResult mount_stop(void) {
-    if (mount_is_motors_error()) {
-        return mount_result_motors_error();
+    if (mount_is_error()) {
+        return mount_result_error_state();
     }
 
     mount_move_axis_reset();

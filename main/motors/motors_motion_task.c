@@ -348,7 +348,7 @@ static bool check_motion_conditions(void) {
      * on the spot.  This is the emergency cut-off: no deceleration,
      * no position cleanup — just stop NOW.
      */
-    if (motors_state.status == MOTORS_STATUS_ERROR) {
+    if (motors_status_is_error(motors_state.status)) {
         motors_enter_error_state();
         s_motion.active = false;
         return false;
@@ -407,7 +407,7 @@ static void process_command(MotionCommand cmd) {
      * enqueuing commands in ERROR, but a race between enqueue and
      * error-detection could still deliver a stale command here.
      */
-    if (motors_state.status == MOTORS_STATUS_ERROR) {
+    if (motors_status_is_error(motors_state.status)) {
         return;
     }
 
@@ -1048,7 +1048,7 @@ static void tracking_loop_rmt(void) {
  * -------------------------------------------------------------------------- */
 static void motion_loop(void) {
     /* Motor ERROR — refuse to enter any motion loop. */
-    if (motors_state.status == MOTORS_STATUS_ERROR) {
+    if (motors_status_is_error(motors_state.status)) {
         return;
     }
 

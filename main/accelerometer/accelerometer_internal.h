@@ -16,11 +16,9 @@
 #define ACCEL_CLK_HZ        100000   /* 100 kHz standard mode */
 #define ACCEL_TIMEOUT_MS    100
 
-/* ── Device addresses (ADXL345 SDO strapping) ─────────────── */
+/* ── Device address (ADXL345, SDO tied to GND) ────────────── */
 
 #define ACCEL_ADDR_SDO_GND  0x53
-#define ACCEL_ADDR_SDO_3V3  0x1D
-#define ACCEL_SENSOR_COUNT  2
 
 /* ── ADXL345 register map ─────────────────────────────────── */
 
@@ -58,7 +56,7 @@ typedef struct {
     float heading_deg;   /* tilt direction in the X-Y plane, 0-360° */
 } AccelSample;
 
-extern AccelSensor accel_sensors[ACCEL_SENSOR_COUNT];
+extern AccelSensor accel_sensor;
 
 /* ── Internal helpers ─────────────────────────────────────── */
 

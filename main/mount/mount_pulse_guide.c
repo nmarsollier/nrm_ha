@@ -20,8 +20,8 @@
 static const char *TAG = "MOUNT_PULSE_GUIDE";
 
 MountResult mount_pulse_guide(GuideDirection direction, uint32_t duration_ms) {
-    if (mount_is_motors_error()) {
-        return mount_result_motors_error();
+    if (mount_is_error()) {
+        return mount_result_error_state();
     }
 
     /* PulseGuide is only valid in READY (calibration) or TRACKING (guiding). */

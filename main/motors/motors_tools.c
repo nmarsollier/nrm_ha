@@ -22,10 +22,15 @@ const char *motors_status_to_string(MotorsStatus status) {
         case MOTORS_STATUS_PARKED:
             return "parked";
         case MOTORS_STATUS_ERROR:
+        case MOTORS_STATUS_ACCEL_ERROR:
             return "error";
         default:
             return "error";
     }
+}
+
+bool motors_status_is_error(MotorsStatus status) {
+    return status == MOTORS_STATUS_ERROR || status == MOTORS_STATUS_ACCEL_ERROR;
 }
 
 /*

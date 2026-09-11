@@ -11,7 +11,7 @@
 #include "freertos/task.h"
 
 MotorResultCode motors_pulse_guide_start(int axis, float offset_dps, uint32_t duration_ms) {
-    if (motors_state.status == MOTORS_STATUS_ERROR) {
+    if (motors_status_is_error(motors_state.status)) {
         return MOTOR_ERR_HARDWARE_ERROR;
     }
 

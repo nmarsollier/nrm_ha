@@ -13,6 +13,8 @@
 
 static const char *TAG = "ACCELEROMETER_UPDATE";
 
+int last_degree = 0;
+
 void accelerometer_update(void) {
     static int64_t last_read_us = 0;
 
@@ -22,22 +24,23 @@ void accelerometer_update(void) {
     }
     last_read_us = now_us;
 
-    for (int i = 0; i < ACCEL_SENSOR_COUNT; i++) {
-        const AccelSensor *sensor = &accel_sensors[i];
-        if (!sensor->present) {
-            continue;
-        }
+    const AccelSensor *sensor = &accel_sensor;
+    if (!sensor->present) {
+        return;
+    }
 
-        AccelSample sample;
-        esp_err_t err = accelerometer_read_sample(sensor, &sample);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "addr 0x%02X: read failed: %s",
-                     sensor->address, esp_err_to_name(err));
-            continue;
-        }
+    AccelSample sample;
+    esp_err_t err = accelerometer_read_sample(sensor, &sample);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "addr 0x%02X: read failed: %s",
+                 sensor->address, esp_err_to_name(err));
+        return;
+    }
 
+    if ((int) sample.tilt_deg != last_degree) {
+        last_degree = (int) sample.tilt_deg;
         ESP_LOGI(TAG,
-                 "addr 0x%02X: x=%.3fg y=%.3fg z=%.3fg | tilt=%.1f deg heading=%.1f deg",
+                 "addr 0x%02X: x=%.3f y=%.3f z=%.3f | tilt=%.1f° heading=%.1f°",
                  sensor->address,
                  sample.x_g, sample.y_g, sample.z_g,
                  sample.tilt_deg, sample.heading_deg);

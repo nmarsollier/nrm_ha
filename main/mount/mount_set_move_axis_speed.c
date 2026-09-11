@@ -5,8 +5,8 @@
 static TrackingMode s_saved_tracking = TRACKING_NONE;
 
 MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed) {
-    if (mount_is_motors_error()) {
-        return mount_result_motors_error();
+    if (mount_is_error()) {
+        return mount_result_error_state();
     }
 
     if ((int) ra_speed == 0 && (int) dec_speed == 0) {
