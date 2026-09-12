@@ -383,25 +383,6 @@ button.primary:hover {
     font-weight: normal;
 }
 
-/* Pulsing badge shown while the accelerometer calibration runs. */
-.calibrating-badge {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: .6px;
-    text-transform: uppercase;
-    color: #fbbf24;
-    background: rgba(251, 191, 36, 0.12);
-    border: 1px solid rgba(251, 191, 36, 0.4);
-    padding: 3px 10px;
-    border-radius: 20px;
-    animation: calibrating-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes calibrating-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.45; }
-}
-
 
 /* ═══════════════════════════════════════════════════
    Settings — time + location

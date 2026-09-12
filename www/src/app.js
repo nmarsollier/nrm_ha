@@ -6,9 +6,6 @@ function mountApp() {
         statusText: 'UNKNOWN',
         isError: false,
         debug: {},
-        accelRaAngle: null,
-        elevation: null,
-        accelCalibrating: false,
         settings: {lat: 0, lon: 0, elevation: 0},
         mountTime: '--',
         timeAutoSet: false,
@@ -59,9 +56,6 @@ function mountApp() {
                 this.isParked = (j.status === 'parked');
                 this.isError = (j.status === 'error');
                 this.debug = j.debug || {};
-                this.accelRaAngle = (j.debug && j.debug.accel_ra_deg != null) ? j.debug.accel_ra_deg : null;
-                this.elevation = (j.debug && j.debug.elevation_deg != null) ? j.debug.elevation_deg : null;
-                this.accelCalibrating = (j.debug && j.debug.accel_calibrating === true);
 
                 const s = j.settings;
                 if (s) {
@@ -105,16 +99,12 @@ function mountApp() {
             this.apiPost('/api/limits', {action: action}).then(() => this.fetchStatus());
         },
 
-        calibrateAccel() {
-            this.apiPost('/api/accel/calibrate', {action: 'start'}).then(() => this.fetchStatus());
-        },
-
         // --- Joystick (continuous move via /api/move-axis-speed) ---
         joyRates: {ra: 0, dec: 0},
 
         joyStart(axis, dir) {
-            const speeds = {1: 1.0, 2: 3.0, 3: 6.0, 4: 10.0};
-            const dps = speeds[this.joySpeed] || 10.0;
+            const speeds = {1: 1.0, 2: 3.0, 3: 4.5, 4: 6.0};
+            const dps = speeds[this.joySpeed] || 6.0;
             this.joyRates[axis] = dir * dps;
             const body = {ra_rate: this.joyRates.ra, dec_rate: this.joyRates.dec};
             this.apiPost('/api/move-axis-speed', body);
@@ -185,6 +175,10 @@ function mountApp() {
             if (h > 0) return h + 'h ' + m + 'm ' + sec + 's';
             if (m > 0) return m + 'm ' + sec + 's';
             return sec + 's';
+        },
+
+        fatalMessage() {
+            return 'Mount error — reboot required. Mount will not accept movement commands.';
         },
 
         init() {

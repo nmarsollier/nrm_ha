@@ -5,6 +5,9 @@
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
 
+# CPU: 240 MHz — headroom for REST/Alpaca response and batch computation
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
 # Partition table: large single-app (3 MB factory partition)
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
 CONFIG_PARTITION_TABLE_FILENAME="partitions_singleapp_large.csv"
@@ -15,17 +18,26 @@ CONFIG_TINYUSB_NCM_OUT_NTB_BUFF_MAX_SIZE=5120
 CONFIG_TINYUSB_NCM_IN_NTB_BUFF_MAX_SIZE=5120
 
 # TinyUSB: custom USB descriptors
+# (disable the default VID/PID so the custom values below take effect)
+CONFIG_TINYUSB_DESC_USE_ESPRESSIF_VID=n
+CONFIG_TINYUSB_DESC_USE_DEFAULT_PID=n
 CONFIG_TINYUSB_DESC_CUSTOM_VID=0x303A
 CONFIG_TINYUSB_DESC_CUSTOM_PID=0x4001
-CONFIG_TINYUSB_DESC_MANUFACTURER_STRING="Montura"
+CONFIG_TINYUSB_DESC_MANUFACTURER_STRING="NRM-WO"
 CONFIG_TINYUSB_DESC_PRODUCT_STRING="Mount USB Ethernet"
 CONFIG_TINYUSB_DESC_SERIAL_STRING="000001"
 
 # LWIP: more sockets for multiple HTTP servers + Alpaca
 CONFIG_LWIP_MAX_SOCKETS=32
 
-# Wi-Fi disabled — USB (NCM) is the only network interface
-CONFIG_ESP_WIFI_ENABLED=n
+# Compiler: performance optimization (-O2) instead of debug (-Og)
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# ── FreeRTOS: 1000 Hz tick for fine-grained RMT batch polling ──
+# The decoupled slew loop polls RMT completion at 1 ms granularity.  A
+# 100 Hz tick makes vTaskDelay(1ms) resolve to 0 ticks (a no-op) and the
+# motion task busy-spins, starving IDLE and tripping the task watchdog.
+CONFIG_FREERTOS_HZ=1000
 
 # ── CPU affinity: all non-motion tasks pinned to CPU 0 ──
 # CPU 1 is reserved exclusively for the motors_motion task (prio 23).

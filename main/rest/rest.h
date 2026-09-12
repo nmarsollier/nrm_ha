@@ -34,13 +34,9 @@ esp_err_t rest_unpark_handler(httpd_req_t *request);
 
 esp_err_t rest_home_handler(httpd_req_t *request);
 
-esp_err_t rest_zero_handler(httpd_req_t *request);
-
 esp_err_t rest_settings_handler(httpd_req_t *request);
 
 esp_err_t rest_limits_handler(httpd_req_t *request);
-
-esp_err_t rest_accel_calibrate_handler(httpd_req_t *request);
 
 void rest_send_result(
     httpd_req_t *request,

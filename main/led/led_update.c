@@ -4,9 +4,9 @@
  * for all LED state changes.
  *
  * Called from the runtime loop every ~50 ms.  Inspects the motors status
- * (which carries the accelerometer error) to pick the correct LED state:
+ * to pick the correct LED state:
  *
- *   1. Fatal error (motor fault or missing accelerometer)
+ *   1. Fatal error (motor fault)
  *                     -> slow smooth breathing (permanent, reboot required)
  *   2. Motor SLEWING  -> full brightness
  *   3. Otherwise      -> dim (normal idle)
@@ -24,7 +24,7 @@ void led_update(void) {
 
     /*
      * 1. Fatal conditions override everything and breathe in ERROR until
-     *    reboot: a motor hardware fault or a missing accelerometer.
+     *    reboot: a motor hardware fault.
      */
     if (motors_status_is_error(ms.status)) {
         led_set_state(LED_STATE_ERROR);

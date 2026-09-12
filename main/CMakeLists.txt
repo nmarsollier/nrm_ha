@@ -11,18 +11,12 @@ idf_component_register(
         "buzzer/buzzer_play.c"
         "buzzer/buzzer_update.c"
 
-        "accelerometer/accelerometer_init.c"
-        "accelerometer/accelerometer_read.c"
-        "accelerometer/accelerometer_update.c"
-        "accelerometer/accelerometer_sample.c"
-        "accelerometer/accelerometer_calibrate.c"
-
         "usb_net/usb_net_init.c"
         "usb_net/usb_net_data.c"
+        "usb_net/usb_net_descriptors.c"
 
         "motors/motors_current_state.c"
         "motors/motors_enter_error_state.c"
-        "motors/motors_enter_accel_error_state.c"
         "motors/motors_get_slewing_speed.c"
         "motors/motors_get_tracking_speed.c"
         "motors/motors_home.c"
@@ -42,9 +36,8 @@ idf_component_register(
         "motors/motors_motion_task.c"
         "motors/motors_pulse_guide.c"
         "motors/motors_is_pulse_guiding.c"
-        "motors/motors_set_zero.c"
 
-        "mount/mount.c"
+        "mount/mount_init.c"
         "mount/mount_coordinate_tools.c"
         "mount/mount_slew_to_coordinates.c"
         "mount/mount_get_lst.c"
@@ -63,13 +56,11 @@ idf_component_register(
         "mount/mount_unpark.c"
         "mount/mount_get_visible_status_data.c"
         "mount/mount_pulse_guide.c"
-        "mount/mount_set_zero.c"
 
         "rest/rest_server_start.c"
         "rest/rest_slew_to_coordinates_handler.c"
         "rest/rest_home_handler.c"
         "rest/rest_limits_handler.c"
-        "rest/rest_accel_calibrate_handler.c"
         "rest/rest_move_axis_handler.c"
         "rest/rest_move_axis_speed_handler.c"
         "rest/rest_park_handler.c"
@@ -80,7 +71,6 @@ idf_component_register(
         "rest/rest_tools.c"
         "rest/rest_tracking_handler.c"
         "rest/rest_unpark_handler.c"
-        "rest/rest_zero_handler.c"
 
         "rest_alpaca/rest_alpaca_abortslew_handler.c"
         "rest_alpaca/rest_alpaca_alignmentmode_handler.c"
@@ -200,7 +190,6 @@ idf_component_register(
 
         INCLUDE_DIRS
         "."
-        "accelerometer"
         "alpaca_bridge"
         "buzzer"
         "led"
@@ -223,7 +212,6 @@ idf_component_register(
         esp_timer
         nvs_flash
         esp_driver_gpio
-        esp_driver_i2c
         esp_driver_ledc
         esp_driver_rmt
 )

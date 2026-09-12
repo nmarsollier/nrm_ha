@@ -9,9 +9,6 @@
  */
 #include "rest.h"
 
-#include <string.h>
-
-#include "accelerometer.h"
 #include "mount.h"
 #include "utils/utils.h"
 
@@ -27,11 +24,6 @@ esp_err_t rest_limits_handler(httpd_req_t *request) {
     }
 
     MountResult result = mount_limits_set(action.value);
-
-    /* "set_home" also anchors the accelerometer RA reference. */
-    if (result.ok && strcmp(action.value, "set_home") == 0) {
-        accelerometer_set_ra_home();
-    }
 
     rest_send_result(request, result);
     return ESP_OK;

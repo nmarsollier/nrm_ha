@@ -391,25 +391,6 @@ button.primary:hover {
     font-weight: normal;
 }
 
-/* Pulsing badge shown while the accelerometer calibration runs. */
-.calibrating-badge {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: .6px;
-    text-transform: uppercase;
-    color: #fbbf24;
-    background: rgba(251, 191, 36, 0.12);
-    border: 1px solid rgba(251, 191, 36, 0.4);
-    padding: 3px 10px;
-    border-radius: 20px;
-    animation: calibrating-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes calibrating-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.45; }
-}
-
 
 /* ═══════════════════════════════════════════════════
    Settings — time + location
@@ -695,23 +676,6 @@ footer code {
         </div>
     </div>
 
-    <!-- ═══ Orientation ═══ -->
-    <div class="panel">
-        <div class="panel-header">
-            <div class="panel-dot"></div>
-            <strong>Accelerometer</strong>
-            <span class="calibrating-badge" x-show="accelCalibrating">Calibrating…</span>
-        </div>
-        <div class="info-row">
-            <div>RA (accel) <span x-text="accelRaAngle != null && accelRaAngle > -999 ? accelRaAngle.toFixed(2) + '°' : '—'"></span></div>
-            <div>Elevation <span x-text="elevation != null && elevation >= 0 ? elevation.toFixed(1) + '°' : '—'"></span></div>
-        </div>
-        <div class="row">
-            <button @click="calibrateAccel()" :disabled="isError || accelCalibrating"
-                    x-text="accelCalibrating ? 'Calibrating…' : 'Calibrate'"></button>
-        </div>
-    </div>
-
     <!-- ═══ Debug ═══ -->
     <div class="panel">
         <div class="panel-header">
@@ -959,9 +923,7 @@ footer code {
     </div>
 
     <!-- ═══ Error banner ═══ -->
-    <div class="fatal-banner" x-show="isError">
-        MOTOR ERROR &mdash; reboot required. Mount will not accept movement commands.
-    </div>
+    <div class="fatal-banner" x-show="isError" x-text="fatalMessage()"></div>
     <div class="error-banner" x-show="errorMessage" x-text="errorMessage"
          x-transition.opacity.duration.200ms></div>
 
@@ -975,9 +937,6 @@ footer code {
         statusText: 'UNKNOWN',
         isError: false,
         debug: {},
-        accelRaAngle: null,
-        elevation: null,
-        accelCalibrating: false,
         settings: {lat: 0, lon: 0, elevation: 0},
         mountTime: '--',
         timeAutoSet: false,
@@ -1028,9 +987,6 @@ footer code {
                 this.isParked = (j.status === 'parked');
                 this.isError = (j.status === 'error');
                 this.debug = j.debug || {};
-                this.accelRaAngle = (j.debug && j.debug.accel_ra_deg != null) ? j.debug.accel_ra_deg : null;
-                this.elevation = (j.debug && j.debug.elevation_deg != null) ? j.debug.elevation_deg : null;
-                this.accelCalibrating = (j.debug && j.debug.accel_calibrating === true);
 
                 const s = j.settings;
                 if (s) {
@@ -1074,16 +1030,12 @@ footer code {
             this.apiPost('/api/limits', {action: action}).then(() => this.fetchStatus());
         },
 
-        calibrateAccel() {
-            this.apiPost('/api/accel/calibrate', {action: 'start'}).then(() => this.fetchStatus());
-        },
-
         // --- Joystick (continuous move via /api/move-axis-speed) ---
         joyRates: {ra: 0, dec: 0},
 
         joyStart(axis, dir) {
-            const speeds = {1: 1.0, 2: 3.0, 3: 6.0, 4: 10.0};
-            const dps = speeds[this.joySpeed] || 10.0;
+            const speeds = {1: 1.0, 2: 3.0, 3: 4.5, 4: 6.0};
+            const dps = speeds[this.joySpeed] || 6.0;
             this.joyRates[axis] = dir * dps;
             const body = {ra_rate: this.joyRates.ra, dec_rate: this.joyRates.dec};
             this.apiPost('/api/move-axis-speed', body);
@@ -1154,6 +1106,10 @@ footer code {
             if (h > 0) return h + 'h ' + m + 'm ' + sec + 's';
             if (m > 0) return m + 'm ' + sec + 's';
             return sec + 's';
+        },
+
+        fatalMessage() {
+            return 'Mount error — reboot required. Mount will not accept movement commands.';
         },
 
         init() {

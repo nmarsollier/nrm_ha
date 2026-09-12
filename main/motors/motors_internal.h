@@ -69,7 +69,7 @@ bool motors_is_valid_dec_steps(int64_t steps);
 #define TOTAL_GEAR_REDUCTION     (300.0f)  /* motor shaft turns : axis turns */
 
 /* Maximum safe slew speed in deg/s — hardware ceiling for this reduction. */
-#define MOTORS_MAX_SLEW_SPEED_DPS 10.0f
+#define MOTORS_MAX_SLEW_SPEED_DPS 6.0f
 
 /*
  * Motion calibration factor.
@@ -93,9 +93,9 @@ bool motors_is_valid_dec_steps(int64_t steps);
  *
  *   Outputs (contiguous GPIO 14→11, for clean PCB routing):
  *     GPIO 14: STEP- RA
- *     GPIO 13: DIR- RA
+ *     GPIO 10: DIR- RA   (test: was GPIO 13)
  *     GPIO 12: STEP- DEC
- *     GPIO 11: DIR- DEC
+ *     GPIO 9:  DIR- DEC   (test: was GPIO 11)
  *
  *   All outputs go through a UMC2003 Darlington array (open-collector
  *   sinking outputs, 3.3 V → 5 V level shift) because the integrated
@@ -106,9 +106,9 @@ bool motors_is_valid_dec_steps(int64_t steps);
  *   ALARM pins are not connected in this revision.
  * ========================================================================= */
 #define RA_STEP_GPIO       GPIO_NUM_14
-#define RA_DIR_GPIO        GPIO_NUM_13
+#define RA_DIR_GPIO        GPIO_NUM_10
 #define DEC_STEP_GPIO      GPIO_NUM_12
-#define DEC_DIR_GPIO       GPIO_NUM_11
+#define DEC_DIR_GPIO       GPIO_NUM_9
 
 /*
  * Angular displacement per microstep at the mount axis.
@@ -216,11 +216,18 @@ esp_err_t motors_rmt_wait_ra(TickType_t timeout_ticks);
 
 esp_err_t motors_rmt_wait_dec(TickType_t timeout_ticks);
 
+bool motors_rmt_try_wait_ra(void);
+
+bool motors_rmt_try_wait_dec(void);
+
 void motors_rmt_abort_ra(void);
 
 void motors_rmt_abort_dec(void);
 
 void motors_rmt_abort_both(void);
+
+/* Reset both RMT channels' hardware — motion task only. */
+void motors_rmt_reset_both(void);
 
 /* =========================================================================
  * Module-global state — motors_state is the single source of truth for
@@ -247,10 +254,3 @@ void motors_motion_stop(void);
 void motors_motion_task_init(void);
 
 void motors_queue_init(void);
-
-/*
- * Put the motors subsystem into the unrecoverable ERROR state.
- * Aborts RMT, sets MOTORS_STATUS_ERROR, clears guiding.
- * Only a reboot can clear this state.
- */
-void motors_enter_error_state(void);

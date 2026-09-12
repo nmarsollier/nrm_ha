@@ -23,10 +23,8 @@ typedef enum {
     MOTORS_STATUS_TRACKING,
     /* Parked: mount in safe parked position. */
     MOTORS_STATUS_PARKED,
-    /* Unrecoverable hardware error: motor driver init failed. Only reboot clears it. */
-    MOTORS_STATUS_ERROR,
-    /* Accelerometer (required peripheral) not found at boot. Only reboot clears it. */
-    MOTORS_STATUS_ACCEL_ERROR
+    /* Unrecoverable hardware error at boot. Only reboot clears it. */
+    MOTORS_STATUS_ERROR
 } MotorsStatus;
 
 /*
@@ -102,11 +100,12 @@ typedef enum {
 esp_err_t motors_init(void);
 
 /*
- * Put the motors subsystem into the accelerometer-not-found error state.
- * Called at boot when the required ADXL345 fails its I2C probe.  Only a
+ * Put the motors subsystem into the unrecoverable ERROR state: aborts any
+ * in-flight motion and sets MOTORS_STATUS_ERROR.  Used at boot when a
+ * required peripheral fails to initialise.  Only a
  * reboot clears this state.
  */
-void motors_enter_accel_error_state(void);
+void motors_enter_error_state(void);
 
 /*
  * Return a snapshot copy of the current `MotorsState`.
@@ -140,12 +139,6 @@ MotorResultCode motors_park(void);
 MotorResultCode motors_home(void);
 
 /*
- * Set the current physical position as the new zero reference.
- * Both axis step counters are reset to 0.  Allowed only in READY state.
- */
-MotorResultCode motors_set_zero(void);
-
-/*
  * Start continuous tracking according to the chosen `TrackingMode`.
  */
 MotorResultCode motors_start_tracking(TrackingMode mode);
@@ -169,7 +162,7 @@ float motors_get_slewing_speed(int speed_rate);
  */
 const char *motors_status_to_string(MotorsStatus status);
 
-/* True if `status` is a fatal error state (motor fault or missing accelerometer). */
+/* True if `status` is a fatal error state (motor fault). */
 bool motors_status_is_error(MotorsStatus status);
 
 const char *motors_tracking_to_string(TrackingMode tracking);

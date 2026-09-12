@@ -7,15 +7,14 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 ## Hardware
 
 - **Board**: ESP32-S3 44-pin (16 MB Flash, 8 MB PSRAM)
-- **Motor drivers**: Integrated closed-loop ISS42 (64 microsteps via DIP switches, specs in [`MOTOR.txt`](MOTOR.txt))
+- **Motor drivers**: Integrated closed-loop ISS42 (32 microsteps via DIP switches, specs in [`MOTOR.txt`](MOTOR.txt))
 - **Motors**: 2× NEMA 17 Closed Loop (0.44 Nm torque, integrated driver)
 - **Harmonic Drives**: 100:1 reduction
 - **Belt reduction**: 3:1 (HTD3M 15T → 45T, 171mm belt)
 - **Total reduction**: 300:1 on both axes
 - **Power**: 12V 5A supply → Mini DC 360 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
-- **LED**: PWM indicator (GPIO 10) — three states: dim (~10%) at idle, bright (100%) during slewing, slow breathing on error.
-- **Buzzer**: passive event beeper (GPIO 9, 2 kHz) — beeps on boot and on goto/move-axis start & end.
-- **Accelerometer**: 1× ADXL345 on I2C (GPIO 2 SDA / GPIO 1 SCL) — tilt + rotation for polar alignment and axis limits (see `main/accelerometer/README.md`).
+- **LED**: PWM indicator (GPIO 42) — three states: dim (~10%) at idle, bright (100%) during slewing, slow breathing on error.
+- **Buzzer**: passive event beeper (GPIO 41, 2 kHz) — beeps on boot and on goto/move-axis start & end.
 - **Outputs**: STEP/DIR/LED/buzzer all pass through a UMC2003 Darlington array (open-collector sinking).
 
 ### Harmonic Drives
@@ -30,7 +29,7 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 
 - NEMA 17 Closed Loop with integrated ISS42 driver (specs in [`MOTOR.txt`](MOTOR.txt))
 - https://www.amazon.com/dp/B0FHHWT8Q8
-- Configured at 64 microsteps via DIP switches
+- Configured at 32 microsteps via DIP switches
 - Torque: 0.44 Nm
 - Hardware torque limiting (SW6 ON)
 
@@ -38,14 +37,12 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 
 | GPIO | Function  | Notes                                              |
 |------|-----------|----------------------------------------------------|
-| 10   | LED (PWM) | External status indicator (via UMC2003)                          |
-| 9    | Buzzer    | Event beeper, 2 kHz PWM (via UMC2003)                          |
-| 2    | I2C SDA   | ADXL345 accelerometer (I2C)                             |
-| 1    | I2C SCL   | ADXL345 accelerometer (I2C)                             |
+| 42   | LED (PWM) | External status indicator (via UMC2003)                          |
+| 41   | Buzzer    | Event beeper, 2 kHz PWM (via UMC2003)                          |
 | 14   | RA STEP   | Right ascension step pulse (via UMC2003)             |
-| 13   | RA DIR    | Right ascension axis direction (via UMC2003)         |
+| 10   | RA DIR    | Right ascension axis direction (via UMC2003)         |
 | 12   | DEC STEP  | Declination step pulse (via UMC2003)                 |
-| 11   | DEC DIR   | Declination axis direction (via UMC2003)             |
+| 9    | DEC DIR   | Declination axis direction (via UMC2003)             |
 
 ### Level shifting (UMC2003 Darlington array)
 
@@ -98,9 +95,8 @@ REST API  (port 80)  ── serves embedded SPA at /
   Motors  (move / track, STEP/DIR GPIO, RMT pulse generation)
 
 USB Net  (CDC-NCM gadget, 192.168.7.1, DHCP server)
-LED  (GPIO 10 PWM: dim / bright / breathing)
-Buzzer  (GPIO 9, 2 kHz PWM beeps: boot / motion start / motion end)
-Accelerometer  (ADXL345 I2C: tilt / heading for polar align + limits)
+LED  (GPIO 42 PWM: dim / bright / breathing)
+Buzzer  (GPIO 41, 2 kHz PWM beeps: boot / motion start / motion end)
 Runtime  (init sequence + periodic loop)
 ```
 

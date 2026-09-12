@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "tinyusb.h"
 
 /* ── IP / DHCP configuration ───────────────────────────────── */
 
@@ -33,3 +34,7 @@ void       usb_net_free_rx_buffer(void *driver_handle, void *buffer);
 esp_err_t  usb_net_tinyusb_recv_cb(void *buffer, uint16_t len, void *ctx);
 void       usb_net_tinyusb_init_cb(void *ctx);
 void       usb_net_tinyusb_free_tx(void *buffer, void *ctx);
+
+/* ── USB descriptors (defined in usb_net_descriptors.c) ────── */
+
+const tusb_desc_device_t *usb_net_device_descriptor(void);

@@ -9,7 +9,7 @@ MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed) {
         return mount_result_error_state();
     }
 
-    if ((int) ra_speed == 0 && (int) dec_speed == 0) {
+    if (ra_speed == 0.0f && dec_speed == 0.0f) {
         /* Read before mount_stop() — mount_move_axis_reset() clears it. */
         TrackingMode to_restore = s_saved_tracking;
         s_saved_tracking = TRACKING_NONE;

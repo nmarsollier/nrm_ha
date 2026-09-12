@@ -8,14 +8,14 @@
 #define LED_MODE        LEDC_LOW_SPEED_MODE
 #define LED_TIMER       LEDC_TIMER_0
 #define LED_CHANNEL     LEDC_CHANNEL_0
-#define LED_GPIO        10
+#define LED_GPIO        42
 #define LED_FREQ_HZ     5000
 #define LED_DUTY_RES    LEDC_TIMER_13_BIT
 #define LED_DUTY_MAX    8191
 
 /* ── Brightness levels (13-bit range: 0 – 8191) ──────────── */
 
-#define LED_DIM_DUTY     600   /* ~5 % */
+#define LED_DIM_DUTY     2000  /* ~24 % */
 #define LED_BRIGHT_DUTY  8191  /* 100 % */
 
 /* ── Timing ───────────────────────────────────────────────── */

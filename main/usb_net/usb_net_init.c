@@ -156,6 +156,7 @@ static esp_err_t init_tinyusb(void)
              (unsigned)mac[3], (unsigned)mac[4], (unsigned)mac[5]);
 
     tinyusb_config_t cfg = TINYUSB_DEFAULT_CONFIG(usb_net_event_cb, s_netif);
+    cfg.descriptor.device = usb_net_device_descriptor();
     cfg.descriptor.string = s_usb_string_desc;
     cfg.descriptor.string_count = USB_NET_STRING_COUNT;
 

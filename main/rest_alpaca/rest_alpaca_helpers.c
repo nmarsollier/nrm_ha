@@ -19,6 +19,7 @@ uint32_t alpaca_next_server_tx(void) {
 
 static void alpaca_send_json(httpd_req_t *req, const char *json) {
     httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, json, strlen(json));
 }
 

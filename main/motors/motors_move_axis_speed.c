@@ -14,7 +14,7 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
         return MOTOR_ERR_HARDWARE_ERROR;
     }
 
-    if ((int) ra_speed == 0 && (int) dec_speed == 0) {
+    if (ra_speed == 0.0f && dec_speed == 0.0f) {
         return motors_stop();
     }
 

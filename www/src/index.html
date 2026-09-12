@@ -37,23 +37,6 @@
         </div>
     </div>
 
-    <!-- ═══ Orientation ═══ -->
-    <div class="panel">
-        <div class="panel-header">
-            <div class="panel-dot"></div>
-            <strong>Accelerometer</strong>
-            <span class="calibrating-badge" x-show="accelCalibrating">Calibrating…</span>
-        </div>
-        <div class="info-row">
-            <div>RA (accel) <span x-text="accelRaAngle != null && accelRaAngle > -999 ? accelRaAngle.toFixed(2) + '°' : '—'"></span></div>
-            <div>Elevation <span x-text="elevation != null && elevation >= 0 ? elevation.toFixed(1) + '°' : '—'"></span></div>
-        </div>
-        <div class="row">
-            <button @click="calibrateAccel()" :disabled="isError || accelCalibrating"
-                    x-text="accelCalibrating ? 'Calibrating…' : 'Calibrate'"></button>
-        </div>
-    </div>
-
     <!-- ═══ Debug ═══ -->
     <div class="panel">
         <div class="panel-header">
@@ -301,9 +284,7 @@
     </div>
 
     <!-- ═══ Error banner ═══ -->
-    <div class="fatal-banner" x-show="isError">
-        MOTOR ERROR &mdash; reboot required. Mount will not accept movement commands.
-    </div>
+    <div class="fatal-banner" x-show="isError" x-text="fatalMessage()"></div>
     <div class="error-banner" x-show="errorMessage" x-text="errorMessage"
          x-transition.opacity.duration.200ms></div>
 

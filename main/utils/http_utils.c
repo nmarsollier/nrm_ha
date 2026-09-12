@@ -9,11 +9,13 @@
 
 void http_response_json(httpd_req_t *request, const char *json) {
     httpd_resp_set_type(request, "application/json");
+    httpd_resp_set_hdr(request, "Connection", "close");
     httpd_resp_sendstr(request, json);
 }
 
 void http_response_html(httpd_req_t *request, const char *html, unsigned int len) {
     httpd_resp_set_type(request, "text/html");
+    httpd_resp_set_hdr(request, "Connection", "close");
     httpd_resp_send(request, html, len);
 }
 

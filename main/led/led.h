@@ -4,16 +4,16 @@
 #include <stdint.h>
 
 /*
- * LED states for the external indicator on GPIO 10.
+ * LED states for the external indicator on GPIO 42.
  *
- * NORMAL     — dim brightness (~10 %), mount idle.
+ * NORMAL     — dim brightness (~24 %), mount idle.
  * SLEWING    — full brightness (100 %), mount in motion.
- * ERROR      — slow smooth breathing, fatal fault: motor hardware error or
- *              missing accelerometer (reboot required).
+ * ERROR      — slow smooth breathing, fatal fault: motor hardware error
+ *              (reboot required).
  *
  * All state decisions are made inside led_update(), which is the
  * single public entry point for LED state changes. It inspects motor
- * and accelerometer status to pick the right state. No other module
+ * status to pick the right state. No other module
  * should call led_set_state() directly.
  */
 typedef enum {
@@ -22,13 +22,13 @@ typedef enum {
     LED_STATE_ERROR
 } LedState;
 
-/* Initialise LEDC PWM on GPIO 10 and start in NORMAL (dim). */
+/* Initialise LEDC PWM on GPIO 42 and start in NORMAL (dim). */
 void led_init(void);
 
 /*
  * Periodic update, call every ~50 ms from the runtime loop.
  *
- * Inspects the motors and the accelerometer and transitions the LED to
+ * Inspects the motors and transitions the LED to
  * the correct state.  This is the ONLY public function that changes LED
  * state — there is no separate set_state / clear_error API.
  */

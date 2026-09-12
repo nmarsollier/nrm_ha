@@ -8,7 +8,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 - Montura NRM-HA con harmonic drives de reduccion 100:1 y poleas HTD3M 3:1 (15T→45T)
 - Reduccion total: 300:1 en ambos ejes
 - Utiliza una placa ESP32-S3 44 pines
-- Utiliza 2 motores Nema 17 Closed Loop con driver integrado, configurados a 64 microsteps
+- Utiliza 2 motores Nema 17 Closed Loop con driver integrado, configurados a 32 microsteps
 - Los motores se alimentan directo de fuente 12V, la placa ESP32-S3 via Mini DC 360 (12V→5.5V)
 - Estructura metalica en hierro 1/8, dos cuerpos (RA y DEC)
 - La montura posee 2 botones fisicos, Stop y Home
@@ -26,7 +26,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 
 - Motores Nema 17 Closed Loop con driver integrado ISS42 (especificaciones en MOTOR.txt)
 - https://www.amazon.com/dp/B0FHHWT8Q8
-- Configurados a 64 microsteps via DIP switches
+- Configurados a 32 microsteps via DIP switches
 - Torque: 0.44 Nm
 - Limitado de torque por hardware (SW6 en ON)
 
@@ -45,7 +45,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 
 - **CPU**: Tensilica Xtensa 32-bit LX7, doble nucleo, hasta 240 MHz
 - **Alimentacion**: 5.5V via LM2596
-- **Logica I/O**: 3.3V (no tolera 5V, leds y buzzer conectados con resistencia en serie a 5.5v+ y y al UMC2003 en -)
+- **Logica I/O**: 3.3V (no tolera 5V, LED y buzzer directos a GPIO 42 y 41)
 - **GPIO digitales**: 45 (configurables)
 - **ADC**: 2 conversores SAR ADC de 12 bits, hasta 20 canales
 - **UART**: 3 controladores UART
@@ -59,18 +59,16 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 | GPIO | Funcion           | Notas                                              |
 |------|-------------------|----------------------------------------------------|
 | 14   | STEP- RA          | Pulso STEP eje ascension recta (via UMC2003)         |
-| 13   | DIR- RA           | Direccion eje ascension recta (via UMC2003)           |
+| 10   | DIR- RA           | Direccion eje ascension recta (via UMC2003)           |
 | 12   | STEP- DEC         | Pulso STEP eje declinacion (via UMC2003)              |
-| 11   | DIR- DEC          | Direccion eje declinacion (via UMC2003)               |
-| 10   | LED externo       | LEDC PWM, indicador de estado (via UMC2003)                      |
-| 9    | BUZZER            | Buzzer pasivo 2 kHz (via UMC2003)                  |
-| 2    | I2C SDA           | Acelerometro ADXL345 (I2C, pull-ups internos)       |
-| 1    | I2C SCL           | Acelerometro ADXL345 (I2C, pull-ups internos)       |
+| 9    | DIR- DEC          | Direccion eje declinacion (via UMC2003)               |
+| 42   | LED externo       | LEDC PWM, indicador de estado (directo a GPIO)                      |
+| 41   | BUZZER            | Buzzer pasivo 2 kHz (directo a GPIO)                  |
 
 **Level shifting (UMC2003, array Darlington):**
 Los drivers integrados usan optoacopladores en STEP/DIR que requieren
-5 V / ~10 mA. La ESP32-S3 tiene logica de 3.3 V y no tolera 5 V. Todas las
-salidas (STEP, DIR de ambos ejes, el LED y el buzzer) pasan por un UMC2003, un array
+5 V / ~10 mA. La ESP32-S3 tiene logica de 3.3 V y no tolera 5 V. Las salidas
+STEP y DIR de ambos ejes pasan por un UMC2003, un array
 Darlington de 7 canales con salidas de colector abierto (sinking).
 
 Cada GPIO va directo a una entrada del UMC2003 (resistencia de base interna,
@@ -83,8 +81,8 @@ GPIO (3.3V) → INx UMC2003        OUTx → carga → +V
   GPIO LOW  → OUTx en alta impedancia
 ```
 
-Las salidas son "negativas" (active-low): la carga (opto del driver o el LED
-con su resistencia) se conecta entre +V y la salida. El pin COM (anodo comun
+Las salidas son "negativas" (active-low): la carga (opto del driver) se
+conecta entre +V y la salida. El pin COM (anodo comun
 de los diodos de proteccion) se ata al +V. No hay cargas inductivas en esta
 revision (los drivers se controlan por optoacopladores, que son LED), asi
 que los diodos no son estrictamente necesarios.
@@ -128,9 +126,8 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 - **Mount** (`main/mount/`) — Orquestacion logica del montaje: estado, coordenadas, sincronizacion.
 - **Runtime** (`main/runtime/`) — Inicializacion y ciclo de vida del sistema.
 - **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP.
-- **LED** (`main/led/`) — Control PWM del LED externo en GPIO 10. Estados: tenue (normal), brillante (slewing), respiracion (error).
-- **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 9 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
-- **Accelerometer** (`main/accelerometer/`) — Acelerometro ADXL345 por I2C (GPIO2 SDA / GPIO1 SCL). Mide `tilt` y `heading` para alineacion polar y limites de RA/DEC. Ver `main/accelerometer/README.md`.
+- **LED** (`main/led/`) — Control PWM del LED externo en GPIO 42. Estados: tenue (normal), brillante (slewing), respiracion (error).
+- **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 41 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
 - **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo NCM.
 - **Tools** (`main/tools/`) — Utilidades transversales (parser, validacion).
 

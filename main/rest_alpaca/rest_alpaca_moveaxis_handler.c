@@ -3,7 +3,7 @@
  * Purpose: moves a single axis (0 = RA, 1 = DEC) continuously at the
  * given rate until Rate = 0 stops it.
  *
- * Rate is in deg/s, clamped to [0, motors_get_slewing_speed(4)].
+ * Rate is in deg/s, clamped to [-motors_get_slewing_speed(4), +motors_get_slewing_speed(4)].
  * Sign sets direction.
  */
 #include "rest_alpaca.h"
@@ -31,11 +31,16 @@ esp_err_t alpaca_moveaxis_handler(httpd_req_t *req) {
         return ESP_OK;
     }
 
+    if (axis != 0 && axis != 1) {
+        alpaca_response_error(req, 1025, "Axis not supported", cid, stx);
+        return ESP_OK;
+    }
+
     float hi = motors_get_slewing_speed(4);
     if (axis == 0) {
-        s_ra_rate = fmaxf(fminf(rate, hi), 0.0f);
+        s_ra_rate = fmaxf(fminf(rate, hi), -hi);
     } else {
-        s_dec_rate = fmaxf(fminf(rate, hi), 0.0f);
+        s_dec_rate = fmaxf(fminf(rate, hi), -hi);
     }
 
     MountResult result = mount_set_move_axis_speed(s_ra_rate, s_dec_rate);
