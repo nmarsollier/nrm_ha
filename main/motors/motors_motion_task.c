@@ -1062,6 +1062,14 @@ static void motion_loop(void) {
     } else {
         slewing_loop_rmt();
     }
+
+    /*
+     * Reset the RMT channels after every motion loop.  This stops any
+     * in-flight/queued transmission (e.g. after an external stop) and
+     * readies the hardware for the next command.  Runs on the motion
+     * task, the sole owner of the RMT channels.
+     */
+    motors_rmt_reset_both();
 }
 
 /* --------------------------------------------------------------------------

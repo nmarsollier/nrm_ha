@@ -222,6 +222,9 @@ void motors_rmt_abort_dec(void);
 
 void motors_rmt_abort_both(void);
 
+/* Reset both RMT channels' hardware — motion task only. */
+void motors_rmt_reset_both(void);
+
 /* =========================================================================
  * Module-global state — motors_state is the single source of truth for
  * the motors layer.  External code reads it through motors_current_state().
