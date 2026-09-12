@@ -93,41 +93,22 @@ static struct {
 /* Distance thresholds in centidegrees for ramp-profile selection. */
 #define SHORT_SLEW_CDS   200   /* constant slow speed below this */
 #define GENTLE_SLEW_CDS  800   /* cap target speed below this    */
-#define FAST_SLEW_CDS   3500   /* aggressive profile above this  */
 
 /*
- * Velocity profiles — 2 rows × 100 columns, each value is the
- * percentage of (target_vel − MIN_SLEW_CDS) added on top of the floor.
- *
- * Row 0 — gentle  (30 % linear accel, 40 % cruise, 30 % linear decel)
- * Row 1 — aggressive (10 % quadratic accel, 60 % cruise, 30 % linear decel)
+ * Velocity percentage (0-100) at a given progress point (0-999) for the
+ * gentle trapezoidal profile: 30 % linear accel, 40 % cruise, 30 % linear
+ * decel.  Computed analytically — ×100÷300 simplifies exactly to ÷3.
  */
-static const uint8_t VELOCITY_CURVE[2][100] = {
-    {
-        /* Row 0 — gentle profile */
-        0, 3, 7, 10, 14, 17, 21, 24, 28, 31,
-        34, 38, 41, 45, 48, 52, 55, 59, 62, 66,
-        69, 72, 76, 79, 83, 86, 90, 93, 97, 100,
-        100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-        100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-        100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-        100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-        100, 97, 93, 90, 86, 83, 79, 76, 72, 69,
-        66, 62, 59, 55, 52, 48, 45, 41, 38, 34,
-        31, 28, 24, 21, 17, 14, 10, 7, 3, 0,
-    },
-    {
-        /* Row 1 — aggressive profile */
-        0, 5, 10, 15, 21, 26, 30, 34, 38, 42, 48, 53, 59, 63, 69, 74, 79, 83, 88, 93,
-        100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-        100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-        100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-        100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-        100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-        100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-        93, 88, 83, 79, 74, 69, 63, 59, 53, 48, 42, 38, 34, 30, 24, 21, 15, 10, 5, 0,
-    },
-};
+static inline int curve_percent(int progress_permille) {
+    if (progress_permille < 300) {
+        return progress_permille / 3;
+    }
+    if (progress_permille < 700) {
+        return 100;
+    }
+    return (1000 - progress_permille) / 3;
+}
+
 
 /*
  * Compute the effective velocity for a single axis during a slew.
@@ -156,15 +137,12 @@ static float ramp_velocity(int target_vel_cds, int64_t travelled_steps,
         if (capped_vel > speed_limit) capped_vel = speed_limit;
     }
 
-    int curve = (distance_cds >= FAST_SLEW_CDS
-                 && motors_state.status == MOTORS_STATUS_SLEWING)
-                    ? 1
-                    : 0;
-
     if (travelled_steps < 0) travelled_steps = -travelled_steps;
-    int percent_index = (int) ((int64_t) travelled_steps * 99 / distance_steps);
+    /* Slew distance is bounded (< ~2M microsteps), so 32-bit math is safe
+     * and much cheaper than the 64-bit division. */
+    int percent_index = (int) ((uint32_t) travelled_steps * 999u / (uint32_t) distance_steps);
 
-    int vel = MIN_SLEW_CDS + (capped_vel - MIN_SLEW_CDS) * VELOCITY_CURVE[curve][percent_index] / 100;
+    int vel = MIN_SLEW_CDS + (capped_vel - MIN_SLEW_CDS) * curve_percent(percent_index) / 100;
     return (float) vel / 100.0f;
 }
 
