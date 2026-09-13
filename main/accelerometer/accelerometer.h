@@ -4,7 +4,7 @@
 #include "esp_err.h"
 
 /*
- * ADXL345 accelerometer on the I2C bus (GPIO2 = SDA, GPIO1 = SCL).
+ * ADXL345 accelerometer on the I2C bus (GPIO4 = SDA, GPIO5 = SCL).
  *
  * One sensor, with its SDO pin tied to GND (address 0x53).
  *
@@ -33,6 +33,12 @@ typedef struct {
  * Returns ESP_OK when the sensor is present, or an error otherwise.
  */
 esp_err_t accelerometer_init(void);
+
+/*
+ * True when the ADXL345 was probed and configured at boot.  Exposed for
+ * the UI to report the accelerometer status separately from the motors.
+ */
+bool accelerometer_is_present(void);
 
 /*
  * Periodic update, call every ~100 ms from the runtime loop.

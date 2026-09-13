@@ -8,7 +8,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 - Montura NRM-HA con harmonic drives de reduccion 100:1 y poleas HTD3M 3:1 (15T→45T)
 - Reduccion total: 300:1 en ambos ejes
 - Utiliza una placa ESP32-S3 44 pines
-- Utiliza 2 motores Nema 17 Closed Loop con driver integrado, configurados a 64 microsteps
+- Utiliza 2 motores Nema 17 paso a paso con drivers TMC2209 (modo STEP/DIR + configuracion UART)
 - Los motores se alimentan directo de fuente 12V, la placa ESP32-S3 via Mini DC 360 (12V→5.5V)
 - Estructura metalica en hierro 1/8, dos cuerpos (RA y DEC)
 - La montura posee 2 botones fisicos, Stop y Home
@@ -22,13 +22,14 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 - El cuerpo DEC se enrosca a la estructura RA a traves de la salida del Harmonic
 - Los cables que controlan el eje DEC se pasan por dentro del Harmonic
 
-### Motores Nema 17 Closed Loop
+### Motores Nema 17 y Drivers TMC2209
 
-- Motores Nema 17 Closed Loop con driver integrado ISS42 (especificaciones en MOTOR.txt)
-- https://www.amazon.com/dp/B0FHHWT8Q8
-- Configurados a 64 microsteps via DIP switches
-- Torque: 0.44 Nm
-- Limitado de torque por hardware (SW6 en ON)
+- Motores Nema 17 paso a paso bifasicos, 1.8° por paso
+- Driver TMC2209 en modo STEP/DIR, configurado por UART single-wire
+- Microstepping: 32 (MRES=3) con interpolacion a 256 (intpol)
+- Cada driver tiene su propio canal UART (un GPIO por driver), ambos con
+  MS1 y MS2 a GND → direccion UART 0x00
+- Corriente: irun=10, ihold=8 (escala TMC2209 0–31, ver main/tmc/tmc_init.c)
 
 ## Placa ESP32-S3
 
@@ -45,7 +46,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 
 - **CPU**: Tensilica Xtensa 32-bit LX7, doble nucleo, hasta 240 MHz
 - **Alimentacion**: 5.5V via LM2596
-- **Logica I/O**: 3.3V (no tolera 5V, leds y buzzer conectados con resistencia en serie a 5.5v+ y y al UMC2003 en -)
+- **Logica I/O**: 3.3V (led y buzzer conectados directo a 3.3V, anodo comun; el GPIO hunde corriente para activarlos)
 - **GPIO digitales**: 45 (configurables)
 - **ADC**: 2 conversores SAR ADC de 12 bits, hasta 20 canales
 - **UART**: 3 controladores UART
@@ -56,64 +57,58 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 
 ### Pinout definitivo NRM-HA
 
-| GPIO | Funcion           | Notas                                              |
-|------|-------------------|----------------------------------------------------|
-| 14   | STEP- RA          | Pulso STEP eje ascension recta (via UMC2003)         |
-| 13   | DIR- RA           | Direccion eje ascension recta (via UMC2003)           |
-| 12   | STEP- DEC         | Pulso STEP eje declinacion (via UMC2003)              |
-| 11   | DIR- DEC          | Direccion eje declinacion (via UMC2003)               |
-| 10   | LED externo       | LEDC PWM, indicador de estado (via UMC2003)                      |
-| 9    | BUZZER            | Buzzer pasivo 2 kHz (via UMC2003)                  |
-| 2    | I2C SDA           | Acelerometro ADXL345 (I2C, pull-ups internos)       |
-| 1    | I2C SCL           | Acelerometro ADXL345 (I2C, pull-ups internos)       |
+| GPIO | Funcion     | Notas                                             |
+|------|-------------|---------------------------------------------------|
+| 2    | UART DEC TX | TMC2209 DEC TX (al PDN_UART via 1 kΩ)             |
+| 21   | UART RA TX  | TMC2209 RA TX (al PDN_UART via 1 kΩ)              |
+| 14   | STEP RA     | Pulso STEP ascension recta (directo, RMT)         |
+| 13   | DIR RA      | Direccion ascension recta (directo)               |
+| 12   | UART RA RX  | TMC2209 RA RX (directo al PDN_UART)               |
+| 11   | STEP DEC    | Pulso STEP declinacion (directo, RMT)             |
+| 10   | DIR DEC     | Direccion declinacion (directo)                   |
+| 9    | UART DEC RX | TMC2209 DEC RX (directo al PDN_UART)              |
+| 6    | LED         | LEDC PWM, indicador de estado (directo, anodo 3V3)|
+| 5    | I2C SCL     | Acelerometro ADXL345 (I2C, pull-ups internos)     |
+| 4    | I2C SDA     | Acelerometro ADXL345 (I2C, pull-ups internos)     |
+| 1    | BUZZER      | Buzzer pasivo 2 kHz (directo, a 3V3)              |
 
-**Level shifting (UMC2003, array Darlington):**
-Los drivers integrados usan optoacopladores en STEP/DIR que requieren
-5 V / ~10 mA. La ESP32-S3 tiene logica de 3.3 V y no tolera 5 V. Todas las
-salidas (STEP, DIR de ambos ejes, el LED y el buzzer) pasan por un UMC2003, un array
-Darlington de 7 canales con salidas de colector abierto (sinking).
+**Salidas directas (sin level shifting):**
+En esta placa no se usa UMC2003/ULN2003. Las salidas STEP/DIR van directo a los
+drivers TMC2209 (entradas 3.3 V tolerantes). El LED y el buzzer se conectan entre
+3.3 V y su GPIO (anodo a 3.3 V): el GPIO hunde corriente para activarlos
+(active-low), por eso LEDC se configura con `output_invert`.
 
-Cada GPIO va directo a una entrada del UMC2003 (resistencia de base interna,
-no requiere resistor externo). La salida hunde corriente hacia GND:
+Cada TMC2209 se comunica por UART single-wire: un par TX/RX por driver. El TX
+va al pin PDN_UART a traves de una resistencia de 1 kΩ (serie) y el RX directo
+a ese mismo pin; para leer se flota el TX (modo input) mientras el driver responde.
+Ambos drivers llevan MS1 y MS2 a GND → direccion 0x00.
 
-```
-GPIO (3.3V) → INx UMC2003        OUTx → carga → +V
-
-  GPIO HIGH → OUTx a GND (carga activa)
-  GPIO LOW  → OUTx en alta impedancia
-```
-
-Las salidas son "negativas" (active-low): la carga (opto del driver o el LED
-con su resistencia) se conecta entre +V y la salida. El pin COM (anodo comun
-de los diodos de proteccion) se ata al +V. No hay cargas inductivas en esta
-revision (los drivers se controlan por optoacopladores, que son LED), asi
-que los diodos no son estrictamente necesarios.
-
-EN+ / EN- van **sin conectar** (habilitado por defecto). El ISS42 invierte la
-logica: EN+ a +V y EN- a GND lo *deshabilita*.
-Los pines ALARM no se conectan en esta revision.
+El pin EN de cada TMC2209 va **sin conectar** (habilitado por defecto).
 
 **Alimentacion:**
-| Pin  | Funcion           |
-|------|-------------------|
-| 12V  | Alimentacion de potencia (DC+) y entradas de control (PU+/DR+). El ISS42 acepta 5-24 V en control |
-| GND  | Tierra comun (placa, UMC2003 y drivers comparten la misma tierra) |
+| Pin  | Funcion                                                 |
+|------|---------------------------------------------------------|
+| 12V  | Alimentacion de potencia (VM) de los TMC2209             |
+| 3V3  | Alimentacion del LED y buzzer (anodo comun)              |
+| GND  | Tierra comun (placa y drivers comparten la misma tierra) |
 
 **Uso futuro:**
-| GPIO | Funcion     | Notas                              |
-|------|-------------|------------------------------------|
-| 6    | I2C SCL (2do bus) | Display / sensor adicional        |
+GPIO libres: 7, 8, 15, 16, 17, 18, 38.
 
 ### Pines con restricciones (NO USAR)
 
-| GPIO | Restriccion                                 |
-|------|---------------------------------------------|
-| 0    | Boot: LOW en reset = modo flash (ROM boot)  |
-| 3    | Strapping JTAG (LOW al boot)                |
-| 43   | UART0 TX, consola debug (USB-Serial nativo) |
-| 44   | UART0 RX, consola debug (USB-Serial nativo) |
-| 45   | Strapping (VDD_SPI voltage)                 |
-| 46   | Strapping: modo de arranque (con GPIO0). GPIO46=1 + GPIO0=0 es invalido |
+| GPIO    | Restriccion                                                        |
+|---------|--------------------------------------------------------------------|
+| 0       | Boot: LOW en reset = modo flash (ROM boot)                         |
+| 3       | Strapping JTAG (LOW al boot)                                       |
+| 19, 20  | USB D-/D+ (nativo, consola + USB Net)                              |
+| 26–32   | SPI flash                                                          |
+| 33–37   | PSRAM octal (8 MB)                                                 |
+| 39–42   | JTAG (MTCK/MTDO/MTDI/MTMS), reservados                             |
+| 43      | UART0 TX, consola debug (USB-Serial nativo)                        |
+| 44      | UART0 RX, consola debug (USB-Serial nativo)                        |
+| 45      | Strapping (VDD_SPI voltage)                                        |
+| 46      | Strapping: modo de arranque (con GPIO0). GPIO46=1 + GPIO0=0 invalido |
 
 ## Arquitectura
 
@@ -128,9 +123,10 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 - **Mount** (`main/mount/`) — Orquestacion logica del montaje: estado, coordenadas, sincronizacion.
 - **Runtime** (`main/runtime/`) — Inicializacion y ciclo de vida del sistema.
 - **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP.
-- **LED** (`main/led/`) — Control PWM del LED externo en GPIO 10. Estados: tenue (normal), brillante (slewing), respiracion (error).
-- **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 9 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
-- **Accelerometer** (`main/accelerometer/`) — Acelerometro ADXL345 por I2C (GPIO2 SDA / GPIO1 SCL). Mide `tilt` y `heading` para alineacion polar y limites de RA/DEC. Ver `main/accelerometer/README.md`.
+- **TMC** (`main/tmc/`) — Configuracion y verificacion de los drivers TMC2209 por UART single-wire (microstepping, corriente, chop mode).
+- **LED** (`main/led/`) — Control PWM del LED externo en GPIO 6. Estados: tenue (normal), brillante (slewing), respiracion (error).
+- **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 1 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
+- **Accelerometer** (`main/accelerometer/`) — Acelerometro ADXL345 por I2C (GPIO4 SDA / GPIO5 SCL). Mide `tilt` y `heading` para alineacion polar y limites de RA/DEC. Ver `main/accelerometer/README.md`.
 - **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo NCM.
 - **Tools** (`main/tools/`) — Utilidades transversales (parser, validacion).
 
@@ -168,4 +164,4 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 
 - USB Net depende de TinyUSB (componente gestionado `espressif/esp_tinyusb`) y esp_netif
 - REST API y Alpaca se enlazan a INADDR_ANY, accesibles por USB Net
-- Motors es autocontenido: controla GPIOs DIR y RMT para STEP
+- Motors es autocontenido: controla GPIOs DIR y RMT para STEP; el modulo TMC (UART) configura y verifica los drivers TMC2209

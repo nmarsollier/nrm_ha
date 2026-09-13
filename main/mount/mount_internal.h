@@ -31,8 +31,5 @@ static inline bool mount_is_error(void) {
 }
 
 static inline MountResult mount_result_error_state(void) {
-    if (motors_current_state().status == MOTORS_STATUS_ACCEL_ERROR) {
-        return mount_result_error("Accelerometer not found — mount in error state");
-    }
-    return mount_result_error("Motors in error state — reboot required");
+    return mount_result_error("Mount in error state — reboot required");
 }

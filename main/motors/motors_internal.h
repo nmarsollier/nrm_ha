@@ -1,6 +1,7 @@
 #pragma once
 
 #include "motors.h"
+#include "tmc/tmc.h"
 
 #include "driver/rmt_tx.h"
 #include "freertos/FreeRTOS.h"
@@ -88,37 +89,36 @@ bool motors_is_valid_dec_steps(int64_t steps);
  *
  * STEP pins are owned by the RMT peripheral (motors_rmt.c).
  * DIR pins remain under GPIO control (motors_hw.c).
+ * The TMC2209 UART pins are configured by the tmc module (tmc_init.c).
  *
  * NRM-HA pinout (ESP32-S3 44-pin board):
  *
- *   Outputs (contiguous GPIO 14→11, for clean PCB routing):
- *     GPIO 14: STEP- RA
- *     GPIO 13: DIR- RA
- *     GPIO 12: STEP- DEC
- *     GPIO 11: DIR- DEC
+ *     GPIO 14: STEP RA
+ *     GPIO 13: DIR  RA
+ *     GPIO 12: UART RA (TMC2209 single-wire)
+ *     GPIO 11: STEP DEC
+ *     GPIO 10: DIR  DEC
+ *     GPIO 9:  UART DEC (TMC2209 single-wire)
  *
- *   All outputs go through a UMC2003 Darlington array (open-collector
- *   sinking outputs, 3.3 V → 5 V level shift) because the integrated
- *   drivers use optocoupler inputs that require 5 V / ~10 mA.
- *   See CLAUDE.md for the wiring diagram.
+ *   Direct 3.3 V logic — no UMC2003 level shifting.  The TMC2209 STEP/DIR
+ *   inputs are 3.3 V tolerant.
  *
  *   ENABLE is hardwired (always enabled) — no GPIO control needed.
- *   ALARM pins are not connected in this revision.
  * ========================================================================= */
 #define RA_STEP_GPIO       GPIO_NUM_14
 #define RA_DIR_GPIO        GPIO_NUM_13
-#define DEC_STEP_GPIO      GPIO_NUM_12
-#define DEC_DIR_GPIO       GPIO_NUM_11
+#define DEC_STEP_GPIO      GPIO_NUM_11
+#define DEC_DIR_GPIO       GPIO_NUM_10
 
 /*
  * Angular displacement per microstep at the mount axis.
  *
  *   1.8° = NEMA 17 full-step angle
- *   MOTORS_MICROSTEPS        = 32 (DIP-switch on integrated closed-loop driver)
+ *   TMC_TARGET_MICROSTEPS    = 32 (verified by TMC init; any other value is an error)
  *   TOTAL_GEAR_REDUCTION     = 300:1 (3:1 belts × 100:1 harmonic drive)
  */
 static inline float motors_get_deg_per_microstep(void) {
-    return 1.8f / ((float) MOTORS_MICROSTEPS *
+    return 1.8f / ((float) TMC_TARGET_MICROSTEPS *
                     TOTAL_GEAR_REDUCTION *
                     MOTION_CALIBRATION_FACTOR);
 }
@@ -127,7 +127,7 @@ static inline float motors_get_deg_per_microstep(void) {
  * Hardware layer — DIR GPIO control (motors_hw.c).
  *
  * STEP pulse generation is handled by the RMT peripheral (motors_rmt.c).
- * ENABLE is hardwired (no GPIO control).  ALARM pins are not connected.
+ * ENABLE is hardwired (no GPIO control).
  * ========================================================================= */
 
 typedef enum {
@@ -155,13 +155,12 @@ void motors_hw_set_direction_dec(MotorDirection direction);
 
 /* STEP pulse timing in RMT ticks (2 MHz reference).
  *
- * Driver manual (ISS42): STEP active on rising edge, pulse width > 2.5 µs.
- * With UMC2003 (sinking output) our GPIO HIGH → driver sees LOW (the
- * active pulse).  The Darlington needs ~1 us to switch, so we drive 6 µs
- * HIGH (12 ticks) to leave the driver a clean > 2.5 µs pulse. */
-#define STEP_PULSE_TICKS     12U   /* 6 us — margin for the UMC2003 Darlington */
-#define STEP_MIN_LOW_TICKS   4U    /* 2 us LOW floor — Darlington turn-off margin */
-#define STEP_MIN_PERIOD_TICKS (STEP_PULSE_TICKS + STEP_MIN_LOW_TICKS)  /* 16 ticks = 8 us */
+ * TMC2209 requires STEP HIGH ≥ 100 ns and STEP LOW ≥ 100 ns.
+ * We use 2 µs HIGH (4 ticks) and ≥ 1 µs LOW (2 ticks) for margin.
+ * The minimum total period guarantees a valid LOW gap between pulses. */
+#define STEP_PULSE_TICKS     4U    /* 2 us HIGH */
+#define STEP_MIN_LOW_TICKS   2U    /* 1 us LOW floor */
+#define STEP_MIN_PERIOD_TICKS (STEP_PULSE_TICKS + STEP_MIN_LOW_TICKS)  /* 6 ticks = 3 us */
 
 /* =========================================================================
  * Position representation — int64_t absolute microstep counters.
@@ -250,10 +249,3 @@ void motors_motion_stop(void);
 void motors_motion_task_init(void);
 
 void motors_queue_init(void);
-
-/*
- * Put the motors subsystem into the unrecoverable ERROR state.
- * Aborts RMT, sets MOTORS_STATUS_ERROR, clears guiding.
- * Only a reboot can clear this state.
- */
-void motors_enter_error_state(void);

@@ -7,6 +7,7 @@
 
 #include "mount.h"
 #include "motors/motors.h"
+#include "tmc/tmc.h"
 
 #include "accelerometer.h"
 #include "utils/utils.h"
@@ -65,6 +66,12 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
             "\"elevation_deg\":%.2f,"
             "\"accel_calibrating\":%s,"
             "\"guiding\":%s,"
+            "\"tmc_ok\":%s,"
+            "\"accel_ok\":%s,"
+            "\"tmc_ra\":\"%s\","
+            "\"tmc_dec\":\"%s\","
+            "\"tmc_ra_error\":\"%s\","
+            "\"tmc_dec_error\":\"%s\","
             "\"microsteps\":%u,"
             "\"limits\":{"
             "\"ra_min\":%.1f,"
@@ -104,7 +111,13 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
              accelerometer_get_elevation_deg(),
              accelerometer_is_calibrating() ? "true" : "false",
              ms.guiding ? "true" : "false",
-             MOTORS_MICROSTEPS,
+             tmc2209_is_initialized() ? "true" : "false",
+             accelerometer_is_present() ? "true" : "false",
+             tmc2209_axis_status_to_string(tmc2209_get_axis_status(TMC_AXIS_RA)),
+             tmc2209_axis_status_to_string(tmc2209_get_axis_status(TMC_AXIS_DEC)),
+             tmc2209_axis_error_to_string(tmc2209_get_axis_error(TMC_AXIS_RA)),
+             tmc2209_axis_error_to_string(tmc2209_get_axis_error(TMC_AXIS_DEC)),
+             TMC_TARGET_MICROSTEPS,
              ms.limits.ra_min, ms.limits.ra_max,
              ms.limits.dec_min, ms.limits.dec_max,
              (unsigned long) (esp_timer_get_time() / 1000000));

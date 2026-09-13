@@ -13,8 +13,8 @@ rechazados) y solo se recupera reconectando el sensor y reiniciando.
 
 | Señal | Pin     | Notas                    |
 |-------|---------|--------------------------|
-| SDA   | GPIO 2  | ADXL345                  |
-| SCL   | GPIO 1  | ADXL345                  |
+| SDA   | GPIO 4  | ADXL345                  |
+| SCL   | GPIO 5  | ADXL345                  |
 
 - Bus `I2C_NUM_0`, 100 kHz.
 - Pull-ups internos habilitados. Para 100 kHz conviene añadir 4.7–10 kΩ

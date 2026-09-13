@@ -2,21 +2,21 @@
 
 Equatorial mount with harmonic drives for astrophotography, controlled by an ESP32-S3, compatible with N.I.N.A. (Alpaca / ASCOM) and its own REST API.
 
-This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop stepper motors with integrated drivers. It exposes a full ASCOM Alpaca interface on port 11111 so that N.I.N.A. and other clients can discover and control the mount directly.
+This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 stepper motors with TMC2209 drivers. It exposes a full ASCOM Alpaca interface on port 11111 so that N.I.N.A. and other clients can discover and control the mount directly.
 
 ## Hardware
 
 - **Board**: ESP32-S3 44-pin (16 MB Flash, 8 MB PSRAM)
-- **Motor drivers**: Integrated closed-loop ISS42 (64 microsteps via DIP switches, specs in [`MOTOR.txt`](MOTOR.txt))
-- **Motors**: 2× NEMA 17 Closed Loop (0.44 Nm torque, integrated driver)
+- **Motor drivers**: 2× TMC2209 in STEP/DIR mode, configured over single-wire UART (32 µsteps + 256 interpolation)
+- **Motors**: 2× NEMA 17 stepper (1.8°/step)
 - **Harmonic Drives**: 100:1 reduction
 - **Belt reduction**: 3:1 (HTD3M 15T → 45T, 171mm belt)
 - **Total reduction**: 300:1 on both axes
 - **Power**: 12V 5A supply → Mini DC 360 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
-- **LED**: PWM indicator (GPIO 10) — three states: dim (~10%) at idle, bright (100%) during slewing, slow breathing on error.
-- **Buzzer**: passive event beeper (GPIO 9, 2 kHz) — beeps on boot and on goto/move-axis start & end.
-- **Accelerometer**: 1× ADXL345 on I2C (GPIO 2 SDA / GPIO 1 SCL) — tilt + rotation for polar alignment and axis limits (see `main/accelerometer/README.md`).
-- **Outputs**: STEP/DIR/LED/buzzer all pass through a UMC2003 Darlington array (open-collector sinking).
+- **LED**: PWM indicator (GPIO 6) — three states: dim (~10%) at idle, bright (100%) during slewing, slow breathing on error.
+- **Buzzer**: passive event beeper (GPIO 1, 2 kHz) — beeps on boot and on goto/move-axis start & end.
+- **Accelerometer**: 1× ADXL345 on I2C (GPIO 4 SDA / GPIO 5 SCL) — tilt + rotation for polar alignment and axis limits (see `main/accelerometer/README.md`).
+- **Outputs**: direct 3.3 V logic — no level shifting. LED and buzzer are common-anode to 3.3 V (GPIO sinks).
 
 ### Harmonic Drives
 
@@ -26,67 +26,55 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 - DEC body threads onto the RA structure through the Harmonic output
 - DEC control cables pass through the Harmonic center
 
-### NEMA 17 Closed Loop Motors
+### NEMA 17 Motors + TMC2209 Drivers
 
-- NEMA 17 Closed Loop with integrated ISS42 driver (specs in [`MOTOR.txt`](MOTOR.txt))
-- https://www.amazon.com/dp/B0FHHWT8Q8
-- Configured at 64 microsteps via DIP switches
-- Torque: 0.44 Nm
-- Hardware torque limiting (SW6 ON)
+- NEMA 17 stepper, bipolar, 1.8°/step
+- TMC2209 in STEP/DIR mode, configured over single-wire UART
+- Microstepping: 32 (MRES=3) with 256-step interpolation (intpol)
+- Each driver has its own UART (one GPIO per driver); both use MS1/MS2 to GND → address 0x00
+- Run/hold current: irun=10, ihold=8 (TMC2209 0–31 scale, see `main/tmc/tmc_init.c`)
 
 ### Pin mapping
 
-| GPIO | Function  | Notes                                              |
-|------|-----------|----------------------------------------------------|
-| 10   | LED (PWM) | External status indicator (via UMC2003)                          |
-| 9    | Buzzer    | Event beeper, 2 kHz PWM (via UMC2003)                          |
-| 2    | I2C SDA   | ADXL345 accelerometer (I2C)                             |
-| 1    | I2C SCL   | ADXL345 accelerometer (I2C)                             |
-| 14   | RA STEP   | Right ascension step pulse (via UMC2003)             |
-| 13   | RA DIR    | Right ascension axis direction (via UMC2003)         |
-| 12   | DEC STEP  | Declination step pulse (via UMC2003)                 |
-| 11   | DEC DIR   | Declination axis direction (via UMC2003)             |
+| GPIO | Function    | Notes                                       |
+|------|-------------|---------------------------------------------|
+| 2    | DEC UART TX | TMC2209 DEC TX (to PDN_UART via 1 kΩ)       |
+| 21   | RA UART TX  | TMC2209 RA TX (to PDN_UART via 1 kΩ)        |
+| 14   | RA STEP     | Right ascension step pulse (direct, RMT)    |
+| 13   | RA DIR      | Right ascension axis direction (direct)     |
+| 12   | RA UART RX  | TMC2209 RA RX (direct to PDN_UART)          |
+| 11   | DEC STEP    | Declination step pulse (direct, RMT)        |
+| 10   | DEC DIR     | Declination axis direction (direct)         |
+| 9    | DEC UART RX | TMC2209 DEC RX (direct to PDN_UART)         |
+| 6    | LED         | Status indicator (direct, anode to 3.3 V)   |
+| 5    | I2C SCL     | ADXL345 accelerometer (I2C)                 |
+| 4    | I2C SDA     | ADXL345 accelerometer (I2C)                 |
+| 1    | Buzzer      | Event beeper, 2 kHz PWM (direct, to 3.3 V)  |
 
-### Level shifting (UMC2003 Darlington array)
+### Direct wiring (no level shifting)
 
-The integrated ISS42 drivers use optocouplers on STEP/DIR that accept 5–24 V control signals (~10 mA). The ESP32-S3 has 3.3 V logic and is not 5 V tolerant. All outputs (STEP, DIR for both axes, LED and buzzer) pass through a UMC2003 — a 7-channel Darlington array with open-collector (sinking) outputs.
+This board does not use a UMC2003/ULN2003. STEP/DIR connect directly to the TMC2209 drivers (3.3 V tolerant inputs). The LED and buzzer sit between 3.3 V and their GPIO (common anode): the GPIO sinks current to drive them (active-low), so LEDC is configured with `output_invert`.
 
-Each GPIO drives a UMC2003 input directly (internal base resistor, no external resistor needed). The output sinks current to ground:
-
-```
-GPIO (3.3 V) → INx UMC2003        OUTx → load → +V
-
-  GPIO HIGH → OUTx to GND (load active)
-  GPIO LOW  → OUTx high-impedance
-```
-
-Outputs are "active-low": the load (driver opto, or LED/buzzer with its resistor) connects between +V and the output. The COM pin (common anode of the protection diodes) ties to +V. There are no inductive loads in this revision, so the diodes aren't strictly needed.
+Each TMC2209 talks over a single-wire UART — a TX/RX pair per driver. TX connects through a 1 kΩ series resistor to PDN_UART and RX connects directly; TX is floated while reading the response. Both drivers tie MS1 and MS2 to GND → address 0x00.
 
 **Power connections:**
 
-| Pin  | Purpose                                                              |
-|------|----------------------------------------------------------------------|
-| 12 V | Motor power (DC+) and control inputs (PU+/DR+). ISS42 accepts 5–24 V on control inputs. |
-| GND  | Common ground — shared by the board, the UMC2003 (pin 8) and both drivers. |
+| Pin   | Purpose                                         |
+|-------|-------------------------------------------------|
+| 12 V  | TMC2209 motor supply (VM)                       |
+| 3.3 V | LED and buzzer common anode                     |
+| GND   | Common ground — shared by board and drivers      |
 
-### Motor driver wiring (ISS42)
+### Motor driver wiring (TMC2209)
 
-Terminals in order: `DC+, GND, AM-, AM+, EN-, EN+, DR-, DR+, PU-, PU+`.
+- **VM / GND** — 12 V motor power (shared ground).
+- **STEP / DIR** — direct from ESP32-S3 GPIOs (RMT for STEP, GPIO for DIR).
+- **PDN_UART** — single-wire UART, one GPIO per driver.
+- **EN** — unconnected (enabled by default).
+- **MS1 / MS2** — both to GND (UART address 0x00).
 
-| Terminal    | Connect to |
-|-------------|------------|
-| DC+ / GND   | 12 V motor power (shared ground) |
-| PU+ (STEP+) | +12 V |
-| PU- (STEP-) | UMC2003 output (sinks to GND) |
-| DR+ (DIR+)  | +12 V |
-| DR- (DIR-)  | UMC2003 output (sinks to GND) |
-| EN+ / EN-   | **unconnected** — enabled by default |
-| AM+ / AM-   | not connected (this revision) |
-
-- **STEP (PU)**: rising edge, one microstep per low→high transition, pulse > 2.5 µs (firmware emits 6 µs for Darlington margin).
-- **DIR (DR)**: level input, must be stable ≥ 50 µs before the STEP pulse.
-- **ENABLE (EN)**: inverted — connecting EN+ to +V and EN- to GND *disables* the driver; leaving both floating *enables* it (default).
-- **Common ground**: the UMC2003 GND (pin 8) must share the same ground as the driver's 12 V supply.
+- **STEP**: rising edge, one microstep per transition; TMC2209 needs ≥ 100 ns HIGH/LOW (firmware emits 2 µs HIGH / 1 µs LOW).
+- **DIR**: level input, stable before the STEP pulse.
 
 ## Architecture
 
@@ -96,10 +84,11 @@ Alpaca REST API  (port 11111)  ◄── also: UDP discovery on 32227
 REST API  (port 80)  ── serves embedded SPA at /
   Mount  (orchestration, coordinates, settings)
   Motors  (move / track, STEP/DIR GPIO, RMT pulse generation)
+  TMC  (TMC2209 UART config + verification)
 
 USB Net  (CDC-NCM gadget, 192.168.7.1, DHCP server)
-LED  (GPIO 10 PWM: dim / bright / breathing)
-Buzzer  (GPIO 9, 2 kHz PWM beeps: boot / motion start / motion end)
+LED  (GPIO 6 PWM: dim / bright / breathing)
+Buzzer  (GPIO 1, 2 kHz PWM beeps: boot / motion start / motion end)
 Accelerometer  (ADXL345 I2C: tilt / heading for polar align + limits)
 Runtime  (init sequence + periodic loop)
 ```

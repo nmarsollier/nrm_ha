@@ -2,7 +2,7 @@
  *
  * Purpose: bring up the I2C bus and the ADXL345 sensor on it.
  *
- * Creates the bus on GPIO2 (SDA) / GPIO1 (SCL), adds a device handle
+ * Creates the bus on GPIO4 (SDA) / GPIO5 (SCL), adds a device handle
  * for the sensor address (0x53), probes it and configures it if it
  * answers.  A missing sensor is a fatal error: the mount starts in the
  * ERROR state.
@@ -14,6 +14,10 @@
 static const char *TAG = "ACCELEROMETER_INIT";
 
 AccelSensor accel_sensor;
+
+bool accelerometer_is_present(void) {
+    return accel_sensor.present;
+}
 
 esp_err_t accelerometer_read_register(const AccelSensor *sensor, uint8_t reg, uint8_t *value) {
     return i2c_master_transmit_receive(sensor->dev_handle, &reg, 1, value, 1, ACCEL_TIMEOUT_MS);
@@ -63,7 +67,7 @@ esp_err_t accelerometer_init(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2C bus init failed: %s — sensor disabled",
                  esp_err_to_name(err));
-        return err;
+        return ESP_OK;
     }
 
     i2c_device_config_t dev_config = {
@@ -77,7 +81,7 @@ esp_err_t accelerometer_init(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "addr 0x%02X: device handle failed: %s",
                  accel_sensor.address, esp_err_to_name(err));
-        return err;
+        return ESP_OK;
     }
 
     /* Probe sends the address and checks for ACK. */
@@ -85,10 +89,10 @@ esp_err_t accelerometer_init(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "addr 0x%02X: not present (%s) — sensor disabled",
                  accel_sensor.address, esp_err_to_name(err));
-        return err;
+        return ESP_OK;
     }
 
     err = configure_sensor(&accel_sensor);
     accel_sensor.present = (err == ESP_OK);
-    return err;
+    return ESP_OK;
 }

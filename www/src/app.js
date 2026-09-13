@@ -9,6 +9,12 @@ function mountApp() {
         accelRaAngle: null,
         elevation: null,
         accelCalibrating: false,
+        tmcOk: true,
+        tmcRa: 'not_init',
+        tmcDec: 'not_init',
+        tmcRaError: 'none',
+        tmcDecError: 'none',
+        accelOk: true,
         settings: {lat: 0, lon: 0, elevation: 0},
         mountTime: '--',
         timeAutoSet: false,
@@ -62,6 +68,12 @@ function mountApp() {
                 this.accelRaAngle = (j.debug && j.debug.accel_ra_deg != null) ? j.debug.accel_ra_deg : null;
                 this.elevation = (j.debug && j.debug.elevation_deg != null) ? j.debug.elevation_deg : null;
                 this.accelCalibrating = (j.debug && j.debug.accel_calibrating === true);
+                this.tmcOk = (j.debug && j.debug.tmc_ok) === true;
+                this.tmcRa = (j.debug && j.debug.tmc_ra) || 'not_init';
+                this.tmcDec = (j.debug && j.debug.tmc_dec) || 'not_init';
+                this.tmcRaError = (j.debug && j.debug.tmc_ra_error) || 'none';
+                this.tmcDecError = (j.debug && j.debug.tmc_dec_error) || 'none';
+                this.accelOk = (j.debug && j.debug.accel_ok) !== false;
 
                 const s = j.settings;
                 if (s) {
@@ -185,6 +197,28 @@ function mountApp() {
             if (h > 0) return h + 'h ' + m + 'm ' + sec + 's';
             if (m > 0) return m + 'm ' + sec + 's';
             return sec + 's';
+        },
+
+        tmcErrorLabel(code) {
+            const labels = {
+                uart: 'UART',
+                gconf_write: 'GCONF write',
+                ihold_write: 'IHOLD write',
+                chopconf_write: 'CHOPCONF write',
+                chopconf_verify: 'CHOPCONF verify'
+            };
+            return labels[code] || code;
+        },
+
+        fatalMessage() {
+            const parts = [];
+            if (this.accelOk === false) parts.push('Accelerometer not found');
+            if (this.tmcRa !== 'ok') parts.push('RA: ' + this.tmcErrorLabel(this.tmcRaError));
+            if (this.tmcDec !== 'ok') parts.push('DEC: ' + this.tmcErrorLabel(this.tmcDecError));
+            if (parts.length === 0) {
+                return 'Mount error — reboot required. Mount will not accept movement commands.';
+            }
+            return parts.join(' · ') + ' — reboot required.';
         },
 
         init() {

@@ -11,8 +11,8 @@
 /* ── I2C bus ──────────────────────────────────────────────── */
 
 #define ACCEL_I2C_PORT      I2C_NUM_0
-#define ACCEL_SDA_GPIO      2
-#define ACCEL_SCL_GPIO      1
+#define ACCEL_SDA_GPIO      4
+#define ACCEL_SCL_GPIO      5
 #define ACCEL_CLK_HZ        100000   /* 100 kHz standard mode */
 #define ACCEL_TIMEOUT_MS    100
 

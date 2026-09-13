@@ -1,26 +1,22 @@
 /* Motors - motors_hw.c
  *
- * Purpose: DIR GPIO control for the closed-loop integrated stepper
- * drivers (NRM-HA).
+ * Purpose: DIR GPIO control and TMC2209 initialisation for the two
+ * stepper axes (NRM-HA).
  *
  * STEP pulse generation is handled by the RMT peripheral (motors_rmt.c)
  * for jitter-free hardware-timed pulses with DMA streaming.
  * ENABLE is hardwired (always enabled) — no GPIO control needed.
  *
- * Hardware: NEMA 17 closed-loop stepper motors with integrated drivers,
- * 32-microstep DIP-switch setting, 300:1 total reduction.
- *
- * Level shifting: all output signals (STEP, DIR for both axes) go
- * through a UMC2003 Darlington array (open-collector sinking output).
- * GPIO HIGH (3.3 V) turns the channel ON, pulling the driver's
- * optocoupler cathode to GND.  The optocoupler anode connects to 5 V.
- * This inverts the signal at the driver side.
+ * Hardware: NEMA 17 stepper motors driven by TMC2209 in STEP/DIR mode
+ * with UART-configured microstepping.  Direct 3.3 V logic — no level
+ * shifting.  300:1 total reduction.
  */
 
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "motors_internal.h"
+#include "tmc/tmc.h"
 
 /* Cached last directions to avoid redundant GPIO writes. */
 static int last_dir_ra = -1;
@@ -29,7 +25,7 @@ static int last_dir_dec = -1;
 esp_err_t motors_hw_init(void) {
     /*
      * DIR pins are managed via GPIO.
-     * STEP pins (GPIO 14, GPIO 12) are owned by the RMT peripheral and
+     * STEP pins (GPIO 14, GPIO 11) are owned by the RMT peripheral and
      * configured by motors_rmt_init().
      */
     const uint64_t pin_mask =
@@ -53,13 +49,17 @@ esp_err_t motors_hw_init(void) {
     last_dir_ra = 0;
     last_dir_dec = 0;
 
+    /* Configure and verify both TMC2209 drivers over UART. */
+    esp_err_t tmc_result = tmc2209_hw_init();
+    if (tmc_result != ESP_OK) {
+        return tmc_result;
+    }
+
     return ESP_OK;
 }
 
 void motors_hw_set_direction_ra(MotorDirection direction) {
-    /* With UMC2003: GPIO HIGH → output sinks → driver sees LOW.
-     * RA positive rotation maps to GPIO 0 → driver DIR- = 1. */
-    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 0 : 1;
+    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
     if (last_dir_ra != dir) {
         last_dir_ra = dir;
         gpio_set_level(RA_DIR_GPIO, dir);
@@ -67,8 +67,6 @@ void motors_hw_set_direction_ra(MotorDirection direction) {
 }
 
 void motors_hw_set_direction_dec(MotorDirection direction) {
-    /* With UMC2003: GPIO HIGH → output sinks → driver sees LOW.
-     * DEC positive rotation maps to GPIO 1 → driver DIR- = 0. */
     int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
     if (last_dir_dec != dir) {
         last_dir_dec = dir;

@@ -7,13 +7,6 @@
  * High-level state of the motors subsystem used as the authoritative
  * source of truth for mount activity.
  */
-
-/*
- * Microstep resolution — the closed-loop driver's actual DIP-switch
- * setting (NRM-HA: 32 microsteps / 6400 steps per revolution).
- */
-#define MOTORS_MICROSTEPS 32
-
 typedef enum {
     /* Ready to accept slews/tracking requests. */
     MOTORS_STATUS_READY,
@@ -23,10 +16,8 @@ typedef enum {
     MOTORS_STATUS_TRACKING,
     /* Parked: mount in safe parked position. */
     MOTORS_STATUS_PARKED,
-    /* Unrecoverable hardware error: motor driver init failed. Only reboot clears it. */
-    MOTORS_STATUS_ERROR,
-    /* Accelerometer (required peripheral) not found at boot. Only reboot clears it. */
-    MOTORS_STATUS_ACCEL_ERROR
+    /* Unrecoverable hardware error at boot. Only reboot clears it. */
+    MOTORS_STATUS_ERROR
 } MotorsStatus;
 
 /*
@@ -102,11 +93,12 @@ typedef enum {
 esp_err_t motors_init(void);
 
 /*
- * Put the motors subsystem into the accelerometer-not-found error state.
- * Called at boot when the required ADXL345 fails its I2C probe.  Only a
+ * Put the motors subsystem into the unrecoverable ERROR state: aborts any
+ * in-flight motion and sets MOTORS_STATUS_ERROR.  Used at boot when a
+ * required peripheral (e.g. the accelerometer) fails to initialise.  Only a
  * reboot clears this state.
  */
-void motors_enter_accel_error_state(void);
+void motors_enter_error_state(void);
 
 /*
  * Return a snapshot copy of the current `MotorsState`.

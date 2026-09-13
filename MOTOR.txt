@@ -1,229 +1,111 @@
-INFORMACIÓN DEL MOTOR Y DRIVER ISS42
-
-TIPO
-Motor paso a paso bifásico con driver integrado y control de posición de lazo cerrado.
-
-ESPECIFICACIONES ELÉCTRICAS
-
-Tensión de alimentación:
-- Mínima: 12 VDC
-- Típica: 24 VDC
-- Máxima: 40 VDC
-
-Corriente de las entradas de control:
-- Mínima: 7 mA
-- Típica: 10 mA
-- Máxima: 16 mA
-
-Frecuencia de pulsos STEP:
-- Mínima: 0 kHz
-- Máxima: 200 kHz
-
-Resistencia de aislamiento:
-- Mínima: 50 MΩ
-
-
-ORDEN DE LOS TERMINALES
-
-DC+, GND, AM-, AM+, EN-, EN+, DR-, DR+, PU-, PU+
-
-DC+:
-Positivo de alimentación, de 12 a 40 VDC. Tensión típica: 24 VDC.
-
-GND:
-Negativo o masa de alimentación.
-
-AM+ / AM-:
-Salida de alarma.
-
-EN+ / EN-:
-Entrada de habilitación o deshabilitación.
-
-DR+ / DR-:
-Entrada de dirección.
-
-PU+ / PU-:
-Entrada de pulsos STEP.
-
-
-ENTRADA DE PULSOS: PU+ / PU-
-
-- Admite señales de +5 V a +24 V.
-- Se activa con el flanco ascendente.
-- Cada transición de nivel bajo a alto mueve el motor un micropaso.
-- El ancho del pulso debe ser superior a 2,5 µs.
-- La frecuencia máxima es de 200 kHz.
-
-
-ENTRADA DE DIRECCIÓN: DR+ / DR-
-
-- Admite señales de +5 V a +24 V.
-- Funciona mediante nivel lógico alto o bajo.
-- La señal de dirección debe establecerse al menos 50 µs antes de la señal de pulso STEP.
-
-
-ENTRADA DE HABILITACIÓN: EN+ / EN-
-
-- Admite señales de +5 V a +24 V.
-- Permite habilitar o deshabilitar el motor.
-- Cuando EN+ se conecta a +5 V y EN- a nivel bajo, el driver corta la corriente de las fases.
-- En ese estado, el motor queda libre y sin par de retención.
-- Mientras está deshabilitado, el driver no responde a los pulsos STEP.
-- Si esta función no se necesita, los terminales EN pueden dejarse sin conectar.
-- La entrada EN también puede utilizarse para borrar la alarma de error excesivo de posición.
-
-
-SALIDA DE ALARMA: AM+ / AM-
-
-La salida de alarma se activa ante:
-
-- Sobretensión.
-- Subtensión.
-- Pérdida de fase.
-- Error excesivo de posición.
-
-Características:
-
-- Corriente máxima de salida: 50 mA.
-- Al encender, la salida queda por defecto en estado normalmente abierto (NO).
-
-
-CONEXIONES DEL MOTOR
-
-A+:
-- Color rojo.
-- Fase A positiva.
-
-A-:
-- El manual muestra “Buld”, probablemente azul (Blue).
-- Fase A negativa.
-
-B+:
-- Color verde.
-- Fase B positiva.
-
-B-:
-- Color negro.
-- Fase B negativa.
-
-Orden del conector:
-
-A+, A-, B+, B-
-
-El cableado viene configurado de fábrica. No se recomienda cambiar su secuencia salvo que sea necesario.
-
-
-INDICADORES LED Y ALARMAS
-
-0 parpadeos verdes / sin parpadeos rojos:
-Driver habilitado. LED verde encendido permanentemente y LED rojo apagado.
-
-1 parpadeo verde / sin parpadeos rojos:
-Se recibió una señal de pulso. LED verde parpadeando y LED rojo apagado.
-
-1 parpadeo verde / 1 parpadeo rojo:
-Alarma de desviación normal de posición.
-
-2 parpadeos verdes / 1 parpadeo rojo:
-Se recibieron pulsos mientras el driver estaba deshabilitado.
-
-3 parpadeos verdes / 1 parpadeo rojo:
-Alarma de desviación de posición por sobretensión.
-
-4 parpadeos verdes / 1 parpadeo rojo:
-Alarma de desviación de posición por subtensión.
-
-1 parpadeo verde / 4 parpadeos rojos:
-Alarma de sobretensión.
-
-2 parpadeos verdes / 4 parpadeos rojos:
-Alarma de subtensión.
-
-1 parpadeo verde / 5 parpadeos rojos:
-Alarma de sobrecorriente. Función reservada.
-
-1 parpadeo verde / 6 parpadeos rojos:
-Falta de fase A/B.
-
-2 parpadeos verdes / 6 parpadeos rojos:
-Falta de fase A.
-
-3 parpadeos verdes / 6 parpadeos rojos:
-Falta de fase B.
-
-1 parpadeo verde / 8 parpadeos rojos:
-Timeout de homing. Función reservada.
-
-1 parpadeo verde / 2 parpadeos rojos:
-Recuperación de parámetros en curso.
-
-2 parpadeos verdes / 2 parpadeos rojos:
-Guardado de parámetros en curso.
-
-
-CONFIGURACIÓN DE INTERRUPTORES DIP
-
-SW1 — SENTIDO DE GIRO
-
-OFF:
-Giro hacia adelante. Configuración predeterminada.
-
-ON:
-Giro inverso.
-
-SELECCIÓN DE CORRIENTE
-
-OFF:
-Modo de corriente baja.
-
-ON:
-Modo de corriente alta.
-
-En la fotografía no se distingue claramente qué número de interruptor controla esta función.
-
-
-CONDICIONES AMBIENTALES
-
-Método de refrigeración:
-- Convección natural.
-- Puede utilizarse disipación asistida por ventilador.
-
-Temperatura de funcionamiento:
-- De 0 °C a 50 °C.
-
-Humedad de funcionamiento:
-- De 40 % a 90 % RH.
-
-Vibración:
-- De 10 a 55 Hz.
-- Amplitud: 0,15 mm.
-
-Temperatura de almacenamiento:
-- De -20 °C a 65 °C.
-
-
-RESTRICCIONES DE INSTALACIÓN
-
-No instalar el equipo:
-
-- Junto a otros equipos que generen calor.
-- En lugares con polvo.
-- En lugares con niebla de aceite.
-- En presencia de gases corrosivos.
-- En ambientes con humedad excesiva.
-- En zonas con vibraciones intensas.
-- En presencia de gases combustibles.
-- En presencia de polvo conductor.
-
-
-RESUMEN DE CONEXIÓN Y OPERACIÓN
-
-- Alimentación recomendada: 24 VDC.
-- Rango permitido de alimentación: 12 a 40 VDC.
-- Señales de control: 5 a 24 V.
-- STEP: flanco ascendente.
-- Ancho mínimo recomendado del pulso: más de 2,5 µs.
-- Frecuencia máxima de STEP: 200 kHz.
-- DIR debe establecerse al menos 50 µs antes del pulso STEP.
-- Motor paso a paso bifásico con driver integrado.
-- Salida de alarma AM con corriente máxima de 50 mA.
+INFORMACIÓN DEL DRIVER TMC2209 (NRM-HA)
+=======================================
+
+RESUMEN DEL MÓDULO TMC2209
+=========================
+Fuente: las 10 imágenes proporcionadas. Se unificó el contenido repetido.
+Este documento resume lo publicado en esas imágenes; no es una verificación
+contra la hoja de datos oficial. Los valores contradictorios se indican abajo.
+
+1. DESCRIPCIÓN Y FUNCIONES
+- Driver para controlar un motor paso a paso de un eje, presentado para placas
+  de impresoras 3D, con etapa de potencia integrada.
+- Control mediante señales STEP/DIR y configuración mediante UART.
+- Hasta 256 micropasos según la publicidad; la selección mediante MS1/MS2
+  ofrece los valores de la tabla del apartado 4.
+- Tecnologías mencionadas: StealthChop (funcionamiento silencioso), SpreadCycle
+  y MicroPlyer (interpolación de micropasos).
+- Se promociona como alternativa a A4988 y DRV8825 para reducir ruido y
+  vibraciones. Las imágenes no demuestran compatibilidad directa con cualquier
+  placa ni garantizan que nunca se pierdan pasos.
+
+2. PARÁMETROS PUBLICADOS
+- Alimentación del motor: 5,5 a 28 V en la ficha específica del producto.
+- Alimentación lógica: 3 a 5 V.
+- Corriente anunciada: 2,8 A, sin aclarar si es pico o RMS.
+- Corriente de fábrica: 0,85 A.
+- Corriente recomendada: no superar 1,7 A, sin aclarar si es pico o RMS.
+- Peso: 10 g.
+- Dimensiones indicadas de la placa: aproximadamente 20,66 x 15,5 mm.
+- Disipador: se indican 15 mm y una altura de 13 mm; no se especifican todas
+  sus dimensiones ni la altura total del conjunto.
+DISCREPANCIA DE TENSIÓN: la introducción genérica TMC2208/2209 menciona 5 a
+35 V, mientras que la ficha específica indica 5,5 a 28 V. No tomar 35 V como
+límite confirmado para este módulo; verificar la versión exacta antes de usarlo.
+
+3. PINES DEL MÓDULO
+Orden según la tabla y la vista superior de las imágenes. No confundirlo con
+la numeración de las patas del circuito integrado o con una vista inferior.
+J1 — Señales de control:
+  1  EN          Habilitación (ENN en el esquema).
+  2  MS1         Selección de micropasos.
+  3  MS2         Selección de micropasos.
+  4  PDN/UART    Posición alternativa para UART, según puente de selección.
+  5  PDN/UART    Posición de UART indicada como predeterminada de fábrica.
+  6  CLK         Reloj.
+  7  STEP        Entrada de pulsos de paso.
+  8  DIR         Entrada de dirección.
+J2 — Alimentación y motor:
+  1  VM          Alimentación de potencia del motor.
+  2  GND         Masa.
+  3  A2          Terminal de la bobina A.
+  4  A1          Terminal de la bobina A.
+  5  B1          Terminal de la bobina B.
+  6  B2          Terminal de la bobina B.
+  7  VCC_IO/VDD  Alimentación lógica.
+  8  GND         Masa.
+Puntos adicionales:
+- DIAG: salida de diagnóstico y StallGuard para detección de bloqueo/error.
+  La tabla menciona restablecer la condición de error mediante ENN en alto.
+- VREF: referencia analógica para ajustar la corriente.
+- INDEX: salida configurable de pulsos de índice (escrita INDEXC en la tabla).
+La tabla llama PDN a las posiciones 4 y 5; otra imagen las rotula PDN y USART.
+La lámina de selección UART aclara que se elige la conexión con un puente:
+no asumir que ambas posiciones están conectadas a UART simultáneamente.
+
+4. MICROPASOS POR MS1 Y MS2
+  Micropasos    MS1     MS2
+  1/8          Bajo    Bajo
+  1/16         Alto    Alto
+  1/32         Alto    Bajo
+  1/64         Bajo    Alto
+La tabla corresponde a la selección física mostrada. El anuncio de 256
+micropasos no significa que exista una combinación adicional de estos dos
+pines para seleccionarlos directamente; el material menciona interpolación
+MicroPlyer y configuración UART, sin detallar sus registros.
+
+5. UART
+- De fábrica, PDN_UART está dirigido al quinto pin de la hilera de control.
+- Para usar el cuarto, la imagen indica cambiar el puente de soldadura en
+  los pads PDN de la cara inferior, según el dibujo de esa versión de placa.
+- El texto original sobre este cambio está mal traducido. No debe interpretarse
+  como una indicación de soldar con alimentación conectada.
+- Según el material, en modo UART la placa principal puede controlar la
+  corriente y no es necesario ajustarla manualmente con el potenciómetro.
+  Esto presupone que la comunicación y el firmware estén configurados.
+- No se incluyen instrucciones completas de cableado UART ni de firmware.
+
+---
+
+CONFIGURACIÓN EN NRM-HA (lo que usa el firmware)
+------------------------------------------------
+
+- 2× TMC2209, uno por eje: RA y DEC.
+- Cada driver en su propio canal UART single-wire (par TX/RX por driver):
+    RA  → UART1, TX GPIO 21, RX GPIO 12
+    DEC → UART2, TX GPIO 2,  RX GPIO 9
+- Ambos drivers con MS1 y MS2 a GND → dirección UART 0x00.
+  (Nota: con microsteps por UART, MS1/MS2 dejan de seleccionar micropasos y
+  pasan a ser la dirección UART. Ver GCONF mstep_reg_select.)
+- Microstepping: 32 (MRES=3) configurado por UART, con interpolación a 256
+  (intpol). La tabla del apartado 4 no aplica: se usa configuración por UART,
+  no por pines.
+- Corriente: irun=10, ihold=8 (campo IHOLD_IRUN, escala 0–31). Depende del
+  Vref/Rsense de la placa; verificar en banco.
+- UART a 115200 baud, single-wire: TX va al PDN_UART a través de 1 kΩ (serie)
+  y RX directo a ese pin. Para leer la respuesta del driver se flota el TX
+  (modo input con pull-up) y luego se restaura.
+- STEP/DIR directos desde la ESP32-S3 (lógica 3.3 V, sin level shifting).
+- EN sin conectar (habilitado por defecto).
+- Registros configurados y verificados por readback: GCONF, IHOLD_IRUN,
+  CHOPCONF. Ver main/tmc/tmc_init.c.

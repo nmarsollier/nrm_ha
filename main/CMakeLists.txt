@@ -22,7 +22,6 @@ idf_component_register(
 
         "motors/motors_current_state.c"
         "motors/motors_enter_error_state.c"
-        "motors/motors_enter_accel_error_state.c"
         "motors/motors_get_slewing_speed.c"
         "motors/motors_get_tracking_speed.c"
         "motors/motors_home.c"
@@ -190,6 +189,10 @@ idf_component_register(
         "runtime/runtime_loop.c"
         "runtime/runtime_setup.c"
 
+        "tmc/tmc_get_active_microsteps.c"
+        "tmc/tmc_get_axis_status.c"
+        "tmc/tmc_init.c"
+
         "utils/http_utils.c"
         "utils/json_utils.c"
         "utils/number_utils.c"
@@ -209,6 +212,7 @@ idf_component_register(
         "rest_alpaca"
         "motors"
         "runtime"
+        "tmc"
         "utils"
         "udp_alpaca"
         "usb_net"
@@ -225,5 +229,6 @@ idf_component_register(
         esp_driver_gpio
         esp_driver_i2c
         esp_driver_ledc
+        esp_driver_uart
         esp_driver_rmt
 )

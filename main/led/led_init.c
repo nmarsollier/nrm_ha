@@ -1,13 +1,12 @@
 /* LED — led_init.c
  *
- * Purpose: initialise LEDC PWM on GPIO 10 for brightness control.
+ * Purpose: initialise LEDC PWM on GPIO 6 for brightness control.
  *
  * Configures timer 0 at 5 kHz, 13-bit resolution (8192 steps),
- * binds channel 0 to GPIO 10, and starts with the dim (NORMAL) duty.
+ * binds channel 0 to GPIO 6, and starts with the dim (NORMAL) duty.
  *
- * GPIO 10 drives a UMC2003 Darlington channel (open-collector sink):
- * GPIO HIGH → output sinks → LED on.  Higher duty = brighter, so no
- * output inversion is required.
+ * The LED is common-anode to 3.3 V (GPIO sinks to light it), so the
+ * output is inverted: low duty = bright.
  */
 #include "led_internal.h"
 
@@ -38,7 +37,7 @@ void led_init(void) {
         .duty           = LED_DIM_DUTY,
         .hpoint         = 0,
         .sleep_mode     = LEDC_SLEEP_MODE_NO_ALIVE_NO_PD,
-        .flags          = { .output_invert = 0 },
+        .flags          = { .output_invert = 1 },
     };
     ESP_ERROR_CHECK(ledc_channel_config(&chan_conf));
 

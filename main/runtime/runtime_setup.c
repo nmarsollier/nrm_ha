@@ -65,7 +65,7 @@ void setup_init(void) {
     } else if (accel_err != ESP_OK) {
         ESP_LOGE(TAG, "accelerometer_init failed: %s — mount in ERROR state",
                  esp_err_to_name(accel_err));
-        motors_enter_accel_error_state();
+        motors_enter_error_state();
     }
 
     ESP_LOGI(TAG, "Mount ready");
