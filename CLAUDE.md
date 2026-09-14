@@ -20,7 +20,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 - Reduccion de poleas 3:1 en la entrada del harmonico: HTD3M 15T → HTD3M 45T, correa 171mm
 - Reduccion Total en ambos Ejes: 300:1
 - El cuerpo DEC se enrosca a la estructura RA a traves de la salida del Harmonic
-- Los cables que controlan el eje DEC se pasan por dentro del Harmonic
+- Los cables que controlan el eje DEC van por fuera de la montura
 
 ### Motores Nema 17 y Drivers TMC2209
 
