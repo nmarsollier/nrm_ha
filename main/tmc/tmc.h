@@ -2,7 +2,7 @@
  * tmc.h — TMC2209 driver public API.
  *
  * This module is the SINGLE source of truth for microstep configuration.
- * All other layers MUST reference TMC_TARGET_MICROSTEPS rather than
+ * All other layers MUST reference MICROSTEPS rather than
  * defining their own constants.
  */
 
@@ -18,7 +18,7 @@
  * All other layers (motors, motion) MUST reference this value rather than
  * defining their own constants.
  * -------------------------------------------------------------------------- */
-#define TMC_TARGET_MICROSTEPS  32
+#define MICROSTEPS  32
 
 /* --------------------------------------------------------------------------
  * Public API

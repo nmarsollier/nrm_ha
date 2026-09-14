@@ -45,18 +45,18 @@
  * (1/3/6 deg/s) stay in silent StealthChop, 4× (10 deg/s) goes SpreadCycle. */
 #define TMC_TPWMTHRS_VALUE 40
 
-/* ── Target microstep resolution — see TMC_TARGET_MICROSTEPS in tmc.h ── */
+/* ── Target microstep resolution — see MICROSTEPS in tmc.h ── */
 
-/* TMC_TARGET_MICROSTEPS must be a valid TMC2209 microstep value; otherwise
+/* MICROSTEPS must be a valid TMC2209 microstep value; otherwise
  * tmc_microsteps_to_mres() silently falls through to its default. */
-_Static_assert(TMC_TARGET_MICROSTEPS == 256 || TMC_TARGET_MICROSTEPS == 128 ||
-               TMC_TARGET_MICROSTEPS == 64  || TMC_TARGET_MICROSTEPS == 32  ||
-               TMC_TARGET_MICROSTEPS == 16  || TMC_TARGET_MICROSTEPS == 8   ||
-               TMC_TARGET_MICROSTEPS == 4   || TMC_TARGET_MICROSTEPS == 2   ||
-               TMC_TARGET_MICROSTEPS == 1,
-               "TMC_TARGET_MICROSTEPS must be 256/128/64/32/16/8/4/2/1");
+_Static_assert(MICROSTEPS == 256 || MICROSTEPS == 128 ||
+               MICROSTEPS == 64  || MICROSTEPS == 32  ||
+               MICROSTEPS == 16  || MICROSTEPS == 8   ||
+               MICROSTEPS == 4   || MICROSTEPS == 2   ||
+               MICROSTEPS == 1,
+               "MICROSTEPS must be 256/128/64/32/16/8/4/2/1");
 
-/* Convert TMC_TARGET_MICROSTEPS to the MRES register field.
+/* Convert MICROSTEPS to the MRES register field.
  * TMC2209 MRES mapping: 256→0, 128→1, 64→2, 32→3, 16→4, 8→5, 4→6, 2→7, 1→8 */
 static uint8_t tmc_microsteps_to_mres(uint16_t ms) {
     switch (ms) {
@@ -348,7 +348,7 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, int axis_index)
                       | (5U << 4)    /* HSTRT = 5 */
                       | (2U << 7)    /* HEND = 2 */
                       | (2U << 15)   /* TBL = 2 */
-                      | ((uint32_t)tmc_microsteps_to_mres(TMC_TARGET_MICROSTEPS) << 24) /* MRES */
+                      | ((uint32_t)tmc_microsteps_to_mres(MICROSTEPS) << 24) /* MRES */
                       | (1U << 28);  /* INTPOL → 256 µsteps */
     uint32_t chopconf_mask = 0x0FU | (0x7U << 4) | (0xFU << 7)
                            | (0x3U << 15) | (1U << 17)
