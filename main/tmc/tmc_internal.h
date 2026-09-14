@@ -10,10 +10,10 @@
 #include <stdint.h>
 
 /*
- * Update the cached active microstep count.
- * Called by tmc_set_microsteps() after verifying the hardware latch.
+ * Mark the module initialised after both axes were configured and verified.
+ * Called by tmc_init.c: tmc_init_driver() on success, tmc2209_hw_init() on failure.
  */
-void tmc2209_set_active_microsteps(uint16_t microsteps);
+void tmc2209_set_initialized(bool initialized);
 
 /*
  * Per-axis init diagnostics — written by tmc_init.c as each driver is

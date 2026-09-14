@@ -189,7 +189,7 @@ idf_component_register(
         "runtime/runtime_loop.c"
         "runtime/runtime_setup.c"
 
-        "tmc/tmc_get_active_microsteps.c"
+        "tmc/tmc_get_initialized.c"
         "tmc/tmc_get_axis_status.c"
         "tmc/tmc_init.c"
 

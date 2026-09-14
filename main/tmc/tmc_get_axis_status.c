@@ -46,8 +46,6 @@ const char *tmc2209_axis_error_to_string(TmcAxisError error) {
             return "gconf_write";
         case TMC_AXIS_ERROR_IHOLD_WRITE:
             return "ihold_write";
-        case TMC_AXIS_ERROR_CHOPCONF_WRITE:
-            return "chopconf_write";
         case TMC_AXIS_ERROR_CHOPCONF_VERIFY:
             return "chopconf_verify";
         case TMC_AXIS_ERROR_TPWMTHRS_WRITE:

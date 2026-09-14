@@ -6,8 +6,7 @@
  * defining their own constants.
  */
 
-#ifndef TMC2209_HW_H
-#define TMC2209_HW_H
+#pragma once
 
 #include "esp_err.h"
 #include <stdint.h>
@@ -60,11 +59,10 @@ typedef enum {
 typedef enum {
     TMC_AXIS_ERROR_NONE = 0,
     TMC_AXIS_ERROR_UART,           /* uart_driver_install / param_config / set_pin */
-    TMC_AXIS_ERROR_GCONF_WRITE,    /* GCONF write */
-    TMC_AXIS_ERROR_IHOLD_WRITE,    /* IHOLD_IRUN write */
-    TMC_AXIS_ERROR_CHOPCONF_WRITE, /* CHOPCONF write */
-    TMC_AXIS_ERROR_CHOPCONF_VERIFY,/* CHOPCONF readback / MRES mismatch */
-    TMC_AXIS_ERROR_TPWMTHRS_WRITE  /* TPWMTHRS write */
+    TMC_AXIS_ERROR_GCONF_WRITE,    /* GCONF write + readback */
+    TMC_AXIS_ERROR_IHOLD_WRITE,    /* IHOLD_IRUN write (IFCNT verify) */
+    TMC_AXIS_ERROR_CHOPCONF_VERIFY,/* CHOPCONF write + readback / MRES mismatch */
+    TMC_AXIS_ERROR_TPWMTHRS_WRITE  /* TPWMTHRS write (IFCNT verify) */
 } TmcAxisError;
 
 TmcAxisStatus tmc2209_get_axis_status(int axis);
@@ -72,5 +70,3 @@ TmcAxisError  tmc2209_get_axis_error(int axis);
 
 const char *tmc2209_axis_status_to_string(TmcAxisStatus status);
 const char *tmc2209_axis_error_to_string(TmcAxisError error);
-
-#endif

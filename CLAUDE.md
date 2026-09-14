@@ -29,7 +29,9 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 - Microstepping: 32 (MRES=3) con interpolacion a 256 (intpol)
 - Cada driver tiene su propio canal UART (un GPIO por driver), ambos con
   MS1 y MS2 a GND → direccion UART 0x00
-- Corriente: irun=10, ihold=8 (escala TMC2209 0–31, ver main/tmc/tmc_init.c)
+- Corriente: irun=12, ihold=8 (escala TMC2209 0–31, ver main/tmc/tmc_init.c)
+- Chopper: StealthChop (silencioso) hasta 3× (6°/s), SpreadCycle en 4× (10°/s);
+  en_SpreadCycle=0 + TPWMTHRS=40. Referencia: main/tmc/README.md
 
 ## Placa ESP32-S3
 
@@ -123,7 +125,7 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 - **Mount** (`main/mount/`) — Orquestacion logica del montaje: estado, coordenadas, sincronizacion.
 - **Runtime** (`main/runtime/`) — Inicializacion y ciclo de vida del sistema.
 - **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP.
-- **TMC** (`main/tmc/`) — Configuracion y verificacion de los drivers TMC2209 por UART single-wire (microstepping, corriente, chop mode).
+- **TMC** (`main/tmc/`) — Configuracion y verificacion de los drivers TMC2209 por UART single-wire (microstepping, corriente, chop mode). Referencia tecnica completa (datasheet rev 1.09): `main/tmc/README.md`.
 - **LED** (`main/led/`) — Control PWM del LED externo en GPIO 6. Estados: tenue (normal), brillante (slewing), respiracion (error).
 - **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 1 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
 - **Accelerometer** (`main/accelerometer/`) — Acelerometro ADXL345 por I2C (GPIO5 SDA / GPIO4 SCL). Mide `tilt` y `heading` para alineacion polar y limites de RA/DEC. Ver `main/accelerometer/README.md`.
