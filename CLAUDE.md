@@ -30,8 +30,8 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 - Cada driver tiene su propio canal UART (un GPIO por driver), ambos con
   MS1 y MS2 a GND → direccion UART 0x00
 - Corriente: irun=12, ihold=8 (escala TMC2209 0–31, ver main/tmc/tmc_init.c)
-- Chopper: StealthChop (silencioso) hasta 3× (6°/s), SpreadCycle en 4× (10°/s);
-  en_SpreadCycle=0 + TPWMTHRS=40. Referencia: main/tmc/README.md
+- Chopper: StealthChop (silencioso) en reposo y < ~1°/s, SpreadCycle por encima;
+  en_SpreadCycle=0 + TPWMTHRS=281. Referencia: main/tmc/README.md
 
 ## Placa ESP32-S3
 

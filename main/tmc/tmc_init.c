@@ -38,12 +38,13 @@
  * With GCONF.en_SpreadCycle=0 (StealthChop base mode), this selects the
  * velocity at which the driver switches to SpreadCycle: StealthChop while
  * TSTEP >= TPWMTHRS (slow = silent), SpreadCycle while TSTEP < TPWMTHRS
- * (fast = more torque).  This is what makes slow slews silent.
+ * (fast = more torque).  This is what makes slow motion silent.
  *
  * Threshold: f_STEP = fCLK × µ / (256 × TPWMTHRS).  With fCLK=12 MHz and
- * µ=32, TPWMTHRS=40 → ~37500 input steps/s ≈ 7 deg/s on this mount: 1×/2×/3×
- * (1/3/6 deg/s) stay in silent StealthChop, 4× (10 deg/s) goes SpreadCycle. */
-#define TMC_TPWMTHRS_VALUE 40
+ * µ=32, TPWMTHRS=281 → ~5333 input steps/s ≈ 1 deg/s on this mount: standstill
+ * and below 1 deg/s stay in silent StealthChop, slews above 1 deg/s go
+ * SpreadCycle. */
+#define TMC_TPWMTHRS_VALUE 281
 
 /* ── Target microstep resolution — see MICROSTEPS in tmc.h ── */
 
