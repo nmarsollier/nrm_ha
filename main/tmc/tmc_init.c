@@ -34,15 +34,15 @@
 
 /* StealthChop→SpreadCycle auto-transition threshold.
  *
- * A nonzero value makes the driver switch from StealthChop to SpreadCycle
- * once TSTEP < TPWMTHRS.  This is a safety net for a SPREAD pin wired HIGH
- * (which inverts GCONF.en_SpreadCycle back to StealthChop):
- *  - SPREAD LOW  + en_SpreadCycle=1 → always SpreadCycle (threshold ignored)
- *  - SPREAD HIGH + en_SpreadCycle=1 → StealthChop only below the threshold,
- *    SpreadCycle above (threshold flips it)
- * Threshold: f_STEP = fCLK × µ / (256 × TPWMTHRS).  With fCLK=12 MHz,
- * µ=32 and 5000 → ~300 input steps/s ≈ 0.06 deg/s on this mount. */
-#define TMC_TPWMTHRS_VALUE 5000
+ * With GCONF.en_SpreadCycle=0 (StealthChop base mode), this selects the
+ * velocity at which the driver switches to SpreadCycle: StealthChop while
+ * TSTEP >= TPWMTHRS (slow = silent), SpreadCycle while TSTEP < TPWMTHRS
+ * (fast = more torque).  This is what makes slow slews silent.
+ *
+ * Threshold: f_STEP = fCLK × µ / (256 × TPWMTHRS).  With fCLK=12 MHz and
+ * µ=32, TPWMTHRS=40 → ~37500 input steps/s ≈ 7 deg/s on this mount: 1×/2×/3×
+ * (1/3/6 deg/s) stay in silent StealthChop, 4× (10 deg/s) goes SpreadCycle. */
+#define TMC_TPWMTHRS_VALUE 40
 
 /* ── Target microstep resolution — see TMC_TARGET_MICROSTEPS in tmc.h ── */
 
@@ -92,8 +92,8 @@ typedef struct {
 } TmcAxis;
 
 static const TmcAxis tmc_axes[] = {
-    { .name = "RA",  .uart_num = 1, .tx_gpio = GPIO_NUM_21, .rx_gpio = GPIO_NUM_12, .irun = 10, .ihold = 8 },
-    { .name = "DEC", .uart_num = 2, .tx_gpio = GPIO_NUM_2,  .rx_gpio = GPIO_NUM_9,  .irun = 10, .ihold = 8 },
+    { .name = "RA",  .uart_num = 1, .tx_gpio = GPIO_NUM_21, .rx_gpio = GPIO_NUM_12, .irun = 12, .ihold = 8 },
+    { .name = "DEC", .uart_num = 2, .tx_gpio = GPIO_NUM_2,  .rx_gpio = GPIO_NUM_9,  .irun = 12, .ihold = 8 },
 };
 
 /* ── UART helpers ──────────────────────────────────────────── */
@@ -255,18 +255,18 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, int axis_index)
     ESP_LOGI(TAG, "--- Initialising axis %s [UART %d, TX %d, RX %d] ---",
              axis->name, axis->uart_num, axis->tx_gpio, axis->rx_gpio);
 
-    /* ── GCONF: force SpreadCycle (StealthChop off) ──
-     * en_SpreadCycle (bit 2) = 1 selects SpreadCycle when the SPREAD pin
-     * is LOW (SPREAD HIGH inverts this bit). mstep_reg_select (bit 7) = 1
-     * takes microsteps from CHOPCONF.MRES; pdn_disable (bit 6) = 1 keeps
-     * PDN_UART as a pure UART. */
-    uint32_t gconf = 0x000000C4;
+    /* ── GCONF: StealthChop base mode, SpreadCycle above TPWMTHRS ──
+     * en_SpreadCycle (bit 2) = 0 selects StealthChop as the base chopper
+     * (silent); the TPWMTHRS threshold written below flips to SpreadCycle at
+     * slew speed. mstep_reg_select (bit 7) = 1 takes microsteps from
+     * CHOPCONF.MRES; pdn_disable (bit 6) = 1 keeps PDN_UART as a pure UART. */
+    uint32_t gconf = 0x000000C0;
     bool gconf_ok = false;
     for (int attempt = 0; attempt < 5; attempt++) {
         result = tmc_write_register(axis, TMC_REG_GCONF, gconf);
         if (result == ESP_OK) {
             result = tmc_read_register(axis, TMC_REG_GCONF, &verify);
-            if (result == ESP_OK && (verify & (1U << 7)) && (verify & (1U << 2))) {
+            if (result == ESP_OK && (verify & (1U << 7)) && !(verify & (1U << 2))) {
                 gconf_ok = true;
                 break;
             }
@@ -274,7 +274,7 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, int axis_index)
         vTaskDelay(pdMS_TO_TICKS(30));
     }
     if (gconf_ok) {
-        ESP_LOGI(TAG, "%s: GCONF verified — en_SpreadCycle=1 (StealthChop off), mstep_reg_select=1 (0x%08lX)",
+        ESP_LOGI(TAG, "%s: GCONF verified — en_SpreadCycle=0 (StealthChop base), mstep_reg_select=1 (0x%08lX)",
                  axis->name, (unsigned long)verify);
     } else {
         ESP_LOGW(TAG, "%s: GCONF not latched after retries — chopper mode UNVERIFIED", axis->name);
@@ -333,10 +333,8 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, int axis_index)
              axis->name, verified_msteps,
              intpol_ok ? "ON" : "OFF",
              (unsigned long)verify);
-    /* ── TPWMTHRS: force the StealthChop→SpreadCycle velocity switch as a
-     * safety net for a SPREAD pin wired HIGH (which inverts GCONF.
-     * en_SpreadCycle back to StealthChop).  With SPREAD LOW this threshold
-     * is ignored (the driver is already in SpreadCycle). */
+    /* ── TPWMTHRS: velocity where StealthChop hands off to SpreadCycle ──
+     * With en_SpreadCycle=0 this is the silent↔loud transition point. */
     result = tmc_write_register(axis, TMC_REG_TPWMTHRS, TMC_TPWMTHRS_VALUE);
     if (result != ESP_OK) {
         tmc_axis_status[axis_index] = TMC_AXIS_ERROR;
@@ -345,21 +343,16 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, int axis_index)
         return result;
     }
 
-    /* ── DRV_STATUS: confirm the REAL chopper mode ──
-     * bit 30 (stealth): 0 = SpreadCycle, 1 = StealthChop. This reflects
-     * the actual mode after any SPREAD-pin inversion, catching a SPREAD
-     * pin wired HIGH (which inverts GCONF.en_SpreadCycle). */
+    /* ── DRV_STATUS: confirm the configured chopper mode ──
+     * bit 30 (stealth): 1 = StealthChop, 0 = SpreadCycle.  At standstill the
+     * driver is below TPWMTHRS, so StealthChop (silent) is the expected value. */
     if (tmc_read_register(axis, TMC_REG_DRV_STATUS, &verify) == ESP_OK) {
         bool stealth = (verify & (1U << 30)) != 0;
-        ESP_LOGI(TAG, "%s: DRV_STATUS=0x%08lX — running in %s",
+        ESP_LOGI(TAG, "%s: DRV_STATUS=0x%08lX — %s (at standstill)",
                  axis->name, (unsigned long)verify,
                  stealth ? "StealthChop" : "SpreadCycle");
-        if (stealth) {
-            ESP_LOGW(TAG, "%s: StealthChop active despite en_SpreadCycle=1 — check SPREAD pin (HIGH inverts)",
-                     axis->name);
-        }
     } else {
-        ESP_LOGW(TAG, "%s: DRV_STATUS read failed — real chopper mode unknown", axis->name);
+        ESP_LOGW(TAG, "%s: DRV_STATUS read failed — chopper mode unknown", axis->name);
     }
 
     tmc2209_set_active_microsteps(verified_msteps);
