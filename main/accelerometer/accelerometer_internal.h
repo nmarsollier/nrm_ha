@@ -11,14 +11,14 @@
 /* ── I2C bus ──────────────────────────────────────────────── */
 
 #define ACCEL_I2C_PORT      I2C_NUM_0
-#define ACCEL_SDA_GPIO      4
-#define ACCEL_SCL_GPIO      5
+#define ACCEL_SDA_GPIO      5
+#define ACCEL_SCL_GPIO      4
 #define ACCEL_CLK_HZ        100000   /* 100 kHz standard mode */
 #define ACCEL_TIMEOUT_MS    100
 
 /* ── Device address (ADXL345, SDO tied to GND) ────────────── */
 
-#define ACCEL_ADDR_SDO_GND  0x53
+#define ACCEL_ADDR_SDO_GND  0x1D // 0x1D o 0x53
 
 /* ── ADXL345 register map ─────────────────────────────────── */
 

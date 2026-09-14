@@ -29,6 +29,20 @@
 #define TMC_REG_GCONF      0x00
 #define TMC_REG_IHOLD_IRUN 0x10
 #define TMC_REG_CHOPCONF   0x6C
+#define TMC_REG_TPWMTHRS   0x13
+#define TMC_REG_DRV_STATUS 0x6F
+
+/* StealthChop→SpreadCycle auto-transition threshold.
+ *
+ * A nonzero value makes the driver switch from StealthChop to SpreadCycle
+ * once TSTEP < TPWMTHRS.  This is a safety net for a SPREAD pin wired HIGH
+ * (which inverts GCONF.en_SpreadCycle back to StealthChop):
+ *  - SPREAD LOW  + en_SpreadCycle=1 → always SpreadCycle (threshold ignored)
+ *  - SPREAD HIGH + en_SpreadCycle=1 → StealthChop only below the threshold,
+ *    SpreadCycle above (threshold flips it)
+ * Threshold: f_STEP = fCLK × µ / (256 × TPWMTHRS).  With fCLK=12 MHz,
+ * µ=32 and 5000 → ~300 input steps/s ≈ 0.06 deg/s on this mount. */
+#define TMC_TPWMTHRS_VALUE 5000
 
 /* ── Target microstep resolution — see TMC_TARGET_MICROSTEPS in tmc.h ── */
 
@@ -78,8 +92,8 @@ typedef struct {
 } TmcAxis;
 
 static const TmcAxis tmc_axes[] = {
-    { .name = "RA",  .uart_num = 1, .tx_gpio = GPIO_NUM_21, .rx_gpio = GPIO_NUM_12, .irun = 16, .ihold = 10 },
-    { .name = "DEC", .uart_num = 2, .tx_gpio = GPIO_NUM_2,  .rx_gpio = GPIO_NUM_9,  .irun = 16, .ihold = 10 },
+    { .name = "RA",  .uart_num = 1, .tx_gpio = GPIO_NUM_21, .rx_gpio = GPIO_NUM_12, .irun = 10, .ihold = 8 },
+    { .name = "DEC", .uart_num = 2, .tx_gpio = GPIO_NUM_2,  .rx_gpio = GPIO_NUM_9,  .irun = 10, .ihold = 8 },
 };
 
 /* ── UART helpers ──────────────────────────────────────────── */
@@ -163,7 +177,7 @@ static esp_err_t tmc_read_register(const TmcAxis *axis, uint8_t reg, uint32_t *v
 
     esp_err_t last_err = ESP_FAIL;
 
-    for (int attempt = 0; attempt < 3; attempt++) {
+    for (int attempt = 0; attempt < 6; attempt++) {
         if (attempt > 0)
             vTaskDelay(pdMS_TO_TICKS(10));
 
@@ -241,36 +255,36 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, int axis_index)
     ESP_LOGI(TAG, "--- Initialising axis %s [UART %d, TX %d, RX %d] ---",
              axis->name, axis->uart_num, axis->tx_gpio, axis->rx_gpio);
 
-    /* ── GCONF: UART microstep control + digital current control ── */
-    uint32_t gconf = 0x000000C4;    /* mstep_reg_select=1, pdn_disable=1, i_scale_analog=0, en_pwm_mode=1 (StealthChop) */
-    result = tmc_write_register(axis, TMC_REG_GCONF, gconf);
-    if (result != ESP_OK) {
-        tmc_axis_status[axis_index] = TMC_AXIS_ERROR;
-        tmc_axis_error[axis_index] = TMC_AXIS_ERROR_GCONF_WRITE;
-        ESP_LOGE(TAG, "%s: UART write failure on GCONF", axis->name);
-        return result;
+    /* ── GCONF: force SpreadCycle (StealthChop off) ──
+     * en_SpreadCycle (bit 2) = 1 selects SpreadCycle when the SPREAD pin
+     * is LOW (SPREAD HIGH inverts this bit). mstep_reg_select (bit 7) = 1
+     * takes microsteps from CHOPCONF.MRES; pdn_disable (bit 6) = 1 keeps
+     * PDN_UART as a pure UART. */
+    uint32_t gconf = 0x000000C4;
+    bool gconf_ok = false;
+    for (int attempt = 0; attempt < 5; attempt++) {
+        result = tmc_write_register(axis, TMC_REG_GCONF, gconf);
+        if (result == ESP_OK) {
+            result = tmc_read_register(axis, TMC_REG_GCONF, &verify);
+            if (result == ESP_OK && (verify & (1U << 7)) && (verify & (1U << 2))) {
+                gconf_ok = true;
+                break;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(30));
     }
-
-    /* Verify GCONF — mstep_reg_select (bit 7) must be set.
-     * Readback may fail transiently on the first attempt; the real
-     * verification is CHOPCONF below (the register that controls µsteps). */
-    result = tmc_read_register(axis, TMC_REG_GCONF, &verify);
-    if (result != ESP_OK) {
-        ESP_LOGW(TAG, "%s: cannot read back GCONF (%s) — continuing",
-                 axis->name, esp_err_to_name(result));
-    } else if (!(verify & (1U << 7))) {
-        ESP_LOGW(TAG, "%s: GCONF mstep_reg_select NOT latched! (read 0x%08lX, expected bit 7 set)",
+    if (gconf_ok) {
+        ESP_LOGI(TAG, "%s: GCONF verified — en_SpreadCycle=1 (StealthChop off), mstep_reg_select=1 (0x%08lX)",
                  axis->name, (unsigned long)verify);
-        ESP_LOGW(TAG, "%s: TMC2209 may be using pin-controlled microsteps — movement will be wrong!", axis->name);
     } else {
-        ESP_LOGI(TAG, "%s: GCONF verified (0x%08lX, mstep_reg_select=1, i_scale_analog=%lu)",
-                 axis->name, (unsigned long)verify, (unsigned long)(verify & 1U));
+        ESP_LOGW(TAG, "%s: GCONF not latched after retries — chopper mode UNVERIFIED", axis->name);
     }
 
-    /* ── IHOLD_IRUN ── */
-    uint32_t ihold_irun = (uint32_t)axis->ihold
-                        | (1U << 8)                    /* IHOLDDELAY */
-                        | ((uint32_t)axis->irun << 16);
+    /* ── IHOLD_IRUN ──
+     * Field layout: IHOLD [4:0], IRUN [12:8], IHOLDDELAY [19:16]. */
+    uint32_t ihold_irun = (uint32_t)axis->ihold        /* IHOLD [4:0] */
+                        | ((uint32_t)axis->irun << 8)  /* IRUN  [12:8] */
+                        | (1U << 16);                  /* IHOLDDELAY = 1 */
     result = tmc_write_register(axis, TMC_REG_IHOLD_IRUN, ihold_irun);
     if (result != ESP_OK) {
         tmc_axis_status[axis_index] = TMC_AXIS_ERROR;
@@ -280,56 +294,74 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, int axis_index)
     }
 
     /* ── CHOPCONF ── */
-    uint32_t chopconf = 0x10410153;      /* power-on default */
+    uint32_t chopconf = 0x1041015A;      /* TOFF=10 (~10 kHz chopper) */
     chopconf &= ~(0x0FU << 24);          /* clear MRES */
     chopconf |=  ((uint32_t)tmc_microsteps_to_mres(TMC_TARGET_MICROSTEPS) << 24);
-    chopconf |=  (1U << 14);             /* SpreadCycle */
     chopconf |=  (1U << 28);             /* intpol → 256 µsteps */
 
-    result = tmc_write_register(axis, TMC_REG_CHOPCONF, chopconf);
+    /* ── CHOPCONF: write + verify (retry — single-wire UART readback is flaky) ── */
+    uint16_t verified_msteps = 0;
+    bool chopconf_ok = false;
+    for (int attempt = 0; attempt < 5; attempt++) {
+        result = tmc_write_register(axis, TMC_REG_CHOPCONF, chopconf);
+        if (result == ESP_OK) {
+            result = tmc_read_register(axis, TMC_REG_CHOPCONF, &verify);
+            if (result == ESP_OK) {
+                uint8_t mres = (uint8_t)((verify >> 24) & 0x0F);
+                if (tmc_mres_to_microsteps(mres, &verified_msteps)
+                    && verified_msteps == TMC_TARGET_MICROSTEPS) {
+                    chopconf_ok = true;
+                    break;
+                }
+                ESP_LOGW(TAG, "%s: CHOPCONF mismatch on attempt %d (0x%08lX) — re-writing",
+                         axis->name, attempt, (unsigned long)verify);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(30));
+    }
+
+    if (!chopconf_ok) {
+        tmc_axis_status[axis_index] = TMC_AXIS_ERROR;
+        tmc_axis_error[axis_index] = TMC_AXIS_ERROR_CHOPCONF_VERIFY;
+        ESP_LOGE(TAG, "%s: CHOPCONF could not be verified after retries", axis->name);
+        return ESP_FAIL;
+    }
+
+    bool intpol_ok = (verify & (1U << 28)) != 0;
+
+    ESP_LOGI(TAG, "%s: CHOPCONF verified — %u µsteps, intpol=%s (0x%08lX)",
+             axis->name, verified_msteps,
+             intpol_ok ? "ON" : "OFF",
+             (unsigned long)verify);
+    /* ── TPWMTHRS: force the StealthChop→SpreadCycle velocity switch as a
+     * safety net for a SPREAD pin wired HIGH (which inverts GCONF.
+     * en_SpreadCycle back to StealthChop).  With SPREAD LOW this threshold
+     * is ignored (the driver is already in SpreadCycle). */
+    result = tmc_write_register(axis, TMC_REG_TPWMTHRS, TMC_TPWMTHRS_VALUE);
     if (result != ESP_OK) {
         tmc_axis_status[axis_index] = TMC_AXIS_ERROR;
-        tmc_axis_error[axis_index] = TMC_AXIS_ERROR_CHOPCONF_WRITE;
-        ESP_LOGE(TAG, "%s: UART write failure on CHOPCONF", axis->name);
+        tmc_axis_error[axis_index] = TMC_AXIS_ERROR_TPWMTHRS_WRITE;
+        ESP_LOGE(TAG, "%s: UART write failure on TPWMTHRS", axis->name);
         return result;
     }
 
-    /* ── Verify CHOPCONF ── */
-    uint16_t verified_msteps = 0;
-    result = tmc_read_register(axis, TMC_REG_CHOPCONF, &verify);
-    if (result != ESP_OK) {
-        tmc_axis_status[axis_index] = TMC_AXIS_ERROR;
-        tmc_axis_error[axis_index] = TMC_AXIS_ERROR_CHOPCONF_VERIFY;
-        ESP_LOGE(TAG, "%s: cannot read back CHOPCONF (%s) — µsteps UNVERIFIED!",
-                 axis->name, esp_err_to_name(result));
-        return ESP_FAIL;
+    /* ── DRV_STATUS: confirm the REAL chopper mode ──
+     * bit 30 (stealth): 0 = SpreadCycle, 1 = StealthChop. This reflects
+     * the actual mode after any SPREAD-pin inversion, catching a SPREAD
+     * pin wired HIGH (which inverts GCONF.en_SpreadCycle). */
+    if (tmc_read_register(axis, TMC_REG_DRV_STATUS, &verify) == ESP_OK) {
+        bool stealth = (verify & (1U << 30)) != 0;
+        ESP_LOGI(TAG, "%s: DRV_STATUS=0x%08lX — running in %s",
+                 axis->name, (unsigned long)verify,
+                 stealth ? "StealthChop" : "SpreadCycle");
+        if (stealth) {
+            ESP_LOGW(TAG, "%s: StealthChop active despite en_SpreadCycle=1 — check SPREAD pin (HIGH inverts)",
+                     axis->name);
+        }
+    } else {
+        ESP_LOGW(TAG, "%s: DRV_STATUS read failed — real chopper mode unknown", axis->name);
     }
 
-    uint8_t mres = (uint8_t)((verify >> 24) & 0x0F);
-    bool intpol_ok = (verify & (1U << 28)) != 0;
-    bool spread_ok = (verify & (1U << 14)) != 0;
-
-    if (!tmc_mres_to_microsteps(mres, &verified_msteps)) {
-        tmc_axis_status[axis_index] = TMC_AXIS_ERROR;
-        tmc_axis_error[axis_index] = TMC_AXIS_ERROR_CHOPCONF_VERIFY;
-        ESP_LOGE(TAG, "%s: CHOPCONF readback has invalid MRES=%u (0x%08lX)",
-                 axis->name, mres, (unsigned long)verify);
-        return ESP_FAIL;
-    }
-
-    if (verified_msteps != TMC_TARGET_MICROSTEPS) {
-        tmc_axis_status[axis_index] = TMC_AXIS_ERROR;
-        tmc_axis_error[axis_index] = TMC_AXIS_ERROR_CHOPCONF_VERIFY;
-        ESP_LOGE(TAG, "%s: CHOPCONF MRES MISMATCH! wrote=%u µsteps, hardware=%u µsteps (0x%08lX)",
-                 axis->name, TMC_TARGET_MICROSTEPS, verified_msteps, (unsigned long)verify);
-        return ESP_FAIL;
-    }
-
-    ESP_LOGI(TAG, "%s: CHOPCONF verified — %u µsteps, intpol=%s, SpreadCycle=%s (0x%08lX)",
-             axis->name, verified_msteps,
-             intpol_ok ? "ON" : "OFF",
-             spread_ok ? "ON" : "OFF",
-             (unsigned long)verify);
     tmc2209_set_active_microsteps(verified_msteps);
     tmc_axis_status[axis_index] = TMC_AXIS_OK;
     tmc_axis_error[axis_index] = TMC_AXIS_ERROR_NONE;

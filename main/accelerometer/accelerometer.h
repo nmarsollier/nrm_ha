@@ -4,7 +4,7 @@
 #include "esp_err.h"
 
 /*
- * ADXL345 accelerometer on the I2C bus (GPIO4 = SDA, GPIO5 = SCL).
+ * ADXL345 accelerometer on the I2C bus (GPIO5 = SDA, GPIO4 = SCL).
  *
  * One sensor, with its SDO pin tied to GND (address 0x53).
  *

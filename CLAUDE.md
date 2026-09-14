@@ -9,7 +9,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 - Reduccion total: 300:1 en ambos ejes
 - Utiliza una placa ESP32-S3 44 pines
 - Utiliza 2 motores Nema 17 paso a paso con drivers TMC2209 (modo STEP/DIR + configuracion UART)
-- Los motores se alimentan directo de fuente 12V, la placa ESP32-S3 via Mini DC 360 (12V→5.5V)
+- Los motores se alimentan directo de fuente 12V, la placa ESP32-S3 via LM2596 (12V→5.5V)
 - Estructura metalica en hierro 1/8, dos cuerpos (RA y DEC)
 - La montura posee 2 botones fisicos, Stop y Home
 - Posee una pantalla minimalista OLED de 0.98 inch, se muestra verticalmente
@@ -68,8 +68,8 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 | 10   | DIR DEC     | Direccion declinacion (directo)                   |
 | 9    | UART DEC RX | TMC2209 DEC RX (directo al PDN_UART)              |
 | 6    | LED         | LEDC PWM, indicador de estado (directo, anodo 3V3)|
-| 5    | I2C SCL     | Acelerometro ADXL345 (I2C, pull-ups internos)     |
-| 4    | I2C SDA     | Acelerometro ADXL345 (I2C, pull-ups internos)     |
+| 5    | I2C SDA     | Acelerometro ADXL345 (I2C, pull-ups internos)     |
+| 4    | I2C SCL     | Acelerometro ADXL345 (I2C, pull-ups internos)     |
 | 1    | BUZZER      | Buzzer pasivo 2 kHz (directo, a 3V3)              |
 
 **Salidas directas (sin level shifting):**
@@ -126,7 +126,7 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 - **TMC** (`main/tmc/`) — Configuracion y verificacion de los drivers TMC2209 por UART single-wire (microstepping, corriente, chop mode).
 - **LED** (`main/led/`) — Control PWM del LED externo en GPIO 6. Estados: tenue (normal), brillante (slewing), respiracion (error).
 - **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 1 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
-- **Accelerometer** (`main/accelerometer/`) — Acelerometro ADXL345 por I2C (GPIO4 SDA / GPIO5 SCL). Mide `tilt` y `heading` para alineacion polar y limites de RA/DEC. Ver `main/accelerometer/README.md`.
+- **Accelerometer** (`main/accelerometer/`) — Acelerometro ADXL345 por I2C (GPIO5 SDA / GPIO4 SCL). Mide `tilt` y `heading` para alineacion polar y limites de RA/DEC. Ver `main/accelerometer/README.md`.
 - **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo NCM.
 - **Tools** (`main/tools/`) — Utilidades transversales (parser, validacion).
 

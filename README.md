@@ -12,10 +12,10 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 stepper moto
 - **Harmonic Drives**: 100:1 reduction
 - **Belt reduction**: 3:1 (HTD3M 15T → 45T, 171mm belt)
 - **Total reduction**: 300:1 on both axes
-- **Power**: 12V 5A supply → Mini DC 360 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
+- **Power**: 12V 5A supply → LM2596 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
 - **LED**: PWM indicator (GPIO 6) — three states: dim (~10%) at idle, bright (100%) during slewing, slow breathing on error.
 - **Buzzer**: passive event beeper (GPIO 1, 2 kHz) — beeps on boot and on goto/move-axis start & end.
-- **Accelerometer**: 1× ADXL345 on I2C (GPIO 4 SDA / GPIO 5 SCL) — tilt + rotation for polar alignment and axis limits (see `main/accelerometer/README.md`).
+- **Accelerometer**: 1× ADXL345 on I2C (GPIO 5 SDA / GPIO 4 SCL) — tilt + rotation for polar alignment and axis limits (see `main/accelerometer/README.md`).
 - **Outputs**: direct 3.3 V logic — no level shifting. LED and buzzer are common-anode to 3.3 V (GPIO sinks).
 
 ### Harmonic Drives
@@ -47,8 +47,8 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 stepper moto
 | 10   | DEC DIR     | Declination axis direction (direct)         |
 | 9    | DEC UART RX | TMC2209 DEC RX (direct to PDN_UART)         |
 | 6    | LED         | Status indicator (direct, anode to 3.3 V)   |
-| 5    | I2C SCL     | ADXL345 accelerometer (I2C)                 |
-| 4    | I2C SDA     | ADXL345 accelerometer (I2C)                 |
+| 5    | I2C SDA     | ADXL345 accelerometer (I2C)                 |
+| 4    | I2C SCL     | ADXL345 accelerometer (I2C)                 |
 | 1    | Buzzer      | Event beeper, 2 kHz PWM (direct, to 3.3 V)  |
 
 ### Direct wiring (no level shifting)

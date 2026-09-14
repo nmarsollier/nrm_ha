@@ -50,6 +50,8 @@ const char *tmc2209_axis_error_to_string(TmcAxisError error) {
             return "chopconf_write";
         case TMC_AXIS_ERROR_CHOPCONF_VERIFY:
             return "chopconf_verify";
+        case TMC_AXIS_ERROR_TPWMTHRS_WRITE:
+            return "tpwmthrs_write";
         case TMC_AXIS_ERROR_NONE:
         default:
             return "none";

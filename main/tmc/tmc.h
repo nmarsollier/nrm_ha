@@ -63,7 +63,8 @@ typedef enum {
     TMC_AXIS_ERROR_GCONF_WRITE,    /* GCONF write */
     TMC_AXIS_ERROR_IHOLD_WRITE,    /* IHOLD_IRUN write */
     TMC_AXIS_ERROR_CHOPCONF_WRITE, /* CHOPCONF write */
-    TMC_AXIS_ERROR_CHOPCONF_VERIFY /* CHOPCONF readback / MRES mismatch */
+    TMC_AXIS_ERROR_CHOPCONF_VERIFY,/* CHOPCONF readback / MRES mismatch */
+    TMC_AXIS_ERROR_TPWMTHRS_WRITE  /* TPWMTHRS write */
 } TmcAxisError;
 
 TmcAxisStatus tmc2209_get_axis_status(int axis);

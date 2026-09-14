@@ -2,7 +2,7 @@
  *
  * Purpose: bring up the I2C bus and the ADXL345 sensor on it.
  *
- * Creates the bus on GPIO4 (SDA) / GPIO5 (SCL), adds a device handle
+ * Creates the bus on GPIO5 (SDA) / GPIO4 (SCL), adds a device handle
  * for the sensor address (0x53), probes it and configures it if it
  * answers.  A missing sensor is a fatal error: the mount starts in the
  * ERROR state.
@@ -10,6 +10,8 @@
 #include "accelerometer_internal.h"
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "ACCELEROMETER_INIT";
 
@@ -67,7 +69,7 @@ esp_err_t accelerometer_init(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2C bus init failed: %s — sensor disabled",
                  esp_err_to_name(err));
-        return ESP_OK;
+        return err;
     }
 
     i2c_device_config_t dev_config = {
@@ -81,18 +83,29 @@ esp_err_t accelerometer_init(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "addr 0x%02X: device handle failed: %s",
                  accel_sensor.address, esp_err_to_name(err));
-        return ESP_OK;
+        return err;
     }
 
-    /* Probe sends the address and checks for ACK. */
-    err = i2c_master_probe(bus_handle, accel_sensor.address, ACCEL_TIMEOUT_MS);
+    /* Probe the sensor with retries — I2C can fail intermittently. */
+    err = ESP_ERR_NOT_FOUND;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+        err = i2c_master_probe(bus_handle, accel_sensor.address, ACCEL_TIMEOUT_MS);
+        if (err == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG, "addr 0x%02X: probe attempt %d/3 failed (%s)",
+                 accel_sensor.address, attempt + 1, esp_err_to_name(err));
+    }
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "addr 0x%02X: not present (%s) — sensor disabled",
+        ESP_LOGE(TAG, "addr 0x%02X: not present after 3 attempts (%s) — sensor disabled",
                  accel_sensor.address, esp_err_to_name(err));
-        return ESP_OK;
+        return err;
     }
 
     err = configure_sensor(&accel_sensor);
     accel_sensor.present = (err == ESP_OK);
-    return ESP_OK;
+    return err;
 }
