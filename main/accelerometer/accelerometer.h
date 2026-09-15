@@ -35,6 +35,12 @@ typedef struct {
 esp_err_t accelerometer_init(void);
 
 /*
+ * True when the ADXL345 was probed and configured at boot.  Exposed for
+ * the UI to report the accelerometer status separately from the motors.
+ */
+bool accelerometer_is_present(void);
+
+/*
  * Periodic update, call every ~100 ms from the runtime loop.
  * Reads and logs the sensor, throttled to one read every 500 ms.
  */

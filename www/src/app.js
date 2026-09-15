@@ -9,6 +9,7 @@ function mountApp() {
         accelRaAngle: null,
         elevation: null,
         accelCalibrating: false,
+        accelOk: true,
         settings: {lat: 0, lon: 0, elevation: 0},
         mountTime: '--',
         timeAutoSet: false,
@@ -62,6 +63,7 @@ function mountApp() {
                 this.accelRaAngle = (j.debug && j.debug.accel_ra_deg != null) ? j.debug.accel_ra_deg : null;
                 this.elevation = (j.debug && j.debug.elevation_deg != null) ? j.debug.elevation_deg : null;
                 this.accelCalibrating = (j.debug && j.debug.accel_calibrating === true);
+                this.accelOk = (j.debug && j.debug.accel_ok) !== false;
 
                 const s = j.settings;
                 if (s) {
@@ -185,6 +187,15 @@ function mountApp() {
             if (h > 0) return h + 'h ' + m + 'm ' + sec + 's';
             if (m > 0) return m + 'm ' + sec + 's';
             return sec + 's';
+        },
+
+        fatalMessage() {
+            const parts = [];
+            if (this.accelOk === false) parts.push('Accelerometer not found');
+            if (parts.length === 0) {
+                return 'Mount error — reboot required. Mount will not accept movement commands.';
+            }
+            return parts.join(' · ') + ' — reboot required.';
         },
 
         init() {

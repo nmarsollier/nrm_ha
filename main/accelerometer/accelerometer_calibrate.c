@@ -385,8 +385,8 @@ bool accelerometer_ra_limit_exceeded(void) {
     if (phi < 0.0f) {
         return false;
     }
-    float ra_accel = normalize_180(phi - s_ra_home_phi);
 
+    float ra_accel = normalize_180(phi - s_ra_home_phi);
     MotorsState ms = motors_current_state();
     float lo = ms.limits.ra_min - ACCEL_RA_LIMIT_MARGIN_DEG;
     float hi = ms.limits.ra_max + ACCEL_RA_LIMIT_MARGIN_DEG;

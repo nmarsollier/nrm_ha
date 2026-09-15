@@ -79,6 +79,10 @@
                 <div class="debug-row"><span>RA</span> <span x-text="'[' + debug.limits?.ra_min + ', ' + debug.limits?.ra_max + ']'"></span></div>
                 <div class="debug-row"><span>DEC</span> <span x-text="'[' + debug.limits?.dec_min + ', ' + debug.limits?.dec_max + ']'"></span></div>
             </div>
+            <div class="debug-group">
+                <div class="debug-label">Drivers</div>
+                <div class="debug-row"><span>Accel</span> <span x-text="accelOk ? 'OK' : 'NOT FOUND'"></span></div>
+            </div>
         </div>
     </div>
 
@@ -301,9 +305,7 @@
     </div>
 
     <!-- ═══ Error banner ═══ -->
-    <div class="fatal-banner" x-show="isError">
-        MOTOR ERROR &mdash; reboot required. Mount will not accept movement commands.
-    </div>
+    <div class="fatal-banner" x-show="isError" x-text="fatalMessage()"></div>
     <div class="error-banner" x-show="errorMessage" x-text="errorMessage"
          x-transition.opacity.duration.200ms></div>
 

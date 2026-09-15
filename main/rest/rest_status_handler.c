@@ -65,6 +65,7 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
             "\"elevation_deg\":%.2f,"
             "\"accel_calibrating\":%s,"
             "\"guiding\":%s,"
+            "\"accel_ok\":%s,"
             "\"microsteps\":%u,"
             "\"limits\":{"
             "\"ra_min\":%.1f,"
@@ -104,6 +105,7 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
              accelerometer_get_elevation_deg(),
              accelerometer_is_calibrating() ? "true" : "false",
              ms.guiding ? "true" : "false",
+             accelerometer_is_present() ? "true" : "false",
              MOTORS_MICROSTEPS,
              ms.limits.ra_min, ms.limits.ra_max,
              ms.limits.dec_min, ms.limits.dec_max,

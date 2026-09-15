@@ -10,10 +10,16 @@
 #include "accelerometer_internal.h"
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "ACCELEROMETER_INIT";
 
 AccelSensor accel_sensor;
+
+bool accelerometer_is_present(void) {
+    return accel_sensor.present;
+}
 
 esp_err_t accelerometer_read_register(const AccelSensor *sensor, uint8_t reg, uint8_t *value) {
     return i2c_master_transmit_receive(sensor->dev_handle, &reg, 1, value, 1, ACCEL_TIMEOUT_MS);
@@ -80,10 +86,21 @@ esp_err_t accelerometer_init(void) {
         return err;
     }
 
-    /* Probe sends the address and checks for ACK. */
-    err = i2c_master_probe(bus_handle, accel_sensor.address, ACCEL_TIMEOUT_MS);
+    /* Probe the sensor with retries — I2C can fail intermittently. */
+    err = ESP_ERR_NOT_FOUND;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+        err = i2c_master_probe(bus_handle, accel_sensor.address, ACCEL_TIMEOUT_MS);
+        if (err == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG, "addr 0x%02X: probe attempt %d/3 failed (%s)",
+                 accel_sensor.address, attempt + 1, esp_err_to_name(err));
+    }
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "addr 0x%02X: not present (%s) — sensor disabled",
+        ESP_LOGE(TAG, "addr 0x%02X: not present after 3 attempts (%s) — sensor disabled",
                  accel_sensor.address, esp_err_to_name(err));
         return err;
     }
