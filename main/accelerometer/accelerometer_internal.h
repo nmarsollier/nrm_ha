@@ -18,7 +18,7 @@
 
 /* ── Device address (ADXL345, SDO tied to GND) ────────────── */
 
-#define ACCEL_ADDR_SDO_GND  0x1D // 0x1D o 0x53
+#define ACCEL_ADDR_SDO_GND  0x53 // 0x1D o 0x53
 
 /* ── ADXL345 register map ─────────────────────────────────── */
 
