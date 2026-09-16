@@ -41,9 +41,8 @@ idf_component_register(
         "motors/motors_motion_task.c"
         "motors/motors_pulse_guide.c"
         "motors/motors_is_pulse_guiding.c"
-        "motors/motors_set_zero.c"
 
-        "mount/mount.c"
+        "mount/mount_init.c"
         "mount/mount_coordinate_tools.c"
         "mount/mount_slew_to_coordinates.c"
         "mount/mount_get_lst.c"
@@ -62,7 +61,6 @@ idf_component_register(
         "mount/mount_unpark.c"
         "mount/mount_get_visible_status_data.c"
         "mount/mount_pulse_guide.c"
-        "mount/mount_set_zero.c"
 
         "rest/rest_server_start.c"
         "rest/rest_slew_to_coordinates_handler.c"
@@ -79,7 +77,6 @@ idf_component_register(
         "rest/rest_tools.c"
         "rest/rest_tracking_handler.c"
         "rest/rest_unpark_handler.c"
-        "rest/rest_zero_handler.c"
 
         "rest_alpaca/rest_alpaca_abortslew_handler.c"
         "rest_alpaca/rest_alpaca_alignmentmode_handler.c"

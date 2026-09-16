@@ -43,7 +43,6 @@ void rest_server_start(void) {
     rest_register_post(server, "/api/stop", rest_stop_handler);
     rest_register_post(server, "/api/park", rest_park_handler);
     rest_register_post(server, "/api/home", rest_home_handler);
-    rest_register_post(server, "/api/zero", rest_zero_handler);
     rest_register_post(server, "/api/unpark", rest_unpark_handler);
     rest_register_post(server, "/api/settings", rest_settings_handler);
     rest_register_post(server, "/api/limits", rest_limits_handler);

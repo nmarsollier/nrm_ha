@@ -1,4 +1,4 @@
-/* Mount - mount.c
+/* Mount - mount_init.c
  *
  * Purpose: core mount state and synchronization helpers.
  */
