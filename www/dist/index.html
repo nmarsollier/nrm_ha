@@ -1098,8 +1098,8 @@ footer code {
         joyRates: {ra: 0, dec: 0},
 
         joyStart(axis, dir) {
-            const speeds = {1: 1.0, 2: 3.0, 3: 6.0, 4: 10.0};
-            const dps = speeds[this.joySpeed] || 10.0;
+            const speeds = {1: 1.0, 2: 3.0, 3: 4.5, 4: 6.0};
+            const dps = speeds[this.joySpeed] || 6.0;
             this.joyRates[axis] = dir * dps;
             const body = {ra_rate: this.joyRates.ra, dec_rate: this.joyRates.dec};
             this.apiPost('/api/move-axis-speed', body);

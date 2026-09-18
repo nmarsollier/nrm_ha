@@ -70,7 +70,7 @@ bool motors_is_valid_dec_steps(int64_t steps);
 #define TOTAL_GEAR_REDUCTION     (300.0f)  /* motor shaft turns : axis turns */
 
 /* Maximum safe slew speed in deg/s — hardware ceiling for this reduction. */
-#define MOTORS_MAX_SLEW_SPEED_DPS 10.0f
+#define MOTORS_MAX_SLEW_SPEED_DPS 6.0f
 
 /*
  * Motion calibration factor.
