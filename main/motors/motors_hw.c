@@ -59,7 +59,8 @@ esp_err_t motors_hw_init(void) {
 }
 
 void motors_hw_set_direction_ra(MotorDirection direction) {
-    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
+    /* DIR level inverted to match the motor's physical wiring. */
+    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 0 : 1;
     if (last_dir_ra != dir) {
         last_dir_ra = dir;
         gpio_set_level(RA_DIR_GPIO, dir);
@@ -67,7 +68,8 @@ void motors_hw_set_direction_ra(MotorDirection direction) {
 }
 
 void motors_hw_set_direction_dec(MotorDirection direction) {
-    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
+    /* DIR level inverted to match the motor's physical wiring. */
+    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 0 : 1;
     if (last_dir_dec != dir) {
         last_dir_dec = dir;
         gpio_set_level(DEC_DIR_GPIO, dir);

@@ -29,7 +29,7 @@ claude- Los cables que controlan el eje DEC van por fuera de la montura
 - Microstepping: 32 (MRES=3) con interpolacion a 256 (intpol)
 - Cada driver tiene su propio canal UART (un GPIO por driver), ambos con
   MS1 y MS2 a GND → direccion UART 0x00
-- Corriente: irun=12, ihold=8 (escala TMC2209 0–31, ver main/tmc/tmc_init.c)
+- Corriente: irun=14, ihold=8 (escala TMC2209 0–31, ver main/tmc/tmc_init.c)
 - Chopper: StealthChop (silencioso) en reposo y < ~1°/s, SpreadCycle por encima;
   en_SpreadCycle=0 + TPWMTHRS=281. Referencia: main/tmc/README.md
 
@@ -61,24 +61,25 @@ claude- Los cables que controlan el eje DEC van por fuera de la montura
 
 | GPIO | Funcion     | Notas                                             |
 |------|-------------|---------------------------------------------------|
-| 2    | UART DEC TX | TMC2209 DEC TX (al PDN_UART via 1 kΩ)             |
-| 21   | UART RA TX  | TMC2209 RA TX (al PDN_UART via 1 kΩ)              |
-| 14   | STEP RA     | Pulso STEP ascension recta (directo, RMT)         |
-| 13   | DIR RA      | Direccion ascension recta (directo)               |
-| 12   | UART RA RX  | TMC2209 RA RX (directo al PDN_UART)               |
-| 11   | STEP DEC    | Pulso STEP declinacion (directo, RMT)             |
-| 10   | DIR DEC     | Direccion declinacion (directo)                   |
-| 9    | UART DEC RX | TMC2209 DEC RX (directo al PDN_UART)              |
-| 6    | LED         | LEDC PWM, indicador de estado (directo, anodo 3V3)|
-| 5    | I2C SDA     | Acelerometro ADXL345 (I2C, pull-ups internos)     |
+| 1    | UART DEC TX | TMC2209 DEC TX (al PDN_UART via 1 kΩ)             |
+| 2    | UART RA TX  | TMC2209 RA TX (al PDN_UART via 1 kΩ)              |
 | 4    | I2C SCL     | Acelerometro ADXL345 (I2C, pull-ups internos)     |
-| 1    | BUZZER      | Buzzer pasivo 2 kHz (directo, a 3V3)              |
+| 5    | I2C SDA     | Acelerometro ADXL345 (I2C, pull-ups internos)     |
+| 6    | LED         | LEDC PWM, indicador de estado (directo, anodo 3V3)|
+| 7    | BUZZER      | Buzzer pasivo 2 kHz (directo, a 3V3)              |
+| 9    | UART DEC RX | TMC2209 DEC RX (directo al PDN_UART)              |
+| 10   | DIR DEC     | Direccion declinacion (directo)                   |
+| 11   | STEP DEC    | Pulso STEP declinacion (directo, RMT)             |
+| 12   | UART RA RX  | TMC2209 RA RX (directo al PDN_UART)               |
+| 13   | DIR RA      | Direccion ascension recta (directo)               |
+| 14   | STEP RA     | Pulso STEP ascension recta (directo, RMT)         |
 
 **Salidas directas (sin level shifting):**
 En esta placa no se usa UMC2003/ULN2003. Las salidas STEP/DIR van directo a los
-drivers TMC2209 (entradas 3.3 V tolerantes). El LED y el buzzer se conectan entre
-3.3 V y su GPIO (anodo a 3.3 V): el GPIO hunde corriente para activarlos
-(active-low), por eso LEDC se configura con `output_invert`.
+drivers TMC2209 (entradas 3.3 V tolerantes). El buzzer se conecta entre 3.3 V y
+su GPIO (active-low, el GPIO hunde corriente) y usa LEDC con `output_invert`. El
+LED se maneja en modo fuente (active-high): a mayor duty, mas brillo, sin
+`output_invert`.
 
 Cada TMC2209 se comunica por UART single-wire: un par TX/RX por driver. El TX
 va al pin PDN_UART a traves de una resistencia de 1 kΩ (serie) y el RX directo
@@ -95,7 +96,7 @@ El pin EN de cada TMC2209 va **sin conectar** (habilitado por defecto).
 | GND  | Tierra comun (placa y drivers comparten la misma tierra) |
 
 **Uso futuro:**
-GPIO libres: 7, 8, 15, 16, 17, 18, 38.
+GPIO libres: 8, 15, 16, 17, 18, 21, 38.
 
 ### Pines con restricciones (NO USAR)
 
@@ -127,7 +128,7 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 - **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP.
 - **TMC** (`main/tmc/`) — Configuracion y verificacion de los drivers TMC2209 por UART single-wire (microstepping, corriente, chop mode). Referencia tecnica completa (datasheet rev 1.09): `main/tmc/README.md`.
 - **LED** (`main/led/`) — Control PWM del LED externo en GPIO 6. Estados: tenue (normal), brillante (slewing), respiracion (error).
-- **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 1 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
+- **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 7 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
 - **Accelerometer** (`main/accelerometer/`) — Acelerometro ADXL345 por I2C (GPIO5 SDA / GPIO4 SCL). Mide `tilt` y `heading` para alineacion polar y limites de RA/DEC. Ver `main/accelerometer/README.md`.
 - **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo NCM.
 - **Tools** (`main/tools/`) — Utilidades transversales (parser, validacion).

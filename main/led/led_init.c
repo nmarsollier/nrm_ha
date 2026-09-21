@@ -5,8 +5,9 @@
  * Configures timer 0 at 5 kHz, 13-bit resolution (8192 steps),
  * binds channel 0 to GPIO 6, and starts with the dim (NORMAL) duty.
  *
- * The LED is common-anode to 3.3 V (GPIO sinks to light it), so the
- * output is inverted: low duty = bright.
+ * The LED is driven directly from the GPIO (the inverting Darlington
+ * driver was removed): the pin sources current, so higher duty = brighter
+ * and no output inversion is required.
  */
 #include "led_internal.h"
 
@@ -37,7 +38,7 @@ void led_init(void) {
         .duty           = LED_DIM_DUTY,
         .hpoint         = 0,
         .sleep_mode     = LEDC_SLEEP_MODE_NO_ALIVE_NO_PD,
-        .flags          = { .output_invert = 1 },
+        .flags          = { .output_invert = 0 },
     };
     ESP_ERROR_CHECK(ledc_channel_config(&chan_conf));
 

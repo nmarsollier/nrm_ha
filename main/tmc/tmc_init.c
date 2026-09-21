@@ -103,8 +103,8 @@ typedef struct {
 } TmcAxis;
 
 static const TmcAxis tmc_axes[] = {
-    { .name = "RA",  .uart_num = 1, .tx_gpio = GPIO_NUM_21, .rx_gpio = GPIO_NUM_12, .irun = 21, .ihold = 8 },
-    { .name = "DEC", .uart_num = 2, .tx_gpio = GPIO_NUM_2,  .rx_gpio = GPIO_NUM_9,  .irun = 21, .ihold = 8 },
+    { .name = "RA",  .uart_num = 1, .tx_gpio = GPIO_NUM_2, .rx_gpio = GPIO_NUM_12, .irun = 16, .ihold = 8 },
+    { .name = "DEC", .uart_num = 2, .tx_gpio = GPIO_NUM_1,  .rx_gpio = GPIO_NUM_9,  .irun = 16, .ihold = 8 },
 };
 
 /* ── UART helpers ──────────────────────────────────────────── */

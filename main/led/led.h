@@ -6,7 +6,7 @@
 /*
  * LED states for the external indicator on GPIO 6.
  *
- * NORMAL     — dim brightness (~10 %), mount idle.
+ * NORMAL     — dim brightness (~25 %), mount idle.
  * SLEWING    — full brightness (100 %), mount in motion.
  * ERROR      — slow smooth breathing, fatal fault: motor hardware error or
  *              missing accelerometer (reboot required).
