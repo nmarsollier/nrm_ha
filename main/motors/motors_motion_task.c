@@ -153,8 +153,8 @@ static float ramp_velocity(int target_vel_cds, int64_t travelled_steps,
 
     if (travelled_steps < 0) travelled_steps = -travelled_steps;
     /* Travelled distance in centidegrees, proportional to the step count.
-     * Slew distance is bounded (< ~2M microsteps), so the 64-bit product
-     * cannot overflow. */
+     * Slew distance is bounded (< ~4M microsteps at 64 µsteps), so the
+     * 64-bit product cannot overflow. */
     int travelled_cds = (int) ((int64_t) travelled_steps * (int64_t) distance_cds
                                / distance_steps);
 
@@ -192,6 +192,14 @@ static uint32_t step_period_ticks(float velocity_dps) {
  * -------------------------------------------------------------------------- */
 void motors_motion_stop(void) {
     s_motion.active = false;
+
+    /* Clear any in-flight guide pulse so a stale deadline/offset cannot
+     * "resume" the pulse after a quick stop → restart. */
+    s_motion.ra_guide_deadline_us = 0;
+    s_motion.ra_guide_offset_dps = 0.0f;
+    s_motion.dec_guide_deadline_us = 0;
+    s_motion.dec_guide_offset_dps = 0.0f;
+
     motors_rmt_abort_both();
     if (motors_motion_task_handle) {
         xTaskNotify(motors_motion_task_handle, 0, eNoAction);
@@ -442,9 +450,9 @@ static void process_command(MotionCommand cmd) {
              * the loop never completes on its own — it only stops when an
              * external status change (STOP, PARK) is detected.
              *
-             * Hemisphere selection: positive velocity → ra_max (northern),
-             * negative velocity → ra_min (southern).  The sign is set by
-             * motors_start_tracking based on site latitude.
+             * RA always tracks positive (hour angle increases at the
+             * sidereal rate on both hemispheres), so the target is ra_max;
+             * ra_min is the fallback for a negative rate.
              */
             s_motion.ra_target = (cmd.ra_speed >= 0.0f)
                                      ? motors_deg_to_steps(motors_state.limits.ra_max)
@@ -488,7 +496,12 @@ static void process_command(MotionCommand cmd) {
                              &s_motion.dec_guide_offset_dps, &cmd);
             }
             motors_state.guiding = true;
-            /* Don't set s_motion.active — the existing loop handles it. */
+            /*
+             * Set active so a standalone guide pulse (READY, no tracking)
+             * actually runs its motion loop.  During tracking active is
+             * already true, so this is a no-op there.
+             */
+            s_motion.active = true;
             break;
     }
 }
@@ -846,51 +859,80 @@ static void tracking_loop_rmt(void) {
     double dec_phase = 0.0;
     int64_t last_time_us = esp_timer_get_time();
     int64_t last_check_us = last_time_us;
-    int64_t last_guide_check_us = last_time_us;
 
-    int ra_sign = (motors_state.ra_speed >= 0.0f) ? 1 : -1;
-    motors_hw_set_direction_ra((ra_sign > 0)
-                                ? MOTOR_DIRECTION_POSITIVE
-                                : MOTOR_DIRECTION_NEGATIVE);
-
+    int ra_dir_set = 0;   /* 0 = unknown, ±1 = last set RA direction */
     int dec_dir_set = 0;
     rmt_symbol_word_t ra_sym[RMT_BUFFER_SYMBOLS];
     rmt_symbol_word_t dec_sym[RMT_BUFFER_SYMBOLS];
+
+    /*
+     * Effective velocities (deg/s).  Persist across iterations so the
+     * phase integral at the top of the loop uses the velocity that was
+     * actually in effect during the elapsed interval, before any guide
+     * start/end events at `now` are applied.
+     */
+    float ra_vel = (motors_state.status == MOTORS_STATUS_TRACKING)
+                   ? motors_state.ra_speed : 0.0f;
+    float dec_vel = 0.0f;
 
     while (s_motion.active) {
         int64_t now = esp_timer_get_time();
         double dt_s = (double)(now - last_time_us) / 1000000.0;
         last_time_us = now;
 
-        /* Guide expiry (every 10 ms). */
-        if (now - last_guide_check_us >= 10000) {
-            last_guide_check_us = now;
-            if (s_motion.ra_guide_deadline_us
-                && now >= s_motion.ra_guide_deadline_us) {
-                s_motion.ra_guide_deadline_us = 0;
-                s_motion.ra_guide_offset_dps = 0.0f;
-            }
-            if (s_motion.dec_guide_deadline_us
-                && now >= s_motion.dec_guide_deadline_us) {
-                s_motion.dec_guide_deadline_us = 0;
-                s_motion.dec_guide_offset_dps = 0.0f;
-                dec_dir_set = 0;
-            }
-            motors_state.guiding = (s_motion.ra_guide_deadline_us != 0
-                                    || s_motion.dec_guide_deadline_us != 0);
-        }
-
-        /* Effective velocities (deg/s). */
-        float ra_vel = motors_state.ra_speed;
-        if (s_motion.ra_guide_deadline_us)
-            ra_vel += s_motion.ra_guide_offset_dps;
-        float dec_vel = 0.0f;
-        if (s_motion.dec_guide_deadline_us)
-            dec_vel = s_motion.dec_guide_offset_dps;
-
-        /* Accumulate signed phase (microsteps). */
+        /*
+         * Integrate the interval that just elapsed using the velocities
+         * that were in effect during it (ra_vel/dec_vel hold the previous
+         * iteration's values).  Guide start/end events at `now` are applied
+         * after this, so each velocity covers exactly its own interval —
+         * no retroactive guide motion.
+         */
         ra_phase += (double)ra_vel * dt_s / (double)deg_per_step;
         dec_phase += (double)dec_vel * dt_s / (double)deg_per_step;
+
+        /*
+         * Drain queued PulseGuide commands while this loop is active.
+         * The task never returns to xQueueReceive() in the main loop
+         * during tracking, so PHD2 corrections would otherwise sit
+         * unprocessed.  Only PULSE_GUIDE is consumed here — SLEW, TRACK
+         * and MOVE_AXIS must not run inline and stay queued for the
+         * main loop (they arrive after a STOP anyway).
+         */
+        {
+            MotionCommand queued;
+            while (xQueuePeek(motion_cmd_queue, &queued, 0) == pdTRUE
+                   && queued.type == MOTION_CMD_PULSE_GUIDE) {
+                xQueueReceive(motion_cmd_queue, &queued, 0);
+                process_command(queued);
+            }
+        }
+
+        /* Guide expiry — checked every iteration for µs-precise pulse
+         * termination instead of the previous 10 ms quantization. */
+        if (s_motion.ra_guide_deadline_us
+            && now >= s_motion.ra_guide_deadline_us) {
+            s_motion.ra_guide_deadline_us = 0;
+            s_motion.ra_guide_offset_dps = 0.0f;
+        }
+        if (s_motion.dec_guide_deadline_us
+            && now >= s_motion.dec_guide_deadline_us) {
+            s_motion.dec_guide_deadline_us = 0;
+            s_motion.dec_guide_offset_dps = 0.0f;
+            dec_dir_set = 0;
+        }
+        motors_state.guiding = (s_motion.ra_guide_deadline_us != 0
+                                || s_motion.dec_guide_deadline_us != 0);
+
+        /* Velocities for the interval starting at `now`.  Standalone
+         * guiding (status != TRACKING) has a zero base rate; only tracking
+         * carries the continuous RA speed. */
+        ra_vel = (motors_state.status == MOTORS_STATUS_TRACKING)
+                 ? motors_state.ra_speed : 0.0f;
+        if (s_motion.ra_guide_deadline_us)
+            ra_vel += s_motion.ra_guide_offset_dps;
+        dec_vel = 0.0f;
+        if (s_motion.dec_guide_deadline_us)
+            dec_vel = s_motion.dec_guide_offset_dps;
 
         /* Conditions check (every ~500 us). */
         if (now - last_check_us >= 500) {
@@ -898,19 +940,30 @@ static void tracking_loop_rmt(void) {
             if (!check_motion_conditions()) break;
             if (motors_state.status != MOTORS_STATUS_TRACKING
                 && !motors_state.guiding) {
+                /* Standalone guide finished — clear the motion flag so
+                 * idle state is unambiguous. */
+                s_motion.active = false;
                 break;
             }
         }
 
         /* ── Emit RA steps ─────────────────────────────────── */
         while (ra_phase >= 1.0) {
-            if (!emit_ra_tracking_step(ra_sign, ra_sym)) {
+            if (ra_dir_set != 1) {
+                motors_hw_set_direction_ra(MOTOR_DIRECTION_POSITIVE);
+                ra_dir_set = 1;
+            }
+            if (!emit_ra_tracking_step(1, ra_sym)) {
                 ra_phase = 0.0;
                 return;
             }
             ra_phase -= 1.0;
         }
         while (ra_phase <= -1.0) {
+            if (ra_dir_set != -1) {
+                motors_hw_set_direction_ra(MOTOR_DIRECTION_NEGATIVE);
+                ra_dir_set = -1;
+            }
             if (!emit_ra_tracking_step(-1, ra_sym)) {
                 ra_phase = 0.0;
                 return;
@@ -1009,10 +1062,37 @@ static void tracking_loop_rmt(void) {
         }
 
         /* ── Sleep ─────────────────────────────────────────── */
-        double ra_s = (ra_vel != 0.0) ? (1.0 - ra_phase) * deg_per_step / fabs((double)ra_vel) : 1e9;
-        double dec_s = (dec_vel != 0.0) ? (1.0 - dec_phase) * deg_per_step / fabs((double)dec_vel) : 1e9;
+        /* Time to the next step boundary.  The next step is at
+         * phase == +1 for positive velocity, at phase == -1 for
+         * negative velocity, so the remaining phase depends on the
+         * sign of the velocity. */
+        double ra_remaining = (ra_vel > 0.0) ? (1.0 - ra_phase)
+                                             : (1.0 + ra_phase);
+        double dec_remaining = (dec_vel > 0.0) ? (1.0 - dec_phase)
+                                               : (1.0 + dec_phase);
+        double ra_s = (ra_vel != 0.0) ? ra_remaining * deg_per_step / fabs((double)ra_vel) : 1e9;
+        double dec_s = (dec_vel != 0.0) ? dec_remaining * deg_per_step / fabs((double)dec_vel) : 1e9;
         int64_t w_us = (int64_t)((ra_s < dec_s ? ra_s : dec_s) * 1000000.0);
         if (w_us < 0) w_us = 0;
+
+        /*
+         * Wake at the earliest guide deadline so a pulse ends exactly on
+         * time instead of rounding up to the next step period.  Fresh
+         * clock read: step emission above may have consumed time since
+         * `now` was captured at loop entry.
+         */
+        {
+            int64_t now_us = esp_timer_get_time();
+            if (s_motion.ra_guide_deadline_us) {
+                int64_t until = s_motion.ra_guide_deadline_us - now_us;
+                if (until < w_us) w_us = until;
+            }
+            if (s_motion.dec_guide_deadline_us) {
+                int64_t until = s_motion.dec_guide_deadline_us - now_us;
+                if (until < w_us) w_us = until;
+            }
+            if (w_us < 0) w_us = 0;
+        }
 
         if (w_us > FINE_MARGIN_US) {
             uint32_t sm = (uint32_t)((w_us - FINE_MARGIN_US) / 1000);

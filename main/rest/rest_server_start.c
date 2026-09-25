@@ -41,6 +41,7 @@ void rest_server_start(void) {
     rest_register_post(server, "/api/move-axis-speed", rest_move_axis_speed_handler);
     rest_register_post(server, "/api/slew-to-coordinates", rest_slew_to_coordinates_handler);
     rest_register_post(server, "/api/stop", rest_stop_handler);
+    rest_register_post(server, "/api/reset", rest_reset_handler);
     rest_register_post(server, "/api/park", rest_park_handler);
     rest_register_post(server, "/api/home", rest_home_handler);
     rest_register_post(server, "/api/unpark", rest_unpark_handler);

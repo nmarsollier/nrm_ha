@@ -4,7 +4,7 @@
  *
  * Two independent RMT TX channels with GDMA streaming eliminate
  * software jitter and free the CPU during step bursts.
- * Step pulses are 2 us HIGH followed by (period - 2) us LOW.
+ * Step pulses are 6 us HIGH followed by (period - 6) us LOW.
  *
  * RMT resolution: 2 MHz (0.5 us per tick).  Balanced for future
  * high-reduction configurations while keeping slow-step idle symbols

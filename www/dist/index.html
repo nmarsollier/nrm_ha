@@ -748,6 +748,7 @@ footer code {
                 <button @click="home()" :disabled="isError">HOME</button>
                 <button @click="park()" x-show="!isParked" :disabled="isError">PARK</button>
                 <button @click="unpark()" x-show="isParked" :disabled="isError">UNPARK</button>
+                <button class="danger" @click="reset()">RESET</button>
             </div>
         </div>
 
@@ -1019,6 +1020,12 @@ footer code {
         },
         unpark() {
             this.apiPost('/api/unpark').then(() => this.fetchStatus());
+        },
+
+        reset() {
+            if (confirm('Reboot the mount controller?')) {
+                this.apiPost('/api/reset');
+            }
         },
 
         setTracking() {

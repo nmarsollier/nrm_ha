@@ -8,7 +8,7 @@
  * ENABLE is hardwired (always enabled) — no GPIO control needed.
  *
  * Hardware: NEMA 17 closed-loop stepper motors with integrated drivers,
- * 32-microstep DIP-switch setting, 300:1 total reduction.
+ * 64-microstep DIP-switch setting, 300:1 total reduction.
  *
  * Level shifting: all output signals (STEP, DIR for both axes) go
  * through a UMC2003 Darlington array (open-collector sinking output).

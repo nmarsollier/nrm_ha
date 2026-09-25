@@ -64,6 +64,7 @@ idf_component_register(
         "rest/rest_move_axis_handler.c"
         "rest/rest_move_axis_speed_handler.c"
         "rest/rest_park_handler.c"
+        "rest/rest_reset_handler.c"
         "rest/rest_html_handler.c"
         "rest/rest_settings_handler.c"
         "rest/rest_status_handler.c"

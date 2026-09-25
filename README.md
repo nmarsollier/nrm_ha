@@ -7,12 +7,12 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 ## Hardware
 
 - **Board**: ESP32-S3 44-pin (16 MB Flash, 8 MB PSRAM)
-- **Motor drivers**: Integrated closed-loop ISS42 (32 microsteps via DIP switches, specs in [`MOTOR.txt`](MOTOR.txt))
+- **Motor drivers**: Integrated closed-loop ISS42 (64 microsteps via DIP switches, specs in [`MOTOR.txt`](MOTOR.txt))
 - **Motors**: 2× NEMA 17 Closed Loop (0.44 Nm torque, integrated driver)
 - **Harmonic Drives**: 100:1 reduction
 - **Belt reduction**: 3:1 (HTD3M 15T → 45T, 171mm belt)
 - **Total reduction**: 300:1 on both axes
-- **Power**: 12V 5A supply → Mini DC 360 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
+- **Power**: 12V 5A supply → LM2596 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
 - **LED**: PWM indicator (GPIO 42) — three states: dim (~10%) at idle, bright (100%) during slewing, slow breathing on error.
 - **Buzzer**: passive event beeper (GPIO 41, 2 kHz) — beeps on boot and on goto/move-axis start & end.
 - **Outputs**: STEP/DIR/LED/buzzer all pass through a UMC2003 Darlington array (open-collector sinking).
@@ -29,9 +29,9 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 
 - NEMA 17 Closed Loop with integrated ISS42 driver (specs in [`MOTOR.txt`](MOTOR.txt))
 - https://www.amazon.com/dp/B0FHHWT8Q8
-- Configured at 32 microsteps via DIP switches
+- Configured at 64 microsteps via DIP switches (12800 steps/rev)
 - Torque: 0.44 Nm
-- Hardware torque limiting (SW6 ON)
+- Resolution DIP switches (SW3-SW6): 64 microsteps = SW3 OFF, SW4 ON, SW5 OFF, SW6 ON
 
 ### Pin mapping
 
@@ -120,6 +120,73 @@ USB Ethernet is the mount's only network interface — all servers bind to `INAD
 - **Windows 10/11**: CDC-NCM is supported natively; the device appears as a USB Ethernet adapter.
 - **macOS**: CDC-NCM is supported natively (AppleUSBNCM); the device appears as "Mount USB Ethernet".
 - **Linux**: CDC-NCM is handled by the `cdc_ncm` kernel module (loaded automatically).
+
+## API Reference
+
+The mount exposes a REST API on port 80, the ASCOM Alpaca interface on port
+11111, and UDP discovery on 32227. Every REST command returns JSON.
+
+### Response contract
+
+| Outcome   | HTTP | Body                                |
+|-----------|------|-------------------------------------|
+| Success   | 200  | `{"ok":true,"message":"..."}`       |
+| Rejected  | 409  | `{"ok":false,"message":"..."}`      |
+| Malformed | 400  | `{"ok":false,"message":"..."}`      |
+
+### Endpoints
+
+| Method | Path                      | Body                                                                                          | Purpose |
+|--------|---------------------------|-----------------------------------------------------------------------------------------------|---------|
+| GET    | `/`                       | —                                                                                             | Embedded web UI |
+| GET    | `/api/status`             | —                                                                                             | Full status snapshot |
+| POST   | `/api/tracking`           | `{"tracking":"none\|sidereal\|lunar\|solar"}`                                                 | Set tracking mode |
+| POST   | `/api/move-axis`          | `{"axis":"ra\|dec","degrees":<deg>,"speed":1..4}`                                             | Relative single-axis move |
+| POST   | `/api/move-axis-speed`    | `{"ra_rate":<deg/s>,"dec_rate":<deg/s>}`                                                      | Continuous move; `0` stops an axis |
+| POST   | `/api/slew-to-coordinates`| `{"ra":<hours>,"dec":<deg>,"speed":1..4}`                                                     | Slew to equatorial coordinates |
+| POST   | `/api/stop`               | —                                                                                             | Stop all motion |
+| POST   | `/api/home`               | —                                                                                             | Move to home position |
+| POST   | `/api/park`               | —                                                                                             | Move to parked position |
+| POST   | `/api/unpark`             | —                                                                                             | Exit parked state |
+| POST   | `/api/reset`              | —                                                                                             | Reboot the firmware |
+| POST   | `/api/settings`           | `{"lat":<deg>,"lon":<deg>,"elevation":<m>,"time":"<ISO8601>"}`                                 | Update site settings (`time` optional) |
+| POST   | `/api/limits`             | `{"action":"set_home\|set_ra_left\|set_ra_right\|set_dec_left\|set_dec_right"}`               | Set a limit/home from the current position |
+
+Speed profiles: `1` = 1°/s, `2` = 3°/s, `3` = 4.5°/s, `4` = 6°/s.
+
+### Status snapshot — `GET /api/status`
+
+```json
+{
+  "status": "ready | slewing | tracking | parked | error",
+  "tracking": "none | sidereal | lunar | solar",
+  "ra": "HH:MM:SS.ss",
+  "dec": "±DD:MM:SS.ss",
+  "lst": "HH:MM:SS.ss",
+  "pier_side": "East | West",
+  "time": "2026-09-25T12:00:00Z",
+  "settings": { "lat": 0.0, "lon": 0.0, "elevation": 0 },
+  "is_home": true,
+  "debug": {
+    "ra_axis_deg": 0.0,
+    "dec_axis_deg": 0.0,
+    "ra_steps": 0,
+    "dec_steps": 0,
+    "ra_speed": 0.0,
+    "dec_speed": 0.0,
+    "guiding": false,
+    "microsteps": 64,
+    "limits": { "ra_min": -95.0, "ra_max": 100.0, "dec_min": -150.0, "dec_max": 150.0 },
+    "uptime_s": 1234
+  }
+}
+```
+
+### ASCOM Alpaca
+
+The mount also implements the ASCOM Alpaca protocol on port 11111 (for
+N.I.N.A. and other ASCOM clients) and answers UDP discovery on 32227. URLs
+are listed in the USB Ethernet section above.
 
 ## Setup
 

@@ -8,8 +8,8 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 - Montura NRM-HA con harmonic drives de reduccion 100:1 y poleas HTD3M 3:1 (15T→45T)
 - Reduccion total: 300:1 en ambos ejes
 - Utiliza una placa ESP32-S3 44 pines
-- Utiliza 2 motores Nema 17 Closed Loop con driver integrado, configurados a 32 microsteps
-- Los motores se alimentan directo de fuente 12V, la placa ESP32-S3 via Mini DC 360 (12V→5.5V)
+- Utiliza 2 motores Nema 17 Closed Loop con driver integrado, configurados a 64 microsteps
+- Los motores se alimentan directo de fuente 12V, la placa ESP32-S3 via LM2596 (12V→5.5V)
 - Estructura metalica en hierro 1/8, dos cuerpos (RA y DEC)
 - La montura posee 2 botones fisicos, Stop y Home
 - Posee una pantalla minimalista OLED de 0.98 inch, se muestra verticalmente
@@ -26,9 +26,9 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 
 - Motores Nema 17 Closed Loop con driver integrado ISS42 (especificaciones en MOTOR.txt)
 - https://www.amazon.com/dp/B0FHHWT8Q8
-- Configurados a 32 microsteps via DIP switches
+- Configurados a 64 microsteps via DIP switches (12800 pasos/rev)
 - Torque: 0.44 Nm
-- Limitado de torque por hardware (SW6 en ON)
+- Resolucion por DIP switches SW3-SW6: 64 microsteps = SW3 OFF, SW4 ON, SW5 OFF, SW6 ON
 
 ## Placa ESP32-S3
 

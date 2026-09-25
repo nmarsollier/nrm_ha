@@ -10,9 +10,9 @@
 
 /*
  * Microstep resolution — the closed-loop driver's actual DIP-switch
- * setting (NRM-HA: 32 microsteps / 6400 steps per revolution).
+ * setting (NRM-HA: 64 microsteps / 12800 steps per revolution).
  */
-#define MOTORS_MICROSTEPS 32
+#define MOTORS_MICROSTEPS 64
 
 typedef enum {
     /* Ready to accept slews/tracking requests. */

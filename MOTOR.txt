@@ -163,23 +163,21 @@ Guardado de parámetros en curso.
 
 CONFIGURACIÓN DE INTERRUPTORES DIP
 
+El driver tiene 6 interruptores DIP (SW1 a SW6). La tabla completa de
+resoluciones está en la sección "CONFIGURACIONES DEL DRIVER NEMA 17
+CLOSED LOOP", más abajo en este archivo.
+
 SW1 — SENTIDO DE GIRO
+OFF: giro directo (predeterminado).
+ON:  giro inverso.
 
-OFF:
-Giro hacia adelante. Configuración predeterminada.
+SW2 — CORRIENTE EN LAZO CERRADO
+OFF: corriente baja (1 A a 1,5 A RMS).
+ON:  corriente alta (1 A a 2 A RMS).
 
-ON:
-Giro inverso.
-
-SELECCIÓN DE CORRIENTE
-
-OFF:
-Modo de corriente baja.
-
-ON:
-Modo de corriente alta.
-
-En la fotografía no se distingue claramente qué número de interruptor controla esta función.
+SW3 a SW6 — RESOLUCIÓN (pasos por vuelta)
+Configuración actual del proyecto: 64 microsteps = 12800 pasos/vuelta
+(SW3 OFF, SW4 ON, SW5 OFF, SW6 ON).
 
 
 CONDICIONES AMBIENTALES
@@ -227,3 +225,141 @@ RESUMEN DE CONEXIÓN Y OPERACIÓN
 - DIR debe establecerse al menos 50 µs antes del pulso STEP.
 - Motor paso a paso bifásico con driver integrado.
 - Salida de alarma AM con corriente máxima de 50 mA.
+
+
+CONFIGURACIONES DEL DRIVER NEMA 17 CLOSED LOOP
+=============================================
+
+Fuente: imagen adjunta titulada "Nema 17 Closed Loop Stepper Driver
+Characteristics". Este resumen incluye todas las configuraciones que
+aparecen en esa imagen. No se indica marca ni modelo exacto del driver.
+NEMA 17 identifica el tamaño de montaje del motor, no un modelo eléctrico.
+
+1. INTERRUPTORES DIP
+--------------------
+SW1: sentido de giro.
+SW2: selección del modo de corriente.
+SW3, SW4, SW5 y SW6: resolución, expresada en pasos/pulsos por vuelta.
+
+ON y OFF se refieren a las posiciones señaladas en el interruptor físico.
+El dibujo no permite determinar hacia qué lado está ON.
+
+2. SW1: SENTIDO DE GIRO
+-----------------------
+OFF: giro directo (configuración predeterminada según la imagen).
+ON:  giro inverso.
+
+La imagen no define "directo" como horario o antihorario ni especifica
+desde qué extremo del eje observarlo.
+
+3. SW2: CORRIENTE EN LAZO CERRADO
+--------------------------------
+Posición   Modo de corriente   Imin (RMS)   Imax (RMS)
+OFF        Baja corriente     1 A          1,5 A
+ON         Alta corriente     1 A          2 A
+
+Los valores se transcriben de la tabla "Closed Loop". RMS significa
+valor eficaz. No son valores de corriente pico. La imagen no explica
+la lógica de variación entre Imin e Imax ni indica el modo predeterminado.
+
+4. SW3 A SW6: TODAS LAS RESOLUCIONES / MICROSTEPS
+------------------------------------------------
+La tabla original dice "step/rev": pasos o pulsos de mando por vuelta.
+La columna "Factor" de abajo es una conversión calculada suponiendo
+un motor de 1,8 grados por paso completo (200 pasos completos/vuelta).
+La imagen no confirma el ángulo de paso del motor.
+
+Pulsos/vuelta   Factor (*)   SW3   SW4   SW5   SW6
+-------------  -----------  ----  ----  ----  ----
+400            2            ON    ON    ON    ON
+800            4            OFF   ON    ON    ON
+1600           8            ON    OFF   ON    ON
+3200           16           OFF   OFF   ON    ON
+6400           32           ON    ON    OFF   ON
+12800          64           OFF   ON    OFF   ON
+25600          128          ON    OFF   OFF   ON
+51200          256          OFF   OFF   OFF   ON
+1000           5            ON    ON    ON    OFF
+2000           10           OFF   ON    ON    OFF
+4000           20           ON    OFF   ON    OFF
+5000           25           OFF   OFF   ON    OFF
+8000           40           ON    ON    OFF   OFF
+10000          50           OFF   ON    OFF   OFF
+20000          100          ON    OFF   OFF   OFF
+40000          200          OFF   OFF   OFF   OFF
+
+(*) Factor = microsteps de mando por paso completo, bajo la suposición
+de 200 pasos completos/vuelta. No confirma la resolución interna del
+driver ni la del encoder.
+
+SW6 = ON:  400, 800, 1600, 3200, 6400, 12800, 25600 o 51200 pulsos/vuelta.
+SW6 = OFF: 1000, 2000, 4000, 5000, 8000, 10000, 20000 o 40000 pulsos/vuelta.
+
+La imagen no ofrece una opción de 200 pulsos/vuelta (paso completo para
+un motor de 1,8 grados), ni indica una resolución predeterminada.
+
+5. CÓMO INTERPRETAR Y USAR LA RESOLUCIÓN
+---------------------------------------
+Para N pulsos por vuelta:
+- Una vuelta comandada requiere N pulsos.
+- Ángulo nominal por pulso = 360 / N, en grados.
+- Pulsos para un ángulo = ángulo x N / 360.
+- Frecuencia de pulsos (Hz) = RPM x N / 60.
+- RPM = frecuencia de pulsos (Hz) x 60 / N.
+- Factor de microstep = N / pasos completos por vuelta del motor.
+
+Ejemplo: con 3200 pulsos/vuelta y un motor de 1,8 grados, el factor
+equivalente es 16. Cada pulso comanda 0,1125 grados; 90 grados requieren
+800 pulsos y 60 RPM requieren una frecuencia de 3200 Hz.
+
+Si el motor tiene otro ángulo de paso, recalcular el factor:
+pasos completos/vuelta = 360 / ángulo de paso completo.
+La resolución de mando no equivale necesariamente a precisión mecánica.
+
+6. COMBINACIÓN DE LAS CONFIGURACIONES
+-------------------------------------
+Cada una de las 16 resoluciones puede combinarse con:
+- SW1 OFF o ON: 2 sentidos de giro.
+- SW2 OFF o ON: 2 modos de corriente.
+
+Total: 16 x 2 x 2 = 64 combinaciones de los seis interruptores DIP.
+
+Ejemplo completo:
+SW1 OFF, SW2 ON, SW3 OFF, SW4 OFF, SW5 ON, SW6 ON.
+Resultado: giro directo, modo de alta corriente (1 a 2 A RMS según
+la tabla) y 3200 pulsos/vuelta.
+
+7. BORNES QUE APARECEN EN EL DIBUJO
+----------------------------------
+Bloque superior, de izquierda a derecha:
+DC+, GND, AM-, AM+, EN-, EN+, DR-, DR+, PU-, PU+.
+
+Bloque lateral, de arriba hacia abajo:
+A+, A-, B+, B-.
+
+Interpretación habitual de estas etiquetas (la imagen no incluye una
+descripción eléctrica de los bornes):
+- DC+ y GND: alimentación de corriente continua y retorno.
+- AM- / AM+: normalmente asociados a la señal de alarma; confirmar
+  función y tipo de salida en el manual del modelo.
+- EN- / EN+: señal de habilitación.
+- DR- / DR+: señal de dirección.
+- PU- / PU+: señal de pulsos de movimiento.
+- A+ / A-: conexiones de una fase del motor.
+- B+ / B-: conexiones de la otra fase del motor.
+
+8. DATOS QUE NO FIGURAN EN LA IMAGEN
+-----------------------------------
+No se pueden determinar a partir de esta lámina:
+- Marca y modelo exactos del motor y del driver.
+- Tensión de alimentación admitida.
+- Tensiones, corrientes y polaridades lógicas de las señales de control.
+- Frecuencia máxima, ancho mínimo de pulso y tiempos de las señales.
+- Ángulo de paso, torque, velocidad máxima e inductancia del motor.
+- Resolución y conexión del encoder.
+- Parámetros de ajuste del lazo cerrado y umbrales de alarma.
+- Si los cambios DIP requieren reinicio o cuándo se leen los interruptores.
+- Corriente y resolución predeterminadas.
+
+Para esos datos hace falta el manual del modelo exacto. Las funciones
+de bornes indicadas como habituales no sustituyen su esquema de conexión.

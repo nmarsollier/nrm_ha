@@ -90,6 +90,12 @@ function mountApp() {
             this.apiPost('/api/unpark').then(() => this.fetchStatus());
         },
 
+        reset() {
+            if (confirm('Reboot the mount controller?')) {
+                this.apiPost('/api/reset');
+            }
+        },
+
         setTracking() {
             this.apiPost('/api/tracking', {tracking: this.trackingOptions[this.selectedTracking]})
                 .then(() => this.fetchStatus());

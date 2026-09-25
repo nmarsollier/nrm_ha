@@ -28,6 +28,8 @@ esp_err_t rest_move_axis_speed_handler(httpd_req_t *request);
 
 esp_err_t rest_stop_handler(httpd_req_t *request);
 
+esp_err_t rest_reset_handler(httpd_req_t *request);
+
 esp_err_t rest_park_handler(httpd_req_t *request);
 
 esp_err_t rest_unpark_handler(httpd_req_t *request);
