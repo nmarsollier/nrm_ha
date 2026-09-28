@@ -10,6 +10,9 @@
 /* Internal mount state stored by the mount module. */
 extern MountSettings mount_internal_state;
 
+/* True once a valid system time has been set — gates GOTO. */
+extern bool mount_time_valid;
+
 MountResult mount_result_ok(void);
 
 MountResult mount_result_error(const char *message);

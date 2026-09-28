@@ -15,9 +15,14 @@ MotorResultCode motors_stop(void) {
     }
 
     motors_queue_clear();
-    motors_state.status = MOTORS_STATUS_READY;
+    /* STOP must not unpark: only motors_unpark() exits PARKED. */
+    portENTER_CRITICAL(&motors_state_lock);
+    if (motors_state.status != MOTORS_STATUS_PARKED) {
+        motors_state.status = MOTORS_STATUS_READY;
+    }
     motors_state.tracking = TRACKING_NONE;
     motors_state.guiding = false;
+    portEXIT_CRITICAL(&motors_state_lock);
     motors_motion_stop();
     return MOTOR_OK;
 }

@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 #include "motors/motors.h"
 
 /* MotorAxis is defined in rest/rest.h */
@@ -67,7 +68,7 @@ typedef struct {
 
 /* Conversion functions between equatorial and physical axis coordinates. */
 bool equatorial_to_axis(EquatorialCoordinates eq, AxisCoordinates current,
-                        AxisCoordinates *out);
+                        time_t at_time, AxisCoordinates *out);
 
 EquatorialCoordinates axis_to_equatorial(AxisCoordinates axis);
 
@@ -180,6 +181,10 @@ MountResult mount_move_axis_dec(float degrees, int speed_rate);
  * manual centering controls.
  */
 MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed);
+
+/* Move a single axis (0 = RA, 1 = DEC) at `rate` deg/s, preserving the
+ * other axis's current rate.  Used by Alpaca MoveAxis. */
+MountResult mount_set_move_axis_rate(int axis, float rate);
 
 /* Discard saved tracking state when MoveAxis is aborted externally. */
 void mount_move_axis_reset(void);

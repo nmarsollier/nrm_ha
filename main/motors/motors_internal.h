@@ -40,13 +40,25 @@ typedef struct {
     int guide_axis;        /* 0 = RA, 1 = DEC */
     float guide_offset_dps; /* signed deg/s */
     uint32_t guide_duration_ms;
+    /* Stop epoch captured at enqueue — a command whose epoch is stale
+     * (a STOP landed after it was enqueued) is discarded at execution. */
+    uint32_t generation;
 } MotionCommand;
 
 /* Queue handle — created by motors_init(), shared across the module. */
 extern QueueHandle_t motion_cmd_queue;
 
-/* Send a MotionCommand to the back of the queue (FIFO). */
-void motors_queue_put(MotionCommand *cmd);
+/* Stop epoch — incremented on every stop so queued commands can be
+ * invalidated.  Read/written from multiple tasks (uint32, monotonic). */
+extern volatile uint32_t motors_stop_generation;
+
+/* Spinlock guarding the int64_t position counters against torn cross-core
+ * reads (motors_current_state / motors_get_*_deg). */
+extern portMUX_TYPE motors_state_lock;
+
+/* Send a MotionCommand to the back of the queue (FIFO).
+ * Returns false if the queue is full or uninitialised. */
+bool motors_queue_put(MotionCommand *cmd);
 
 /* Atomically discard every command in the queue. */
 void motors_queue_clear(void);
@@ -176,13 +188,7 @@ bool motors_rmt_try_wait_ra(void);
 
 bool motors_rmt_try_wait_dec(void);
 
-void motors_rmt_abort_ra(void);
-
-void motors_rmt_abort_dec(void);
-
-void motors_rmt_abort_both(void);
-
-/* Reset both RMT channels' hardware — motion task only. */
+/* Recreate both RMT channels — motion task only. */
 void motors_rmt_reset_both(void);
 
 /* =========================================================================
@@ -191,22 +197,28 @@ void motors_rmt_reset_both(void);
  * ========================================================================= */
 extern MotorsState motors_state;
 
+/* Latched hardware-fault tracking — see motors_enter_error_state.c.
+ * A hardware fault is never cleared by a power-loss recovery. */
+void motors_enter_hardware_fault(void);
+bool motors_has_hardware_fault(void);
+
 float motors_get_tracking_speed(TrackingMode mode);
 
 /* Motion task handle — exposed so external code can send notifications. */
 extern TaskHandle_t motors_motion_task_handle;
-
-/* RMT abort — called ONLY by the motion task. */
 
 /* =========================================================================
  * Task & queue lifecycle (motors_task.c, motors_queue.c).
  * ========================================================================= */
 
 /* Stop the active motion loop from outside the motion task.
- * Owns s_motion.active, RMT abort, and task notification.
+ * Owns s_motion.active and task notification.
  * Safe to call from any task. */
 void motors_motion_stop(void);
 
-void motors_motion_task_init(void);
+/* Wait (bounded) until the motion task is idle.  Call after motors_stop(). */
+void motors_motion_wait_idle(void);
 
-void motors_queue_init(void);
+esp_err_t motors_motion_task_init(void);
+
+esp_err_t motors_queue_init(void);

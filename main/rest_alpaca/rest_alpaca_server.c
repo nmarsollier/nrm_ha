@@ -22,7 +22,10 @@ void rest_alpaca_server_start(void) {
     config.lru_purge_enable = true;
     config.ctrl_port = 32769;
     config.core_id = 0;
-    config.task_priority = 4;
+    /* Above main_loop (5) so a blocking ADC read there can't preempt handlers
+     * mid-run; below lwIP (18). */
+    config.task_priority = 10;
+    config.open_fn = rest_httpd_open_nodelay;
 
     esp_err_t result = httpd_start(&server, &config);
     if (result != ESP_OK) {
@@ -119,12 +122,10 @@ void rest_alpaca_server_start(void) {
     rest_register_put(server, T "/unpark", alpaca_unpark_handler);
     rest_register_put(server, T "/setpark", alpaca_setpark_handler);
     rest_register_put(server, T "/slewtocoordinatesasync", alpaca_slewtocoordinatesasync_handler);
-    rest_register_put(server, T "/slewtocoordinates", alpaca_slewtocoordinatesasync_handler);
     rest_register_put(server, T "/slewtoaltazasync", alpaca_slewtoaltazasync_handler);
     rest_register_put(server, T "/synctocoordinates", alpaca_synctocoordinates_handler);
     rest_register_put(server, T "/synctoaltaz", alpaca_synctoaltaz_handler);
     rest_register_put(server, T "/slewtotargetasync", alpaca_slewtotargetasync_handler);
-    rest_register_put(server, T "/slewtotarget", alpaca_slewtotargetasync_handler);
     rest_register_put(server, T "/synctotarget", alpaca_synctotarget_handler);
     rest_register_put(server, T "/pulseguide", alpaca_pulseguide_handler);
     rest_register_put(server, T "/moveaxis", alpaca_moveaxis_handler);

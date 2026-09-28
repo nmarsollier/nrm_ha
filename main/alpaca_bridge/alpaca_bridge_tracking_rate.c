@@ -6,23 +6,32 @@
  */
 
 #include "alpaca_bridge.h"
+#include "alpaca_bridge_internal.h"
 
 #include <stdio.h>
 
 #include "mount.h"
+#include "mount_internal.h"
 #include "motors/motors.h"
 
+/* Map an ASCOM DriveRates value to the internal tracking mode. */
+static TrackingMode rate_to_mode(int rate) {
+    switch (rate) {
+        case 1:  return TRACKING_LUNAR;
+        case 2:  return TRACKING_SOLAR;
+        case 0:
+        default: return TRACKING_SIDEREAL;
+    }
+}
+
 /*
- * Return the current tracking mode as an ASCOM DriveRates value.
+ * Return the currently selected tracking rate as an ASCOM DriveRates value.
+ * This is the setpoint (what TrackingRate was last set to), not the active
+ * mode: when tracking is off the mount still reports the selected rate, so
+ * N.I.N.A. can read back the user's choice.
  */
 int alpaca_bridge_get_tracking_rate(void) {
-    MotorsState s = motors_current_state();
-    switch (s.tracking) {
-        case TRACKING_SIDEREAL: return 0;
-        case TRACKING_LUNAR: return 1;
-        case TRACKING_SOLAR: return 2;
-        default: return 0;
-    }
+    return alpaca_bridge_state.selected_tracking_rate;
 }
 
 /*
@@ -37,34 +46,30 @@ bool alpaca_bridge_get_tracking(void) {
 
 /*
  * Enable or disable tracking without changing the current rate.
- * When enabling, the previously-set rate (via TrackingRate) is preserved.
- * Defaults to sidereal only if no rate was ever set.
+ * When enabling, the previously-selected rate (via TrackingRate) is used,
+ * so a lunar/solar selection survives a Tracking off/on cycle.
  */
 MountResult alpaca_bridge_set_tracking(bool enabled) {
     if (!enabled)
         return mount_set_tracking(TRACKING_NONE);
-
-    MotorsState s = motors_current_state();
-    TrackingMode mode = (s.tracking != TRACKING_NONE) ? s.tracking : TRACKING_SIDEREAL;
-    return mount_set_tracking(mode);
+    return mount_set_tracking(rate_to_mode(alpaca_bridge_state.selected_tracking_rate));
 }
 
 /*
  * Set tracking to a specific ASCOM DriveRates value.
+ * This is a setpoint: it stores the rate and, only if tracking is already
+ * active, applies it immediately — it does not start tracking on its own.
  */
 MountResult alpaca_bridge_set_tracking_rate(int rate) {
-    TrackingMode mode;
-    switch (rate) {
-        case 0: mode = TRACKING_SIDEREAL;
-            break;
-        case 1: mode = TRACKING_LUNAR;
-            break;
-        case 2: mode = TRACKING_SOLAR;
-            break;
-        default: mode = TRACKING_SIDEREAL;
-            break;
+    if (rate < 0 || rate > 2) {
+        return mount_result_error("Tracking rate out of range [0..2]");
     }
-    return mount_set_tracking(mode);
+    alpaca_bridge_state.selected_tracking_rate = rate;
+    MotorsState s = motors_current_state();
+    if (s.tracking != TRACKING_NONE) {
+        return mount_set_tracking(rate_to_mode(rate));
+    }
+    return mount_result_ok();
 }
 
 /*

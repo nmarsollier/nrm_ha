@@ -10,7 +10,7 @@
  * Alpaca usage: N.I.N.A. reads this back after setting it.
  */
 esp_err_t alpaca_targetra_handler(httpd_req_t *req) {
-    uint32_t cid = alpaca_get_client_id(req);
+    uint32_t cid = alpaca_get_client_transaction_id(req);
     uint32_t stx = alpaca_next_server_tx();
     float result = alpaca_bridge_get_target_ra();
     char buf[32];

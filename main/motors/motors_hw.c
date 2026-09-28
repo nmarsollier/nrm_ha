@@ -4,7 +4,7 @@
  * drivers (NRM-HA).
  *
  * STEP pulse generation is handled by the RMT peripheral (motors_rmt.c)
- * for jitter-free hardware-timed pulses with DMA streaming.
+ * with hardware-timed pulse shapes (RA via DMA, DEC via FIFO).
  * ENABLE is hardwired (always enabled) — no GPIO control needed.
  *
  * Hardware: NEMA 17 closed-loop stepper motors with integrated drivers,
@@ -20,7 +20,12 @@
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "motors_internal.h"
+
+/* DIR setup time required by the ISS42 driver (MOTOR.txt:62): the direction
+ * level must be stable at least this long before the STEP pulse. */
+#define DIR_SETUP_TIME_US 50
 
 /* Cached last directions to avoid redundant GPIO writes. */
 static int last_dir_ra = -1;
@@ -63,6 +68,7 @@ void motors_hw_set_direction_ra(MotorDirection direction) {
     if (last_dir_ra != dir) {
         last_dir_ra = dir;
         gpio_set_level(RA_DIR_GPIO, dir);
+        esp_rom_delay_us(DIR_SETUP_TIME_US);
     }
 }
 
@@ -73,5 +79,6 @@ void motors_hw_set_direction_dec(MotorDirection direction) {
     if (last_dir_dec != dir) {
         last_dir_dec = dir;
         gpio_set_level(DEC_DIR_GPIO, dir);
+        esp_rom_delay_us(DIR_SETUP_TIME_US);
     }
 }

@@ -82,42 +82,61 @@ void motors_limits_save(void) {
 
 void motors_set_current_as_home(void) {
     motors_stop();
+    motors_motion_wait_idle();
+    portENTER_CRITICAL(&motors_state_lock);
     motors_state.ra_steps  = 0;
     motors_state.dec_steps = 0;
     motors_state.status    = MOTORS_STATUS_READY;
+    portEXIT_CRITICAL(&motors_state_lock);
     motors_limits_save();
     ESP_LOGI(TAG, "Home set at current position");
 }
 
 void motors_set_current_as_ra_left_limit(void) {
-    motors_state.limits.ra_min = motors_get_ra_deg();
+    motors_stop();
+    motors_motion_wait_idle();
+    float pos = motors_get_ra_deg();
+    motors_state.limits.ra_min = pos;
     motors_limits_save();
     ESP_LOGI(TAG, "RA left limit set to %.3f", motors_state.limits.ra_min);
 }
 
 void motors_set_current_as_ra_right_limit(void) {
-    motors_state.limits.ra_max = motors_get_ra_deg();
+    motors_stop();
+    motors_motion_wait_idle();
+    float pos = motors_get_ra_deg();
+    motors_state.limits.ra_max = pos;
     motors_limits_save();
     ESP_LOGI(TAG, "RA right limit set to %.3f", motors_state.limits.ra_max);
 }
 
 void motors_set_current_as_dec_left_limit(void) {
-    motors_state.limits.dec_min = motors_get_dec_deg();
+    motors_stop();
+    motors_motion_wait_idle();
+    float pos = motors_get_dec_deg();
+    motors_state.limits.dec_min = pos;
     motors_limits_save();
     ESP_LOGI(TAG, "DEC left limit set to %.3f", motors_state.limits.dec_min);
 }
 
 void motors_set_current_as_dec_right_limit(void) {
-    motors_state.limits.dec_max = motors_get_dec_deg();
+    motors_stop();
+    motors_motion_wait_idle();
+    float pos = motors_get_dec_deg();
+    motors_state.limits.dec_max = pos;
     motors_limits_save();
     ESP_LOGI(TAG, "DEC right limit set to %.3f", motors_state.limits.dec_max);
 }
 
 void motors_limits_reset(void) {
+    motors_stop();
+    motors_motion_wait_idle();
+    portENTER_CRITICAL(&motors_state_lock);
     motors_state.limits.ra_min  = LIMITS_DEFAULT_RA_MIN;
     motors_state.limits.ra_max  = LIMITS_DEFAULT_RA_MAX;
     motors_state.limits.dec_min = LIMITS_DEFAULT_DEC_MIN;
     motors_state.limits.dec_max = LIMITS_DEFAULT_DEC_MAX;
+    portEXIT_CRITICAL(&motors_state_lock);
     motors_limits_save();
     ESP_LOGI(TAG, "Limits reset to factory defaults");
 }

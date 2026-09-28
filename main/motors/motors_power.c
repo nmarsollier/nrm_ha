@@ -26,9 +26,16 @@ void motors_update_power(bool power_ok) {
     }
 
     if (s_power_fault) {
-        ESP_LOGI(TAG, "external power restored — motors back to READY");
         s_power_fault = false;
-        motors_state.status = MOTORS_STATUS_READY;
-        motors_state.tracking = TRACKING_NONE;
+        if (motors_has_hardware_fault()) {
+            ESP_LOGI(TAG, "external power restored — hardware fault persists");
+            /* stay in ERROR; a latched hardware fault is not cleared */
+        } else {
+            ESP_LOGI(TAG, "external power restored — motors back to READY");
+            portENTER_CRITICAL(&motors_state_lock);
+            motors_state.status = MOTORS_STATUS_READY;
+            motors_state.tracking = TRACKING_NONE;
+            portEXIT_CRITICAL(&motors_state_lock);
+        }
     }
 }

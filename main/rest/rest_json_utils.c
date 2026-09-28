@@ -4,7 +4,9 @@
  */
 #include "rest_internal.h"
 
+#include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *find_value_start(const char *json, const char *key) {
@@ -74,7 +76,20 @@ JsonFloatResult json_get_float(const char *json, const char *key) {
         return result;
     }
 
-    result.ok = sscanf(value, "%f", &result.value) == 1;
+    char *end = NULL;
+    float v = strtof(value, &end);
+
+    /* Reject no-conversion, NaN/inf, and trailing garbage. */
+    if (end == value || !isfinite(v)) {
+        return result;
+    }
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
+    if (*end != '\0' && *end != ',' && *end != '}' && *end != ']') {
+        return result;
+    }
+
+    result.ok = true;
+    result.value = v;
     return result;
 }
 
@@ -90,6 +105,18 @@ JsonIntResult json_get_int(const char *json, const char *key) {
         return result;
     }
 
-    result.ok = sscanf(value, "%d", &result.value) == 1;
+    char *end = NULL;
+    long v = strtol(value, &end, 10);
+
+    if (end == value) {
+        return result;
+    }
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
+    if (*end != '\0' && *end != ',' && *end != '}' && *end != ']') {
+        return result;
+    }
+
+    result.ok = true;
+    result.value = (int) v;
     return result;
 }

@@ -12,7 +12,7 @@
 #include "motors.h"
 #include "power.h"
 
-#define MAIN_LOOP_PERIOD_MS     100
+#define MAIN_LOOP_PERIOD_MS     200
 #define MAIN_TASK_STACK_SIZE    4096
 #define MAIN_TASK_PRIORITY      5
 

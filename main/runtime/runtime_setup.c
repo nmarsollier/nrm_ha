@@ -15,6 +15,7 @@
 #include "motors.h"
 #include "mount.h"
 #include "power.h"
+#include "sntp.h"
 #include "usb_net.h"
 
 static const char *TAG = "RUNTIME_SETUP";
@@ -54,6 +55,10 @@ void setup_init(void) {
     if (usb_result != ESP_OK) {
         ESP_LOGW(TAG, "USB net init skipped: %s", esp_err_to_name(usb_result));
     }
+
+    /* Background SNTP sync — non-fatal; the client (Alpaca/browser) can also
+     * set the clock if no NTP server is reachable. */
+    sntp_start();
 
     mount_init();
 

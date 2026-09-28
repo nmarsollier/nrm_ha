@@ -1,6 +1,7 @@
 #include "rest_alpaca.h"
 #include "rest_alpaca_internal.h"
 #include "alpaca_bridge.h"
+#include "rest.h"
 
 /* Alpaca — Method — SlewToCoordinatesAsync
  *
@@ -10,7 +11,7 @@
  */
 esp_err_t alpaca_slewtocoordinatesasync_handler(httpd_req_t *req) {
     alpaca_read_body(req);
-    uint32_t cid = alpaca_get_client_id(req);
+    uint32_t cid = alpaca_get_client_transaction_id(req);
     uint32_t stx = alpaca_next_server_tx();
     float ra = 0.0f, dec = 0.0f;
 
@@ -21,6 +22,9 @@ esp_err_t alpaca_slewtocoordinatesasync_handler(httpd_req_t *req) {
         return ESP_OK;
     }
 
+#ifdef NRM_TEST_MODE
+    rest_set_snapshot_header(req);
+#endif
     MountResult r = alpaca_bridge_slew_to_coordinates(ra, dec);
     if (r.ok)
         alpaca_response_ok(req, cid, stx);

@@ -9,7 +9,7 @@
  * Alpaca usage: Shown in ASCOM diagnostics / ConformU validation.
  */
 esp_err_t alpaca_driverinfo_handler(httpd_req_t *req) {
-    uint32_t cid = alpaca_get_client_id(req);
+    uint32_t cid = alpaca_get_client_transaction_id(req);
     uint32_t stx = alpaca_next_server_tx();
 
     char *result = ALPACA_DRIVER_INFO;

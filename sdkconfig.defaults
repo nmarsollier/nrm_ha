@@ -30,6 +30,11 @@ CONFIG_TINYUSB_DESC_SERIAL_STRING="000001"
 # LWIP: more sockets for multiple HTTP servers + Alpaca
 CONFIG_LWIP_MAX_SOCKETS=32
 
+# SNTP: network time sync over the USB link (host NTP + public pools).
+# The lwIP SNTP app is always compiled in this IDF; only the server
+# count needs to match ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE's list.
+CONFIG_LWIP_SNTP_MAX_SERVERS=4
+
 # Compiler: performance optimization (-O2) instead of debug (-Og)
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 

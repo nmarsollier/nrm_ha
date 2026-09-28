@@ -8,16 +8,15 @@
  * Alpaca Bridge — shared mutable state
  *
  * Holds transient values that Alpaca clients can read and write
- * (target coordinates, pier side, slew settle time, park position).
- * These do not need NVS persistence — they reset on reboot.
+ * (target coordinates).  These do not need NVS persistence — they
+ * reset on reboot.
  * ═══════════════════════════════════════════════════════════════ */
 
 typedef struct {
     float target_ra; /* Target right ascension (hours) */
     float target_dec; /* Target declination (degrees) */
-    int slew_settle_time; /* Settle time after slew (seconds) */
-    float park_ra_deg; /* Park position — RA axis (degrees) */
-    float park_dec_deg; /* Park position — DEC axis (degrees) */
+    int selected_tracking_rate; /* ASCOM DriveRates value set via TrackingRate (0/1/2) */
+    bool connected; /* Logical client link (ASCOM Connected) */
 } AlpacaBridgeState;
 
 extern AlpacaBridgeState alpaca_bridge_state;

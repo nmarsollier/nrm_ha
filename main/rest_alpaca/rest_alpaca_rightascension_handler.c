@@ -10,7 +10,7 @@
  * Alpaca usage: N.I.N.A. shows this in the main mount display; core coordinate.
  */
 esp_err_t alpaca_rightascension_handler(httpd_req_t *req) {
-    uint32_t cid = alpaca_get_client_id(req);
+    uint32_t cid = alpaca_get_client_transaction_id(req);
     uint32_t stx = alpaca_next_server_tx();
     float result = mount_get_ra_hours();
     char buf[32];

@@ -12,9 +12,9 @@
  *   slewing_loop_rmt  — distance-bounded, ramped accel/decel, batched RMT
  *   tracking_loop_rmt — open-ended, constant velocity, fractional accumulator
  *
- * RMT+DMA replaces the previous software GPIO bit-banging. Step pulses
- * are hardware-timed with zero jitter. The CPU sleeps on a semaphore
- * while DMA streams symbols to the RMT peripheral.
+ * RMT replaces the previous software GPIO bit-banging. Step pulse shapes
+ * are hardware-timed; the pulse start still depends on the scheduler.
+ * The CPU sleeps on a semaphore while the RMT peripheral streams symbols.
  */
 
 #include "motors_internal.h"
@@ -26,6 +26,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "MOTORS_MOTION_TASK";
 
@@ -47,16 +48,30 @@ static const char *TAG = "MOTORS_MOTION_TASK";
  * Target batch duration in RMT ticks.  Shorter batches give finer ramp
  * granularity but increase CPU overhead.  40k ticks = 20 ms at 2 MHz.
  */
-#define RMT_BATCH_TARGET_TICKS  40000U
+#define RMT_BATCH_TARGET_TICKS  120000U
 
 /*
  * Buffer and batch limits — unified for both axes.
  * 256 symbols (1 KB) fits one GDMA descriptor, batch ≤ 100 steps.
+ *
+ * RMT_BATCH_MAX_STEPS also bounds the position error from an aborted
+ * motion: a STOP that interrupts a batch mid-emission leaves at most this
+ * many microsteps (≈ 33.75″) uncounted.  Accepted — STOP during a slew is
+ * rare and the error stays bounded, so no position-invalid flag is kept.
  */
 #define RMT_BUFFER_SYMBOLS  256U
 #define RMT_BATCH_MAX_STEPS  100U
 
 TaskHandle_t motors_motion_task_handle = NULL;
+
+/* Stop epoch — bumped on every stop so commands enqueued before the stop
+ * can be discarded by the motion task. */
+volatile uint32_t motors_stop_generation = 0;
+
+/* Binary semaphore: "given" when the motion task is idle (blocked on the
+ * command queue), "taken" while it runs a motion loop.  Control operations
+ * (home, limits) wait on it so they never race the motion loop. */
+static SemaphoreHandle_t s_motion_idle_sem = NULL;
 
 /* --------------------------------------------------------------------------
  * Motion state — active command being executed by the task.
@@ -66,6 +81,7 @@ TaskHandle_t motors_motion_task_handle = NULL;
  * -------------------------------------------------------------------------- */
 static struct {
     volatile bool active;      /* false → abort at next iteration */
+    volatile bool aborted;     /* true → loop exited via STOP/preempt, not completion */
     MotionCommandType active_cmd_type;
     int64_t ra_target;         /* steps */
     int64_t dec_target;        /* steps */
@@ -191,7 +207,12 @@ static uint32_t step_period_ticks(float velocity_dps) {
  * Safe to call from any task.
  * -------------------------------------------------------------------------- */
 void motors_motion_stop(void) {
+    /* Bump the epoch FIRST so any command enqueued before this stop — and
+     * not yet consumed by the queue — is discarded at execution. */
+    motors_stop_generation++;
+
     s_motion.active = false;
+    s_motion.aborted = true;
 
     /* Clear any in-flight guide pulse so a stale deadline/offset cannot
      * "resume" the pulse after a quick stop → restart. */
@@ -200,7 +221,6 @@ void motors_motion_stop(void) {
     s_motion.dec_guide_deadline_us = 0;
     s_motion.dec_guide_offset_dps = 0.0f;
 
-    motors_rmt_abort_both();
     if (motors_motion_task_handle) {
         xTaskNotify(motors_motion_task_handle, 0, eNoAction);
     }
@@ -225,16 +245,58 @@ static uint32_t compute_batch_size(uint32_t period_ticks, uint32_t remaining) {
     return batch;
 }
 
+/* Clamp an absolute step target to the configured RA/DEC limits. */
+static int64_t clamp_ra_steps(int64_t steps) {
+    int64_t lo = motors_deg_to_steps(motors_state.limits.ra_min);
+    int64_t hi = motors_deg_to_steps(motors_state.limits.ra_max);
+    if (steps < lo) return lo;
+    if (steps > hi) return hi;
+    return steps;
+}
+
+static int64_t clamp_dec_steps(int64_t steps) {
+    int64_t lo = motors_deg_to_steps(motors_state.limits.dec_min);
+    int64_t hi = motors_deg_to_steps(motors_state.limits.dec_max);
+    if (steps < lo) return lo;
+    if (steps > hi) return hi;
+    return steps;
+}
+
+/*
+ * Clamp a batch so the axis never emits a step past its configured limit.
+ * `current` is the absolute position before this batch; `sign` is the travel
+ * direction (±1).  Applied per batch so a limit changed while a move is in
+ * flight still stops the motion at the new boundary.
+ */
+static uint32_t clamp_ra_batch(int64_t current, int sign, uint32_t batch) {
+    int64_t limit = (sign > 0) ? motors_deg_to_steps(motors_state.limits.ra_max)
+                               : motors_deg_to_steps(motors_state.limits.ra_min);
+    int64_t headroom = (sign > 0) ? (limit - current) : (current - limit);
+    uint32_t max_steps = (headroom > 0) ? (uint32_t) headroom : 0;
+    return (batch > max_steps) ? max_steps : batch;
+}
+
+static uint32_t clamp_dec_batch(int64_t current, int sign, uint32_t batch) {
+    int64_t limit = (sign > 0) ? motors_deg_to_steps(motors_state.limits.dec_max)
+                               : motors_deg_to_steps(motors_state.limits.dec_min);
+    int64_t headroom = (sign > 0) ? (limit - current) : (current - limit);
+    uint32_t max_steps = (headroom > 0) ? (uint32_t) headroom : 0;
+    return (batch > max_steps) ? max_steps : batch;
+}
+
 /* Clean shutdown: mark motion finished and return to READY. */
 static void finish_motion(void) {
     s_motion.active = false;
+    portENTER_CRITICAL(&motors_state_lock);
     motors_state.status = MOTORS_STATUS_READY;
     motors_state.tracking = TRACKING_NONE;
+    portEXIT_CRITICAL(&motors_state_lock);
 }
 
-/* Emergency abort: kill RMT + clean shutdown. */
+/* Emergency abort: clean shutdown.  The channel teardown happens later in
+ * motion_loop() via motors_rmt_reset_both(). */
 static void abort_motion(void) {
-    motors_rmt_abort_both();
+    s_motion.aborted = true;
     finish_motion();
 }
 
@@ -300,9 +362,11 @@ static bool emit_ra_tracking_step(int direction, rmt_symbol_word_t *buffer) {
         ESP_LOGW(TAG, "RA limit at %.3f deg",
                  (double)motors_steps_to_deg(motors_state.ra_steps));
         s_motion.active = false;
+        portENTER_CRITICAL(&motors_state_lock);
         motors_state.status = MOTORS_STATUS_READY;
         motors_state.tracking = TRACKING_NONE;
         motors_state.guiding = false;
+        portEXIT_CRITICAL(&motors_state_lock);
         return false;
     }
 
@@ -313,11 +377,12 @@ static bool emit_ra_tracking_step(int direction, rmt_symbol_word_t *buffer) {
     esp_err_t tx_err = motors_rmt_transmit_ra(buffer, 1);
     if (tx_err != ESP_OK) {
         ESP_LOGE(TAG, "RMT RA tx fail: %s", esp_err_to_name(tx_err));
-        motors_rmt_abort_ra();
         s_motion.active = false;
+        portENTER_CRITICAL(&motors_state_lock);
         motors_state.status = MOTORS_STATUS_READY;
         motors_state.tracking = TRACKING_NONE;
         motors_state.guiding = false;
+        portEXIT_CRITICAL(&motors_state_lock);
         return false;
     }
 
@@ -325,11 +390,12 @@ static bool emit_ra_tracking_step(int direction, rmt_symbol_word_t *buffer) {
     if (wait_err != ESP_OK) {
         ESP_LOGW(TAG, "RMT RA wait %s",
                  (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
-        motors_rmt_abort_ra();
         s_motion.active = false;
+        portENTER_CRITICAL(&motors_state_lock);
         motors_state.status = MOTORS_STATUS_READY;
         motors_state.tracking = TRACKING_NONE;
         motors_state.guiding = false;
+        portEXIT_CRITICAL(&motors_state_lock);
         return false;
     }
 
@@ -355,6 +421,7 @@ static bool check_motion_conditions(void) {
     if (motors_status_is_error(motors_state.status)) {
         motors_enter_error_state();
         s_motion.active = false;
+        s_motion.aborted = true;
         return false;
     }
 
@@ -378,8 +445,10 @@ static bool check_motion_conditions(void) {
     if ((s_motion.active_cmd_type == MOTION_CMD_SLEW ||
          s_motion.active_cmd_type == MOTION_CMD_MOVE_AXIS) &&
         !ra_has_target && !dec_has_target) {
+        portENTER_CRITICAL(&motors_state_lock);
         motors_state.status = MOTORS_STATUS_READY;
         motors_state.tracking = TRACKING_NONE;
+        portEXIT_CRITICAL(&motors_state_lock);
         s_motion.active = false;
 
         return false;
@@ -395,6 +464,18 @@ static bool check_motion_conditions(void) {
     }
 
     return true;
+}
+
+/*
+ * True when a newer MoveAxis setpoint is queued behind the running one.
+ * MoveAxis speeds are live setpoints, not one-shot traversals: a new one
+ * must preempt the in-flight continuous move instead of waiting for it to
+ * reach the mechanical limit.
+ */
+static bool move_axis_update_pending(void) {
+    MotionCommand queued;
+    return xQueuePeek(motion_cmd_queue, &queued, 0) == pdTRUE
+           && queued.type == MOTION_CMD_MOVE_AXIS;
 }
 
 /* --------------------------------------------------------------------------
@@ -415,14 +496,22 @@ static void process_command(MotionCommand cmd) {
         return;
     }
 
+    /* Discard a command invalidated by a STOP that landed after it was
+     * enqueued but before it was dequeued here. */
+    if (cmd.generation != motors_stop_generation) {
+        return;
+    }
+
     s_motion.active_cmd_type = cmd.type;
 
     switch (cmd.type) {
         case MOTION_CMD_SLEW:
+            portENTER_CRITICAL(&motors_state_lock);
             motors_state.ra_speed = cmd.ra_speed;
             motors_state.dec_speed = cmd.dec_speed;
             motors_state.status = MOTORS_STATUS_SLEWING;
             motors_state.tracking = TRACKING_NONE;
+            portEXIT_CRITICAL(&motors_state_lock);
 
             if (cmd.relative) {
                 s_motion.ra_target = motors_state.ra_steps
@@ -433,6 +522,12 @@ static void process_command(MotionCommand cmd) {
                 s_motion.ra_target = motors_deg_to_steps(cmd.ra_target_deg);
                 s_motion.dec_target = motors_deg_to_steps(cmd.dec_target_deg);
             }
+            /* Re-clamp at execution: the relative destination is computed from
+             * the live position, which may have advanced since the request was
+             * validated (queued moves).  A mechanical limit must hold even when
+             * two valid moves stack past it. */
+            s_motion.ra_target = clamp_ra_steps(s_motion.ra_target);
+            s_motion.dec_target = clamp_dec_steps(s_motion.dec_target);
             s_motion.ra_start = motors_state.ra_steps;
             s_motion.dec_start = motors_state.dec_steps;
             s_motion.active = true;
@@ -440,10 +535,12 @@ static void process_command(MotionCommand cmd) {
             break;
 
         case MOTION_CMD_TRACK:
+            portENTER_CRITICAL(&motors_state_lock);
             motors_state.ra_speed = cmd.ra_speed;
             motors_state.dec_speed = 0.0f;
             motors_state.status = MOTORS_STATUS_TRACKING;
             motors_state.tracking = cmd.tracking_mode;
+            portEXIT_CRITICAL(&motors_state_lock);
 
             /*
              * Tracking runs open-ended: target is set to the axis limit so
@@ -465,10 +562,12 @@ static void process_command(MotionCommand cmd) {
             break;
 
         case MOTION_CMD_MOVE_AXIS:
+            portENTER_CRITICAL(&motors_state_lock);
             motors_state.ra_speed = fabsf(cmd.ra_speed);
             motors_state.dec_speed = fabsf(cmd.dec_speed);
             motors_state.status = MOTORS_STATUS_SLEWING;
             motors_state.tracking = TRACKING_NONE;
+            portEXIT_CRITICAL(&motors_state_lock);
 
             s_motion.ra_target = (cmd.ra_speed > 0.0f)
                                      ? motors_deg_to_steps(motors_state.limits.ra_max)
@@ -495,6 +594,7 @@ static void process_command(MotionCommand cmd) {
                 update_guide(&s_motion.dec_guide_deadline_us,
                              &s_motion.dec_guide_offset_dps, &cmd);
             }
+
             motors_state.guiding = true;
             /*
              * Set active so a standalone guide pulse (READY, no tracking)
@@ -515,8 +615,8 @@ static void process_command(MotionCommand cmd) {
  *   2. Every ~5 ms recalculate velocity via the ramp curve.
  *   3. Every ~20 ms compute a batch of steps at the current velocity,
  *      encode them as RMT symbols, and transmit via DMA.
- *   4. Block on a semaphore while the RMT peripheral + DMA handle the
- *      step timing entirely in hardware — zero CPU, zero jitter.
+ *   4. Block on a semaphore while the RMT peripheral drives the step
+ *      timing — near-zero CPU; the pulse shape is exact.
  *   5. On wake-up, update positions by the full batch count and loop.
  *
  * MOVE_AXIS (joystick / NINA centering) skips the ramp — constant
@@ -634,6 +734,8 @@ static void slewing_loop_rmt(void) {
     uint32_t dec_rem = total_dec_steps - dec_steps_done;
     ra_batch[0] = compute_batch_size(ra_period, ra_rem);
     dec_batch[0] = compute_batch_size(dec_period, dec_rem);
+    ra_batch[0] = clamp_ra_batch(motors_state.ra_steps, ra_sign, ra_batch[0]);
+    dec_batch[0] = clamp_dec_batch(motors_state.dec_steps, dec_sign, dec_batch[0]);
 
     /* Encode first batch. */
     int64_t ra_trav_base = (int64_t)ra_sign
@@ -684,6 +786,10 @@ static void slewing_loop_rmt(void) {
         dec_rem = total_dec_steps - dec_steps_done - dec_batch[0];
         ra_batch[1] = compute_batch_size(ra_period, ra_rem);
         dec_batch[1] = compute_batch_size(dec_period, dec_rem);
+        ra_batch[1] = clamp_ra_batch(motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[0],
+                                     ra_sign, ra_batch[1]);
+        dec_batch[1] = clamp_dec_batch(motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[0],
+                                       dec_sign, dec_batch[1]);
 
         ra_num[1] = encode_axis_batch(ra_buf[1], RMT_BUFFER_SYMBOLS,
                                        ra_batch[1], ra_period,
@@ -727,6 +833,15 @@ static void slewing_loop_rmt(void) {
      */
 
     while (s_motion.active) {
+        /* A newer MoveAxis setpoint preempts the running one: abort now so
+         * the main loop dequeues and applies it, instead of the continuous
+         * move running to the mechanical limit first. */
+        if (is_move_axis && move_axis_update_pending()) {
+            s_motion.active = false;
+            s_motion.aborted = true;
+            break;
+        }
+
         /*
          * 1. Ramp recalc — pick the next batch size from each axis's
          *    projected travelled (pong batch included).
@@ -751,15 +866,17 @@ static void slewing_loop_rmt(void) {
         if (ra_steps_done < total_ra_steps
             && ra_batch[ra_ping] > 0
             && motors_rmt_try_wait_ra()) {
+            if (!s_motion.active) break;
             motors_state.ra_steps += (int64_t)ra_sign * (int64_t)ra_batch[ra_ping];
             ra_steps_done += ra_batch[ra_ping];
-            if (!s_motion.active) break;
 
             int64_t ra_proj_trav = (int64_t)ra_sign
                 * (motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[ra_pong]
                    - s_motion.ra_start);
             ra_rem = total_ra_steps - ra_steps_done - ra_batch[ra_pong];
             ra_batch[ra_ping] = compute_batch_size(ra_period, ra_rem);
+            ra_batch[ra_ping] = clamp_ra_batch(motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[ra_pong],
+                                               ra_sign, ra_batch[ra_ping]);
             ra_num[ra_ping] = encode_axis_batch(ra_buf[ra_ping], RMT_BUFFER_SYMBOLS,
                                                  ra_batch[ra_ping], ra_period,
                                                  motors_state.ra_speed,
@@ -780,15 +897,17 @@ static void slewing_loop_rmt(void) {
         if (dec_steps_done < total_dec_steps
             && dec_batch[dec_ping] > 0
             && motors_rmt_try_wait_dec()) {
+            if (!s_motion.active) break;
             motors_state.dec_steps += (int64_t)dec_sign * (int64_t)dec_batch[dec_ping];
             dec_steps_done += dec_batch[dec_ping];
-            if (!s_motion.active) break;
 
             int64_t dec_proj_trav = (int64_t)dec_sign
                 * (motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[dec_pong]
                    - s_motion.dec_start);
             dec_rem = total_dec_steps - dec_steps_done - dec_batch[dec_pong];
             dec_batch[dec_ping] = compute_batch_size(dec_period, dec_rem);
+            dec_batch[dec_ping] = clamp_dec_batch(motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[dec_pong],
+                                                  dec_sign, dec_batch[dec_ping]);
             dec_num[dec_ping] = encode_axis_batch(dec_buf[dec_ping], RMT_BUFFER_SYMBOLS,
                                                    dec_batch[dec_ping], dec_period,
                                                    motors_state.dec_speed,
@@ -838,11 +957,11 @@ static void slewing_loop_rmt(void) {
  *       vTaskDelay most of it (capped 50 ms, yields CPU → near-zero consumption)
  *   fine-wait remaining margin with busy-wait → µs precision
  *
- * The actual STEP pulse is generated by the RMT peripheral with zero
- * jitter.  The fine-wait determines *when* the pulse begins; the RMT
- * determines the pulse *shape*.  Long idle periods (tracking ≈ 841 ms)
- * are streamed as idle-only RMT symbols via DMA — the CPU sleeps
- * through the entire step period.
+ * The actual STEP pulse is generated by the RMT peripheral (hardware-timed
+ * shape).  The fine-wait determines *when* the pulse begins; the RMT
+ * determines the pulse *shape*.  Long idle periods (tracking ≈ 22 ms at
+ * sidereal rate) are streamed as idle-only RMT symbols via DMA — the CPU
+ * sleeps through the entire step period.
  *
  * Only RA is stepped during tracking; DEC velocity is always zero.
  * -------------------------------------------------------------------------- */
@@ -891,17 +1010,20 @@ static void tracking_loop_rmt(void) {
         dec_phase += (double)dec_vel * dt_s / (double)deg_per_step;
 
         /*
-         * Drain queued PulseGuide commands while this loop is active.
-         * The task never returns to xQueueReceive() in the main loop
-         * during tracking, so PHD2 corrections would otherwise sit
-         * unprocessed.  Only PULSE_GUIDE is consumed here — SLEW, TRACK
-         * and MOVE_AXIS must not run inline and stay queued for the
-         * main loop (they arrive after a STOP anyway).
+         * Drain queued guiding and tracking-mode updates while this loop is
+         * active.  The task never returns to xQueueReceive() in the main loop
+         * during tracking, so PHD2 corrections and tracking-mode changes would
+         * otherwise sit unprocessed — and a pending TRACK at the front of the
+         * queue would block the PulseGuide corrections queued behind it.
+         * TRACK is idempotent here (re-applying the same mode is a no-op).
+         * SLEW and MOVE_AXIS must not run inline: they stay queued and are
+         * preceded by a STOP that ends this loop anyway.
          */
         {
             MotionCommand queued;
             while (xQueuePeek(motion_cmd_queue, &queued, 0) == pdTRUE
-                   && queued.type == MOTION_CMD_PULSE_GUIDE) {
+                   && (queued.type == MOTION_CMD_PULSE_GUIDE
+                       || queued.type == MOTION_CMD_TRACK)) {
                 xQueueReceive(motion_cmd_queue, &queued, 0);
                 process_command(queued);
             }
@@ -993,7 +1115,6 @@ static void tracking_loop_rmt(void) {
             esp_err_t tx_err = motors_rmt_transmit_dec(dec_sym, 1);
             if (tx_err != ESP_OK) {
                 ESP_LOGE(TAG, "RMT DEC tx fail: %s", esp_err_to_name(tx_err));
-                motors_rmt_abort_dec();
                 s_motion.dec_guide_deadline_us = 0;
                 s_motion.dec_guide_offset_dps = 0.0f;
                 dec_dir_set = 0;
@@ -1004,7 +1125,6 @@ static void tracking_loop_rmt(void) {
             if (wait_err != ESP_OK) {
                 ESP_LOGW(TAG, "RMT DEC wait %s",
                          (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
-                motors_rmt_abort_dec();
                 s_motion.dec_guide_deadline_us = 0;
                 s_motion.dec_guide_offset_dps = 0.0f;
                 dec_dir_set = 0;
@@ -1037,7 +1157,6 @@ static void tracking_loop_rmt(void) {
             esp_err_t tx_err = motors_rmt_transmit_dec(dec_sym, 1);
             if (tx_err != ESP_OK) {
                 ESP_LOGE(TAG, "RMT DEC tx fail: %s", esp_err_to_name(tx_err));
-                motors_rmt_abort_dec();
                 s_motion.dec_guide_deadline_us = 0;
                 s_motion.dec_guide_offset_dps = 0.0f;
                 dec_dir_set = 0;
@@ -1048,7 +1167,6 @@ static void tracking_loop_rmt(void) {
             if (wait_err != ESP_OK) {
                 ESP_LOGW(TAG, "RMT DEC wait %s",
                          (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
-                motors_rmt_abort_dec();
                 s_motion.dec_guide_deadline_us = 0;
                 s_motion.dec_guide_offset_dps = 0.0f;
                 dec_dir_set = 0;
@@ -1102,10 +1220,14 @@ static void tracking_loop_rmt(void) {
             continue;
         }
         if (w_us > 0) {
-            int64_t dl = esp_timer_get_time() + w_us;
-            while (esp_timer_get_time() < dl) {
-                if ((esp_timer_get_time() & 0x1FF) == 0) taskYIELD();
-            }
+            /* Block instead of busy-waiting.  At high guide rates the step
+             * period (~187 us) is far below the 1 ms tick, so a busy-wait here
+             * monopolizes the core and starves lower-priority tasks (the HTTP
+             * server) for the whole pulse — PulseGuide responses then stall.
+             * Blocking yields the CPU; the phase accumulator already integrates
+             * the true elapsed time, so the coarser granularity only adds a
+             * little step-timing jitter, never a cumulative rate error. */
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1));
         }
     }
 }
@@ -1125,6 +1247,8 @@ static void motion_loop(void) {
         return;
     }
 
+    s_motion.aborted = false;
+
     /* Standalone guide pulse (no tracking) — use the tracking loop
      * with zero base rate.  It handles DEC-only and RA-only guiding. */
     if ((motors_state.status == MOTORS_STATUS_TRACKING
@@ -1136,12 +1260,15 @@ static void motion_loop(void) {
     }
 
     /*
-     * Reset the RMT channels after every motion loop.  This stops any
-     * in-flight/queued transmission (e.g. after an external stop) and
-     * readies the hardware for the next command.  Runs on the motion
-     * task, the sole owner of the RMT channels.
+     * Recreate the RMT channels only after an external abort (STOP / PARK /
+     * preempt) — the one case where a queued double-buffered batch must be
+     * dropped.  On normal completion every batch has finished, so a full
+     * teardown + recreate is unnecessary and, done after every single move,
+     * glitches the STEP output and can brown-out the board.
      */
-    motors_rmt_reset_both();
+    if (s_motion.aborted) {
+        motors_rmt_reset_both();
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -1162,16 +1289,28 @@ static void motors_motion_task_run(void *arg) {
     if (rmt_err != ESP_OK) {
         ESP_LOGE(TAG, "motors_rmt_init failed: %s — entering ERROR state",
                  esp_err_to_name(rmt_err));
-        motors_enter_error_state();
+        motors_enter_hardware_fault();
+        motors_motion_task_handle = NULL;  /* clear the dangling handle */
         vTaskDelete(NULL);
         return;
     }
     ESP_LOGI(TAG, "RMT initialized on core 1");
 
     while (true) {
+        /* Signal idle so control ops (home/limits) can wait for the motion
+         * to actually stop before touching counters/limits. */
+        if (s_motion_idle_sem != NULL) {
+            xSemaphoreGive(s_motion_idle_sem);
+        }
+
         MotionCommand cmd;
         if (xQueueReceive(motion_cmd_queue, &cmd, portMAX_DELAY) != pdTRUE)
             continue;
+
+        /* Consume the idle signal — the motion task is now running. */
+        if (s_motion_idle_sem != NULL) {
+            xSemaphoreTake(s_motion_idle_sem, 0);
+        }
 
         process_command(cmd);
 
@@ -1202,20 +1341,41 @@ static void motors_motion_task_run(void *arg) {
  * Public API
  * -------------------------------------------------------------------------- */
 
-void motors_motion_task_init(void) {
-    xTaskCreatePinnedToCore(
+esp_err_t motors_motion_task_init(void) {
+    s_motion_idle_sem = xSemaphoreCreateBinary();
+    if (s_motion_idle_sem == NULL) {
+        ESP_LOGE(TAG, "Failed to create idle semaphore");
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (xTaskCreatePinnedToCore(
         motors_motion_task_run,
         "motors_motion",
         MOTION_TASK_STACK_WORDS,
         NULL,
         MOTION_TASK_PRIORITY,
         &motors_motion_task_handle,
-        1);  /* dedicated core — isolated from lwIP on CPU 0 */
+        1) != pdPASS) {  /* dedicated core — isolated from lwIP on CPU 0 */
+        ESP_LOGE(TAG, "Failed to create motion task");
+        return ESP_ERR_NO_MEM;
+    }
 
     /* Report stack high-water mark for diagnostics. */
-    if (motors_motion_task_handle != NULL) {
-        UBaseType_t high_water = uxTaskGetStackHighWaterMark(motors_motion_task_handle);
-        ESP_LOGI(TAG, "Stack high-water mark: %lu words (total %d)",
-                 (unsigned long) high_water, MOTION_TASK_STACK_WORDS);
+    UBaseType_t high_water = uxTaskGetStackHighWaterMark(motors_motion_task_handle);
+    ESP_LOGI(TAG, "Stack high-water mark: %lu words (total %d)",
+             (unsigned long) high_water, MOTION_TASK_STACK_WORDS);
+
+    return ESP_OK;
+}
+
+/*
+ * Wait (bounded) until the motion task is idle, so a caller can safely modify
+ * counters/limits without racing the in-flight motion loop.  Callers must
+ * invoke motors_stop() first, which sets active=false and bumps the stop epoch;
+ * this then blocks until the motion task has actually left its loop.
+ */
+void motors_motion_wait_idle(void) {
+    if (s_motion_idle_sem != NULL) {
+        xSemaphoreTake(s_motion_idle_sem, pdMS_TO_TICKS(500));
     }
 }

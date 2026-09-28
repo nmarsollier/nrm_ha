@@ -2,8 +2,9 @@
  *
  * Purpose: RMT + DMA step pulse generation for RA and DEC axes.
  *
- * Two independent RMT TX channels with GDMA streaming eliminate
- * software jitter and free the CPU during step bursts.
+ * Two independent RMT TX channels.  Only RA uses GDMA streaming; DEC is
+ * refilled from its FIFO by the motion task.  The pulse *shape* is
+ * hardware-timed; the pulse *start* still depends on the scheduler.
  * Step pulses are 6 us HIGH followed by (period - 6) us LOW.
  *
  * RMT resolution: 2 MHz (0.5 us per tick).  Balanced for future
@@ -38,6 +39,9 @@ typedef struct {
     rmt_channel_handle_t channel;
     rmt_encoder_handle_t encoder;
     SemaphoreHandle_t done_sem;
+    gpio_num_t gpio;                 /* retained for channel recreation */
+    rmt_tx_done_callback_t on_done;  /* retained for channel recreation */
+    bool with_dma;                   /* retained for channel recreation */
     bool enabled;
 } rmt_chan_ctx_t;
 
@@ -99,6 +103,12 @@ static esp_err_t create_channel(gpio_num_t gpio, rmt_chan_ctx_t *ctx,
                                  rmt_tx_done_callback_t on_done,
                                  bool with_dma)
 {
+    /* Retain the configuration so recreate_channel() can rebuild the
+     * channel identically after a stop. */
+    ctx->gpio = gpio;
+    ctx->on_done = on_done;
+    ctx->with_dma = with_dma;
+
     rmt_tx_channel_config_t tx_config = {
         .gpio_num = gpio,
         .clk_src = RMT_CLK_SRC_DEFAULT,
@@ -198,7 +208,9 @@ static esp_err_t motors_rmt_deinit(void)
         s_rmt.ra.encoder = NULL;
     }
     if (s_rmt.ra.channel != NULL) {
-        rmt_disable(s_rmt.ra.channel);
+        if (s_rmt.ra.enabled) {
+            rmt_disable(s_rmt.ra.channel);
+        }
         rmt_del_channel(s_rmt.ra.channel);
         s_rmt.ra.channel = NULL;
     }
@@ -212,7 +224,9 @@ static esp_err_t motors_rmt_deinit(void)
         s_rmt.dec.encoder = NULL;
     }
     if (s_rmt.dec.channel != NULL) {
-        rmt_disable(s_rmt.dec.channel);
+        if (s_rmt.dec.enabled) {
+            rmt_disable(s_rmt.dec.channel);
+        }
         rmt_del_channel(s_rmt.dec.channel);
         s_rmt.dec.channel = NULL;
     }
@@ -509,58 +523,55 @@ bool motors_rmt_try_wait_dec(void)
 }
 
 /* --------------------------------------------------------------------------
- * Abort — wake blocked task (no RMT hardware access)
+ * Recreate — tear down and rebuild a channel (motion task only)
  * -------------------------------------------------------------------------- */
 
 /*
- * Signal one channel — give the done semaphore to wake any blocked
- * waiter so it can check s_motion.active and exit.  Safe to call from
- * any task: it touches no RMT hardware.
- */
-static void signal_channel(rmt_chan_ctx_t *ctx)
-{
-    if (ctx->done_sem != NULL) {
-        xSemaphoreGive(ctx->done_sem);
-    }
-}
-
-/*
- * Reset one channel — drain the TX queue and reset the hardware.  Called
+ * Recreate one channel — tear it down and rebuild it from scratch.  Called
  * ONLY from the motion task (the sole owner of the RMT channel): touching
  * the RMT hardware from another task races with rmt_transmit() and can
  * crash the driver.
+ *
+ * rmt_disable() aborts the in-flight transaction but leaves a queued
+ * transaction in the driver's internal PROGRESS queue; a later rmt_enable()
+ * dequeues it and starts it again, reading a payload buffer whose lifetime
+ * ended when the motion loop returned.  Deleting the channel frees those
+ * queued descriptors, so recreation is the only way to guarantee a clean
+ * stop — no resurrected pulses, no use-after-return.
  */
-static void reset_channel(rmt_chan_ctx_t *ctx)
+static esp_err_t recreate_channel(rmt_chan_ctx_t *ctx)
 {
-    if (ctx->channel != NULL && ctx->enabled) {
-        /* Force-stop and reset the channel: disable aborts any in-flight
-         * or queued transmission, re-enable readies it for the next
-         * command.  A graceful drain (rmt_tx_wait_all_done) can time out
-         * when a double-buffered batch is still in flight, so skip it. */
-        rmt_disable(ctx->channel);
-        rmt_enable(ctx->channel);
+    if (ctx->encoder != NULL) {
+        rmt_del_encoder(ctx->encoder);
+        ctx->encoder = NULL;
     }
+    if (ctx->channel != NULL) {
+        /* Only disable an ENABLED channel.  Disabling a channel that was never
+         * enabled (a zero-distance move, or an axis idle during a single-axis
+         * slew) puts the RMT driver in an unexpected state ("channel can't be
+         * disabled in state 0") and can corrupt it. */
+        if (ctx->enabled) {
+            rmt_disable(ctx->channel);
+        }
+        rmt_del_channel(ctx->channel);
+        ctx->channel = NULL;
+    }
+    if (ctx->done_sem != NULL) {
+        vSemaphoreDelete(ctx->done_sem);
+        ctx->done_sem = NULL;
+    }
+    ctx->enabled = false;
+
+    return create_channel(ctx->gpio, ctx, ctx->on_done, ctx->with_dma);
 }
 
-void motors_rmt_abort_ra(void)
-{
-    signal_channel(&s_rmt.ra);
-}
-
-void motors_rmt_abort_dec(void)
-{
-    signal_channel(&s_rmt.dec);
-}
-
-void motors_rmt_abort_both(void)
-{
-    signal_channel(&s_rmt.ra);
-    signal_channel(&s_rmt.dec);
-}
-
-/* Reset both channels' hardware — motion task only. */
+/* Recreate both channels — motion task only. */
 void motors_rmt_reset_both(void)
 {
-    reset_channel(&s_rmt.ra);
-    reset_channel(&s_rmt.dec);
+    if (recreate_channel(&s_rmt.ra) != ESP_OK) {
+        ESP_LOGE(TAG, "RA channel recreate failed");
+    }
+    if (recreate_channel(&s_rmt.dec) != ESP_OK) {
+        ESP_LOGE(TAG, "DEC channel recreate failed");
+    }
 }

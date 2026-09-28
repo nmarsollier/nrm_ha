@@ -32,6 +32,10 @@ bool motors_status_is_error(MotorsStatus status) {
     return status == MOTORS_STATUS_ERROR;
 }
 
+bool motors_status_is_parked(MotorsStatus status) {
+    return status == MOTORS_STATUS_PARKED;
+}
+
 /*
  * Tracking string helpers live here so REST and UI layers use the same
  * canonical values as the motors module.

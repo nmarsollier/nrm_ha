@@ -15,13 +15,19 @@ MotorResultCode motors_pulse_guide_start(int axis, float offset_dps, uint32_t du
         return MOTOR_ERR_HARDWARE_ERROR;
     }
 
+    if (motors_status_is_parked(motors_state.status)) {
+        return MOTOR_ERR_PARKED;
+    }
+
     MotionCommand cmd = {
         .type = MOTION_CMD_PULSE_GUIDE,
         .guide_axis = axis,
         .guide_offset_dps = offset_dps,
         .guide_duration_ms = duration_ms,
     };
-    motors_queue_put(&cmd);
+    if (!motors_queue_put(&cmd)) {
+        return MOTOR_ERR_BUSY;
+    }
 
     /* Wake the motion task so it processes the command immediately. */
     if (motors_motion_task_handle) {

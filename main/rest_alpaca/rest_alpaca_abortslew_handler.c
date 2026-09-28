@@ -10,7 +10,7 @@
  */
 esp_err_t alpaca_abortslew_handler(httpd_req_t *req) {
     alpaca_moveaxis_reset();
-    uint32_t cid = alpaca_get_client_id(req);
+    uint32_t cid = alpaca_get_client_transaction_id(req);
     uint32_t stx = alpaca_next_server_tx();
     MountResult r = alpaca_bridge_abort_slew();
     if (r.ok)

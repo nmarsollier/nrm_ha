@@ -4,6 +4,8 @@
  */
 #include "rest.h"
 
+#include "debug.h"
+
 #include "esp_http_server.h"
 #include "esp_log.h"
 
@@ -23,7 +25,10 @@ void rest_server_start(void) {
     config.lru_purge_enable = true;
     config.ctrl_port = 32768;
     config.core_id = 0;
-    config.task_priority = 4;
+    /* Above main_loop (5) so a blocking ADC read there can't preempt the STOP
+     * handler mid-run and let the axis coast an extra batch; below lwIP (18). */
+    config.task_priority = 10;
+    config.open_fn = rest_httpd_open_nodelay;
 
     esp_err_t result = httpd_start(&server, &config);
     if (result != ESP_OK) {
@@ -46,6 +51,11 @@ void rest_server_start(void) {
     rest_register_post(server, "/api/unpark", rest_unpark_handler);
     rest_register_post(server, "/api/settings", rest_settings_handler);
     rest_register_post(server, "/api/limits", rest_limits_handler);
+
+#ifdef NRM_TEST_MODE
+    /* Test/bench-only debug surface (fake power, fault injection). */
+    debug_register_routes(server);
+#endif
 
     ESP_LOGI(TAG, "REST server started on port 80");
 }

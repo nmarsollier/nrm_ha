@@ -39,6 +39,10 @@ esp_err_t rest_slew_to_coordinates_handler(httpd_req_t *request) {
         speed_rate_value = speed_rate.value;
     }
 
+#ifdef NRM_TEST_MODE
+    rest_set_snapshot_header(request);
+#endif
+
     rest_send_result(request, mount_slew_to_coordinates(ra.value, dec.value, speed_rate_value));
 
     return ESP_OK;

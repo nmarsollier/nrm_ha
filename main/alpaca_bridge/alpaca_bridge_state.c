@@ -9,7 +9,14 @@
 AlpacaBridgeState alpaca_bridge_state = {
     .target_ra = 0.0f,
     .target_dec = 0.0f,
-    .slew_settle_time = 0,
-    .park_ra_deg = 0.0f,
-    .park_dec_deg = 90.0f,
+    .selected_tracking_rate = 0, /* sidereal */
+    .connected = false,
 };
+
+bool alpaca_bridge_get_connected(void) {
+    return alpaca_bridge_state.connected;
+}
+
+void alpaca_bridge_set_connected(bool connected) {
+    alpaca_bridge_state.connected = connected;
+}

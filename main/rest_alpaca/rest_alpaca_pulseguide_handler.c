@@ -7,13 +7,14 @@
 #include "rest_alpaca.h"
 #include "rest_alpaca_internal.h"
 #include "mount.h"
+#include "rest.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 esp_err_t alpaca_pulseguide_handler(httpd_req_t *req) {
     alpaca_read_body(req);
-    uint32_t cid = alpaca_get_client_id(req);
+    uint32_t cid = alpaca_get_client_transaction_id(req);
     uint32_t stx = alpaca_next_server_tx();
 
     int dir_int = -1;
@@ -48,6 +49,9 @@ esp_err_t alpaca_pulseguide_handler(httpd_req_t *req) {
         GUIDE_DIRECTION_EAST,  GUIDE_DIRECTION_WEST,
     };
 
+#ifdef NRM_TEST_MODE
+    rest_set_snapshot_header(req);
+#endif
     MountResult result = mount_pulse_guide(dir_map[dir_int], (uint32_t)duration);
     if (result.ok) alpaca_response_ok(req, cid, stx);
     else alpaca_response_error(req, 1025, result.message, cid, stx);

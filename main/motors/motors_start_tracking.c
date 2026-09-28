@@ -17,6 +17,10 @@ MotorResultCode motors_start_tracking(TrackingMode mode) {
         return motors_stop();
     }
 
+    if (motors_status_is_parked(motors_state.status)) {
+        return MOTOR_ERR_PARKED;
+    }
+
     float ra_speed = motors_get_tracking_speed(mode);
 
     MotionCommand cmd = {
@@ -27,7 +31,9 @@ MotorResultCode motors_start_tracking(TrackingMode mode) {
         .dec_speed = 0.0f,
         .tracking_mode = mode,
     };
-    motors_queue_put(&cmd);
+    if (!motors_queue_put(&cmd)) {
+        return MOTOR_ERR_BUSY;
+    }
 
     return MOTOR_OK;
 }

@@ -18,6 +18,6 @@ MountResult mount_unpark(void) {
         return mount_result_error_state();
     }
 
-    MotorResultCode rc = motors_stop();
+    MotorResultCode rc = motors_unpark();
     return motors_result_code_error_result(rc);
 }

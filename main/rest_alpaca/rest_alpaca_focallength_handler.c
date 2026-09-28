@@ -9,7 +9,7 @@
  * Alpaca usage: N.I.N.A. uses this to compute plate scale and FOV.
  */
 esp_err_t alpaca_focallength_handler(httpd_req_t *req) {
-    uint32_t cid = alpaca_get_client_id(req);
+    uint32_t cid = alpaca_get_client_transaction_id(req);
     uint32_t stx = alpaca_next_server_tx();
     float result = ALPACA_FOCAL_LENGTH;
     char buf[32];

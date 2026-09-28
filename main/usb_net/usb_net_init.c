@@ -17,6 +17,9 @@
 
 #include "dhcpserver/dhcpserver.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "tinyusb_net.h"
@@ -46,7 +49,10 @@ static const char *s_usb_string_desc[USB_NET_STRING_COUNT] = {
 
 static esp_netif_ip_info_t s_ip = {
     .ip      = { .addr = ESP_IP4TOADDR(USB_NET_IP_OCTET1, USB_NET_IP_OCTET2, USB_NET_IP_OCTET3, USB_NET_IP_OCTET4) },
-    .gw      = { .addr = ESP_IP4TOADDR(USB_NET_IP_OCTET1, USB_NET_IP_OCTET2, USB_NET_IP_OCTET3, USB_NET_IP_OCTET4) },
+    /* Default route to the host (192.168.7.2, the first DHCP lease) so the
+     * mount can reach outbound services such as SNTP.  Harmless when the
+     * host does not forward — such packets are simply dropped. */
+    .gw      = { .addr = ESP_IP4TOADDR(USB_NET_IP_OCTET1, USB_NET_IP_OCTET2, USB_NET_IP_OCTET3, USB_NET_DHCP_START_O4) },
     .netmask = { .addr = ESP_IP4TOADDR(USB_NET_NETMASK_O1, USB_NET_NETMASK_O2, USB_NET_NETMASK_O3, USB_NET_NETMASK_O4) },
 };
 
@@ -222,6 +228,17 @@ esp_err_t usb_net_init(void)
         ESP_LOGE(TAG, "dhcps_start: %s", esp_err_to_name(r));
         goto rollback_tusb;
     }
+
+    /*
+     * Force a clean USB re-enumeration after boot.  After a soft reset
+     * (esp_restart / reflash) the D+/D- lines do not drop, so macOS keeps the
+     * previous AppleUSBNCM interface in "inactive" state and never runs DHCP.
+     * A software disconnect + reconnect makes the host re-enumerate exactly
+     * as if the cable had been replugged.
+     */
+    tud_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(250));
+    tud_connect();
 
     ESP_LOGI(TAG, "USB Net IP: http://" IPSTR, IP2STR(&s_ip.ip));
 

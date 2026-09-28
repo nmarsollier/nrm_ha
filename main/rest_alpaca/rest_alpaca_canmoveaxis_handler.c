@@ -11,7 +11,7 @@
  */
 esp_err_t alpaca_canmoveaxis_handler(httpd_req_t *req) {
     alpaca_read_body(req);
-    uint32_t cid = alpaca_get_client_id(req);
+    uint32_t cid = alpaca_get_client_transaction_id(req);
     uint32_t stx = alpaca_next_server_tx();
 
     int axis = 0;

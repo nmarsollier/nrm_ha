@@ -61,6 +61,15 @@ void rest_send_result(
     httpd_req_t *request,
     MountResult result);
 
+/* httpd open_fn — disable Nagle on accepted sockets (see rest_http_utils.c). */
+esp_err_t rest_httpd_open_nodelay(httpd_handle_t hd, int sockfd);
+
+#ifdef NRM_TEST_MODE
+/* Echo the motors status + timestamp in a response header, captured at the
+ * controller's entry before the business call (see rest_http_utils.c). */
+void rest_set_snapshot_header(httpd_req_t *request);
+#endif
+
 /* Route registration helpers — shared with the Alpaca server. */
 void rest_register_get(httpd_handle_t server, const char *uri,
                        esp_err_t (*handler)(httpd_req_t *));

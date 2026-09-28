@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
 
@@ -84,7 +85,9 @@ typedef enum {
     MOTOR_ERR_INVALID_AXIS = 1,
     MOTOR_ERR_OUT_OF_RANGE = 2,
     MOTOR_ERR_NOT_READY = 3,
-    MOTOR_ERR_HARDWARE_ERROR = 4
+    MOTOR_ERR_HARDWARE_ERROR = 4,
+    MOTOR_ERR_PARKED = 5,
+    MOTOR_ERR_BUSY = 6
 } MotorResultCode;
 
 /*
@@ -107,6 +110,16 @@ void motors_enter_error_state(void);
  * recover to READY (only if the error was caused by the power loss).
  */
 void motors_update_power(bool power_ok);
+
+#ifdef NRM_TEST_MODE
+/*
+ * Test/bench hook: inject a latched hardware fault (unrecoverable, only a
+ * reboot clears it).  Used by the debug endpoint to reach error conditions a
+ * black-box harness cannot trigger over the public API.  Absent from
+ * production builds.
+ */
+void motors_debug_force_hardware_fault(void);
+#endif
 
 /*
  * Return a snapshot copy of the current `MotorsState`.
@@ -132,6 +145,12 @@ MotorResultCode motors_stop(void);
  * Returns MOTOR_ERR_HARDWARE_ERROR if motors are in ERROR state.
  */
 MotorResultCode motors_park(void);
+
+/*
+ * Leave the parked state and return to READY.
+ * Returns MOTOR_ERR_HARDWARE_ERROR if motors are in ERROR state.
+ */
+MotorResultCode motors_unpark(void);
 
 /*
  * Move the mount to the home position (0, 0).
@@ -165,6 +184,9 @@ const char *motors_status_to_string(MotorsStatus status);
 
 /* True if `status` is a fatal error state (motor fault). */
 bool motors_status_is_error(MotorsStatus status);
+
+/* True if `status` is the parked state (movement requires unpark first). */
+bool motors_status_is_parked(MotorsStatus status);
 
 const char *motors_tracking_to_string(TrackingMode tracking);
 

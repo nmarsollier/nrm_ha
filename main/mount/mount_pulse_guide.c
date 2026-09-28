@@ -43,17 +43,28 @@ MountResult mount_pulse_guide(GuideDirection direction, uint32_t duration_ms) {
     MotorResultCode rc;
     switch (direction) {
     case GUIDE_DIRECTION_EAST:
-        rc = motors_pulse_guide_start(0,  ra_rate, duration_ms);
-        break;
-    case GUIDE_DIRECTION_WEST:
+        /* +mechanical RA reduces celestial RA (RA = LST - HA, HA grows with
+         * RA axis), i.e. it moves west.  So east is -mechanical RA.
+         * See axis_to_equatorial(). */
         rc = motors_pulse_guide_start(0, -ra_rate, duration_ms);
         break;
+    case GUIDE_DIRECTION_WEST:
+        rc = motors_pulse_guide_start(0,  ra_rate, duration_ms);
+        break;
     case GUIDE_DIRECTION_NORTH:
-        rc = motors_pulse_guide_start(1,  dec_rate, duration_ms);
+    case GUIDE_DIRECTION_SOUTH: {
+        /* North (increasing celestial DEC) maps to +mechanical DEC on the
+         * east side of the pier (dec_axis >= 0) and to -mechanical DEC on the
+         * west side (dec_axis < 0).  The pier side is encoded in the sign of
+         * the DEC axis — see axis_to_equatorial(). */
+        float dec_axis_deg = motors_get_dec_deg();
+        float north_sign = (dec_axis_deg >= 0.0f) ? 1.0f : -1.0f;
+        float offset = (direction == GUIDE_DIRECTION_NORTH)
+                       ?  dec_rate * north_sign
+                       : -dec_rate * north_sign;
+        rc = motors_pulse_guide_start(1, offset, duration_ms);
         break;
-    case GUIDE_DIRECTION_SOUTH:
-        rc = motors_pulse_guide_start(1, -dec_rate, duration_ms);
-        break;
+    }
     default:
         return mount_result_error("Invalid guide direction");
     }

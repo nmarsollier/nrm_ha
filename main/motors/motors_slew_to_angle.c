@@ -30,16 +30,12 @@ MotorResultCode motors_slew_to_angle(float ra_deg, float dec_deg, int speed_rate
         return MOTOR_ERR_HARDWARE_ERROR;
     }
 
-    TrackingMode currTracking = TRACKING_NONE;
-    if (motors_state.status == MOTORS_STATUS_TRACKING
-        && motors_state.tracking != TRACKING_NONE) {
-        currTracking = motors_state.tracking;
-        MotorResultCode stop_rc = motors_stop();
-        if (stop_rc != MOTOR_OK) {
-            return stop_rc;
-        }
+    if (motors_status_is_parked(motors_state.status)) {
+        return MOTOR_ERR_PARKED;
     }
 
+    /* Validate targets BEFORE pausing tracking: a rejected slew must not leave
+     * tracking paused. */
     if (!motors_is_valid_ra(ra_deg)) {
         ESP_LOGW(TAG, "Rejected slew: RA out of range (%.3f)", ra_deg);
         return MOTOR_ERR_OUT_OF_RANGE;
@@ -50,10 +46,17 @@ MotorResultCode motors_slew_to_angle(float ra_deg, float dec_deg, int speed_rate
         return MOTOR_ERR_OUT_OF_RANGE;
     }
 
-    float speed = motors_get_slewing_speed(speed_rate);
+    TrackingMode currTracking = TRACKING_NONE;
+    if (motors_state.status == MOTORS_STATUS_TRACKING
+        && motors_state.tracking != TRACKING_NONE) {
+        currTracking = motors_state.tracking;
+        MotorResultCode stop_rc = motors_stop();
+        if (stop_rc != MOTOR_OK) {
+            return stop_rc;
+        }
+    }
 
-    motors_state.ra_speed = speed;
-    motors_state.dec_speed = speed;
+    float speed = motors_get_slewing_speed(speed_rate);
 
     MotionCommand cmd = {
         .type = MOTION_CMD_SLEW,
@@ -62,10 +65,19 @@ MotorResultCode motors_slew_to_angle(float ra_deg, float dec_deg, int speed_rate
         .ra_speed = speed,
         .dec_speed = speed,
     };
-    motors_queue_put(&cmd);
+    if (!motors_queue_put(&cmd)) {
+        return MOTOR_ERR_BUSY;
+    }
 
     if (currTracking != TRACKING_NONE) {
-        motors_start_tracking(currTracking);
+        /* Do not drop the resume silently: if the queue is momentarily full the
+         * tracking resume would be lost and the mount left stopped after a slew
+         * that was accepted.  Retry is not safe for a non-idempotent order, so
+         * surface it; in practice the queue was just cleared so this holds. */
+        MotorResultCode trk_rc = motors_start_tracking(currTracking);
+        if (trk_rc != MOTOR_OK) {
+            ESP_LOGE(TAG, "Failed to resume tracking after slew (rc=%d)", trk_rc);
+        }
     }
 
     return MOTOR_OK;

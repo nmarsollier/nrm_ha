@@ -18,6 +18,10 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
         return motors_stop();
     }
 
+    if (motors_status_is_parked(motors_state.status)) {
+        return MOTOR_ERR_PARKED;
+    }
+
     /* Clamp to hardware-safe maximum. */
     float max_dps = MOTORS_MAX_SLEW_SPEED_DPS;
     if (ra_speed > max_dps) ra_speed = max_dps;
@@ -33,6 +37,8 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
         .dec_speed = dec_speed,
         .tracking_mode = TRACKING_NONE,
     };
-    motors_queue_put(&cmd);
+    if (!motors_queue_put(&cmd)) {
+        return MOTOR_ERR_BUSY;
+    }
     return MOTOR_OK;
 }

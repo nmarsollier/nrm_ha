@@ -37,6 +37,11 @@ bool alpaca_bridge_get_is_parked(void);
 
 bool alpaca_bridge_get_is_home(void);
 
+/* Logical client link (ASCOM Connected). */
+bool alpaca_bridge_get_connected(void);
+
+void alpaca_bridge_set_connected(bool connected);
+
 /* Site location (degrees, metres). */
 float alpaca_bridge_get_site_latitude(void);
 
@@ -71,9 +76,9 @@ float alpaca_bridge_get_target_ra(void);
 
 float alpaca_bridge_get_target_dec(void);
 
-void alpaca_bridge_set_target_ra(float ra_hours);
+MountResult alpaca_bridge_set_target_ra(float ra_hours);
 
-void alpaca_bridge_set_target_dec(float dec_deg);
+MountResult alpaca_bridge_set_target_dec(float dec_deg);
 
 MountResult alpaca_bridge_slew_to_target(void);
 
@@ -81,16 +86,6 @@ MountResult alpaca_bridge_slew_to_target(void);
 int alpaca_bridge_get_side_of_pier(void);
 
 int alpaca_bridge_get_destination_side_of_pier(float ra_hours, float dec_deg);
-
-MountResult alpaca_bridge_set_side_of_pier(int side);
-
-/* Slew settle time (seconds). */
-int alpaca_bridge_get_slew_settle_time(void);
-
-MountResult alpaca_bridge_set_slew_settle_time(int seconds);
-
-/* Park position. */
-MountResult alpaca_bridge_set_park(void);
 
 /* Guide rates (deg/s). */
 float alpaca_bridge_get_guide_rate_ra(void);

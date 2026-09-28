@@ -68,9 +68,6 @@
  * HOME_RA_OFFSET_DEG (90.0)
  *   RA axis angle at which the DEC plane aligns with the meridian.
  *
- * POLE_THRESHOLD_DEG (1.0)
- *   When |dec_axis| < 1 the scope is at the pole; RA is singular.
- *
  * Axis limits (±100° RA, ±150° DEC) are defined in motors_init.c
  * via motors_state.limits and validated at runtime through
  * motors_current_state().limits.
@@ -98,6 +95,7 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include <sys/time.h>
 #include <time.h>
 #include <string.h>
 #include <esp_log.h>
@@ -106,8 +104,8 @@
  * Internal helpers
  * -------------------------------------------------------------------------- */
 
-static double unix_time_to_julian_date(time_t t) {
-    return (double) t / 86400.0 + 2440587.5;
+static double unix_time_to_julian_date(double t) {
+    return t / 86400.0 + 2440587.5;
 }
 
 static double gmst_hours_from_jd(double jd) {
@@ -135,7 +133,6 @@ static float normalize_hoursf(float h) {
 }
 
 #define HOME_RA_OFFSET_DEG  90.0f
-#define POLE_THRESHOLD_DEG   1.0f
 
 /* Validate against motor hardware limits (single source of truth).
  * motors_current_state().limits defines the authoritative boundaries. */
@@ -152,7 +149,7 @@ static bool axis_within_limits(float ra, float dec) {
  * lowest movement cost from the current axis position.
  * -------------------------------------------------------------------------- */
 bool equatorial_to_axis(EquatorialCoordinates eq, AxisCoordinates current,
-                        AxisCoordinates *out) {
+                        time_t at_time, AxisCoordinates *out) {
 
     if (eq.dec_deg < -90.0f || eq.dec_deg > 90.0f) {
         ESP_LOGE("COORD_CONV", "Invalid DEC %.4f — rejecting", eq.dec_deg);
@@ -162,8 +159,7 @@ bool equatorial_to_axis(EquatorialCoordinates eq, AxisCoordinates current,
     while (eq.ra_hours < 0.0f)   eq.ra_hours += 24.0f;
     while (eq.ra_hours >= 24.0f) eq.ra_hours -= 24.0f;
 
-    time_t now = time(NULL);
-    double lst  = gmst_hours_from_jd(unix_time_to_julian_date(now))
+    double lst  = gmst_hours_from_jd(unix_time_to_julian_date(at_time))
                   + (mount_internal_state.lon / 15.0);
 
     float ha_h = (float)(lst - eq.ra_hours);
@@ -227,16 +223,9 @@ bool equatorial_to_axis(EquatorialCoordinates eq, AxisCoordinates current,
 EquatorialCoordinates axis_to_equatorial(AxisCoordinates axis) {
     EquatorialCoordinates out;
 
-    /* Near the pole: RA is singular, report RA=LST, DEC=-90. */
-    if (fabsf(axis.dec_axis_deg) < POLE_THRESHOLD_DEG) {
-        time_t now = time(NULL);
-        double lst = gmst_hours_from_jd(unix_time_to_julian_date(now))
-                     + (mount_internal_state.lon / 15.0);
-        out.ra_hours = normalize_hoursf((float)lst);
-        out.dec_deg  = -90.0f;
-        return out;
-    }
-
+    /* DEC is computed directly for every position.  At dec_axis == 0 (the
+     * exact pole) DEC is -90 and RA is degenerate: the formula still returns
+     * a valid, if arbitrary, RA — no threshold erases the nearby cone. */
     float ha_deg, dec_deg;
     if (axis.dec_axis_deg >= 0.0f) {
         /* pierEast: stored = -(offset - HA) = HA - offset  ->  HA = ra + offset */
@@ -250,7 +239,11 @@ EquatorialCoordinates axis_to_equatorial(AxisCoordinates axis) {
 
     float ha_h = ha_deg / 15.0f;
 
-    time_t now = time(NULL);
+    /* Fractional-second clock — avoids the ~15"/s sawtooth in reported RA. */
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    double now = (double) tv.tv_sec + (double) tv.tv_usec / 1e6;
+
     double lst = gmst_hours_from_jd(unix_time_to_julian_date(now))
                  + (mount_internal_state.lon / 15.0);
 

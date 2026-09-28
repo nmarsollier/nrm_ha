@@ -4,6 +4,8 @@ idf_component_register(
 
         "power/power.c"
 
+        "debug/debug_rest.c"
+
         "led/led_init.c"
         "led/led_set_state.c"
         "led/led_update.c"
@@ -25,6 +27,7 @@ idf_component_register(
         "motors/motors_init.c"
         "motors/motors_move_axis_speed.c"
         "motors/motors_park.c"
+        "motors/motors_unpark.c"
         "motors/motors_slew_axis.c"
         "motors/motors_slew_to_angle.c"
         "motors/motors_start_tracking.c"
@@ -93,8 +96,6 @@ idf_component_register(
         "alpaca_bridge/alpaca_bridge_mount_state.c"
         "alpaca_bridge/alpaca_bridge_pier_side.c"
         "alpaca_bridge/alpaca_bridge_destination_pier.c"
-        "alpaca_bridge/alpaca_bridge_set_park.c"
-        "alpaca_bridge/alpaca_bridge_settle_time.c"
         "alpaca_bridge/alpaca_bridge_sidereal_time.c"
         "alpaca_bridge/alpaca_bridge_site.c"
         "alpaca_bridge/alpaca_bridge_slew_to_coordinates.c"
@@ -187,6 +188,8 @@ idf_component_register(
         "runtime/runtime_loop.c"
         "runtime/runtime_setup.c"
 
+        "sntp/sntp_start.c"
+
         "utils/number_utils.c"
         "utils/string_utils.c"
 
@@ -197,6 +200,7 @@ idf_component_register(
         "alpaca_bridge"
         "buzzer"
         "config"
+        "debug"
         "led"
         "mount"
         "rest"
@@ -204,6 +208,7 @@ idf_component_register(
         "motors"
         "power"
         "runtime"
+        "sntp"
         "utils"
         "udp_alpaca"
         "usb_net"
@@ -222,3 +227,11 @@ idf_component_register(
         esp_driver_rmt
         esp_adc
 )
+
+# Test/bench build mode — opt-in, off by default:
+#   idf.py -DNRM_TEST_MODE=1 build
+# Injecting NRM_TEST_MODE compiles the debug REST surface (fake power, fault
+# injection) and the test-only logging.  Production builds leave it undefined.
+if(NRM_TEST_MODE)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE NRM_TEST_MODE=1)
+endif()

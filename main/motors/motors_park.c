@@ -14,7 +14,9 @@ MotorResultCode motors_park(void) {
 
     motors_queue_clear();
     motors_motion_stop();
+    portENTER_CRITICAL(&motors_state_lock);
     motors_state.status = MOTORS_STATUS_PARKED;
     motors_state.tracking = TRACKING_NONE;
+    portEXIT_CRITICAL(&motors_state_lock);
     return MOTOR_OK;
 }

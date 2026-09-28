@@ -9,7 +9,7 @@
  * Alpaca usage: N.I.N.A. polls this after issuing a slew; shows progress indicator.
  */
 esp_err_t alpaca_slewing_handler(httpd_req_t *req) {
-    uint32_t cid = alpaca_get_client_id(req);
+    uint32_t cid = alpaca_get_client_transaction_id(req);
     uint32_t stx = alpaca_next_server_tx();
     bool result = alpaca_bridge_get_is_slewing();
     alpaca_response_value(req, result ? "true" : "false", cid, stx);

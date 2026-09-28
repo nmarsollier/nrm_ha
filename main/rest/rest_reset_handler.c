@@ -15,6 +15,10 @@
  * mount's ERROR state — acknowledging the request before rebooting.
  */
 esp_err_t rest_reset_handler(httpd_req_t *request) {
+    /* Stop the motion before rebooting so the reset is a confirmed stop,
+     * not a power-cut that leaves a step burst in flight. */
+    mount_stop();
+
     MountResult result = { .ok = true, .message = "Rebooting" };
     rest_send_result(request, result);
 

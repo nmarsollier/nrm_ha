@@ -14,6 +14,10 @@ MotorResultCode motors_home(void) {
         return MOTOR_ERR_HARDWARE_ERROR;
     }
 
+    if (motors_status_is_parked(motors_state.status)) {
+        return MOTOR_ERR_PARKED;
+    }
+
     motors_stop();
     return motors_slew_to_angle(0.0f, 0.0f, 0);
 }

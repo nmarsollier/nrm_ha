@@ -9,7 +9,7 @@
  * Alpaca usage: Shown in N.I.N.A. equipment panel and ASCOM driver info.
  */
 esp_err_t alpaca_description_handler(httpd_req_t *req) {
-    uint32_t cid = alpaca_get_client_id(req);
+    uint32_t cid = alpaca_get_client_transaction_id(req);
     uint32_t stx = alpaca_next_server_tx();
     const char *result = ALPACA_SERVER_DESCRIPTION;
     char buf[128];

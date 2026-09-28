@@ -1,5 +1,6 @@
 #include "rest_alpaca_internal.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -8,6 +9,8 @@
 #include "esp_log.h"
 
 #define ALPACA_RESPONSE_BUFFER 512
+
+static const char *TAG = "ALPACA_HELPERS";
 
 static uint32_t s_server_tx = 0;
 
@@ -26,57 +29,42 @@ static void alpaca_send_json(httpd_req_t *req, const char *json) {
 /* ─── Public API ─── */
 
 void alpaca_response_value(httpd_req_t *req, const char *value_json,
-                           uint32_t client_id, uint32_t server_tx) {
+                           uint32_t client_transaction_id, uint32_t server_tx) {
     char buf[ALPACA_RESPONSE_BUFFER];
     snprintf(buf, sizeof(buf),
              "{\"Value\":%s,\"ClientTransactionID\":%lu,"
              "\"ServerTransactionID\":%lu,\"ErrorNumber\":0,"
              "\"ErrorMessage\":\"\"}",
-             value_json, (unsigned long) client_id, (unsigned long) server_tx);
+             value_json, (unsigned long) client_transaction_id, (unsigned long) server_tx);
     alpaca_send_json(req, buf);
 }
 
 void alpaca_response_ok(httpd_req_t *req,
-                        uint32_t client_id, uint32_t server_tx) {
+                        uint32_t client_transaction_id, uint32_t server_tx) {
     char buf[ALPACA_RESPONSE_BUFFER];
     snprintf(buf, sizeof(buf),
              "{\"ClientTransactionID\":%lu,"
              "\"ServerTransactionID\":%lu,\"ErrorNumber\":0,"
              "\"ErrorMessage\":\"\"}",
-             (unsigned long) client_id, (unsigned long) server_tx);
+             (unsigned long) client_transaction_id, (unsigned long) server_tx);
     alpaca_send_json(req, buf);
 }
 
 void alpaca_response_error(httpd_req_t *req, int error_number,
                            const char *message,
-                           uint32_t client_id, uint32_t server_tx) {
+                           uint32_t client_transaction_id, uint32_t server_tx) {
     char buf[ALPACA_RESPONSE_BUFFER];
     snprintf(buf, sizeof(buf),
              "{\"ClientTransactionID\":%lu,"
              "\"ServerTransactionID\":%lu,"
              "\"ErrorNumber\":%d,"
              "\"ErrorMessage\":\"%s\"}",
-             (unsigned long) client_id, (unsigned long) server_tx,
+             (unsigned long) client_transaction_id, (unsigned long) server_tx,
              error_number, message);
     alpaca_send_json(req, buf);
 }
 
 /* ─── Parameter parsing ─── */
-
-uint32_t alpaca_get_client_id(httpd_req_t *req) {
-    char buf[32];
-    esp_err_t err = httpd_req_get_url_query_str(req, buf, sizeof(buf));
-    if (err != ESP_OK) return 0;
-
-    char value[16];
-    err = httpd_query_key_value(buf, "ClientID", value, sizeof(value));
-    if (err != ESP_OK) {
-        /* Also try lowercase */
-        err = httpd_query_key_value(buf, "clientid", value, sizeof(value));
-        if (err != ESP_OK) return 0;
-    }
-    return (uint32_t) atol(value);
-}
 
 /*
  * Request body buffer — read once per request by the handler.
@@ -108,6 +96,11 @@ static size_t url_decode_inplace(char *s, size_t len) {
                 continue;
             }
         }
+        if (s[r] == '+') {
+            /* form-encoding: '+' is a space. */
+            s[w] = ' ';
+            continue;
+        }
         s[w] = s[r];
     }
     if (w < len) s[w] = '\0';
@@ -115,20 +108,31 @@ static size_t url_decode_inplace(char *s, size_t len) {
 }
 
 void alpaca_read_body(httpd_req_t *req) {
-    /* Only read the body if the client sent one — httpd_req_recv on a
-     * request without Content-Length can block long enough to trigger
-     * the task watchdog (SW_CPU_RESET). */
-    char cl[16] = {0};
-    bool has_body = httpd_req_get_hdr_value_str(req, "Content-Length", cl, sizeof(cl)) == ESP_OK
-                    && atoi(cl) > 0;
-
     s_body_len = 0;
     s_body_buf[0] = '\0';
-    if (has_body) {
-        int ret = httpd_req_recv(req, s_body_buf, sizeof(s_body_buf) - 1);
-        s_body_len = (ret > 0) ? ret : 0;
-        s_body_buf[s_body_len] = '\0';
+
+    /* content_len is 0 when there is no body — avoids a blocking recv. */
+    int content_len = (int) req->content_len;
+    if (content_len <= 0) {
+        return;
     }
+
+    /* Reject an oversized body instead of silently truncating it. */
+    if (content_len > (int)(sizeof(s_body_buf) - 1)) {
+        ESP_LOGW(TAG, "body too large (%d > %d)", content_len,
+                 (int)(sizeof(s_body_buf) - 1));
+        return;
+    }
+
+    /* Read until the declared length is consumed — TCP may fragment. */
+    int total = 0;
+    while (total < content_len) {
+        int ret = httpd_req_recv(req, s_body_buf + total, content_len - total);
+        if (ret <= 0) break;
+        total += ret;
+    }
+    s_body_len = total;
+    s_body_buf[s_body_len] = '\0';
 }
 
 const char *alpaca_dump_body(httpd_req_t *req, int *out_len) {
@@ -183,29 +187,60 @@ static char *alpaca_get_param_str(httpd_req_t *req, const char *key) {
     return alpaca_get_form_param(req, key);
 }
 
+/*
+ * Extract the ClientTransactionID — echoed back in the response — from the
+ * query string (GET) or the form body (PUT).  Strictly parsed: returns 0 if
+ * absent or malformed.  Distinct from ClientID, which is not part of the
+ * response contract.
+ */
+uint32_t alpaca_get_client_transaction_id(httpd_req_t *req) {
+    char *val = alpaca_get_param_str(req, "ClientTransactionID");
+    if (!val) return 0;
+    char *end = NULL;
+    /* strtoul, not strtol: ClientTransactionID is a uint32, and a 32-bit
+     * signed long overflows at 2147483647 (found by B-04 on hardware). */
+    unsigned long v = strtoul(val, &end, 10);
+    uint32_t result = (end != val && *end == '\0') ? (uint32_t) v : 0;
+    free(val);
+    return result;
+}
+
 bool alpaca_get_form_float(httpd_req_t *req, const char *key, float *out) {
     char *val = alpaca_get_param_str(req, key);
     if (!val) return false;
-    *out = (float) atof(val);
+    char *end = NULL;
+    float v = strtof(val, &end);
+    bool ok = (end != val) && isfinite(v) && (*end == '\0');
+    if (ok) *out = v;
     free(val);
-    return true;
+    return ok;
 }
 
 bool alpaca_get_form_bool(httpd_req_t *req, const char *key, bool *out) {
     char *val = alpaca_get_param_str(req, key);
     if (!val) return false;
-    if (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0)
+    bool ok;
+    if (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0) {
         *out = true;
-    else
+        ok = true;
+    } else if (strcasecmp(val, "false") == 0 || strcmp(val, "0") == 0) {
         *out = false;
+        ok = true;
+    } else {
+        /* "bogus" is not a boolean: reject it, don't assume false. */
+        ok = false;
+    }
     free(val);
-    return true;
+    return ok;
 }
 
 bool alpaca_get_form_int(httpd_req_t *req, const char *key, int *out) {
     char *val = alpaca_get_param_str(req, key);
     if (!val) return false;
-    *out = atoi(val);
+    char *end = NULL;
+    long v = strtol(val, &end, 10);
+    bool ok = (end != val) && (*end == '\0');
+    if (ok) *out = (int) v;
     free(val);
-    return true;
+    return ok;
 }

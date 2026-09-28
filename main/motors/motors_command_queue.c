@@ -20,11 +20,13 @@ QueueHandle_t motion_cmd_queue = NULL;
 /* --------------------------------------------------------------------------
  * Queue lifecycle.
  * -------------------------------------------------------------------------- */
-void motors_queue_init(void) {
+esp_err_t motors_queue_init(void) {
     motion_cmd_queue = xQueueCreate(10, sizeof(MotionCommand));
     if (motion_cmd_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create motion command queue");
+        return ESP_ERR_NO_MEM;
     }
+    return ESP_OK;
 }
 
 /* --------------------------------------------------------------------------
@@ -33,15 +35,21 @@ void motors_queue_init(void) {
  * Every command is sent to the back (FIFO order).  STOP / PARK / DISABLE
  * callers reset the queue before sending so they always run immediately.
  * -------------------------------------------------------------------------- */
-void motors_queue_put(MotionCommand *cmd) {
+bool motors_queue_put(MotionCommand *cmd) {
     if (motion_cmd_queue == NULL) {
         ESP_LOGE(TAG, "Motion command queue not initialized");
-        return;
+        return false;
     }
+
+    /* Stamp the current stop epoch so a STOP that lands after this enqueue
+     * invalidates the command at execution time. */
+    cmd->generation = motors_stop_generation;
 
     if (xQueueSendToBack(motion_cmd_queue, cmd, pdMS_TO_TICKS(10)) != pdTRUE) {
         ESP_LOGW(TAG, "Queue full, dropping cmd type=%d", cmd->type);
+        return false;
     }
+    return true;
 }
 
 /* --------------------------------------------------------------------------

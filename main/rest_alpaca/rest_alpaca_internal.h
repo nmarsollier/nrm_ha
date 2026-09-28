@@ -43,13 +43,13 @@
  *               "ServerTransactionID":<stx>,"ErrorNumber":0,"ErrorMessage":""}
  */
 void alpaca_response_value(httpd_req_t *req, const char *value_json,
-                           uint32_t client_id, uint32_t server_tx);
+                           uint32_t client_transaction_id, uint32_t server_tx);
 
 /*
  * Send a successful Alpaca response with no value (void).
  */
 void alpaca_response_ok(httpd_req_t *req,
-                        uint32_t client_id, uint32_t server_tx);
+                        uint32_t client_transaction_id, uint32_t server_tx);
 
 /*
  * Send an Alpaca error response.
@@ -57,17 +57,18 @@ void alpaca_response_ok(httpd_req_t *req,
  */
 void alpaca_response_error(httpd_req_t *req, int error_number,
                            const char *message,
-                           uint32_t client_id, uint32_t server_tx);
+                           uint32_t client_transaction_id, uint32_t server_tx);
 
 /* ═══════════════════════════════════════════════════════════════
  * Parameter parsing
  * ═══════════════════════════════════════════════════════════════ */
 
 /*
- * Extract the ClientID from the request query string.
- * Returns 0 if not present or unparseable.
+ * Extract the ClientTransactionID (echoed in the response) from the query
+ * string (GET) or the form body (PUT).  Returns 0 if absent or malformed.
+ * Distinct from ClientID, which is not part of the response contract.
  */
-uint32_t alpaca_get_client_id(httpd_req_t *req);
+uint32_t alpaca_get_client_transaction_id(httpd_req_t *req);
 
 /*
  * Read and parse the request body as URL-encoded form data.

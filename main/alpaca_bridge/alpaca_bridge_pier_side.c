@@ -16,8 +16,3 @@
 int alpaca_bridge_get_side_of_pier(void) {
     return (motors_get_dec_deg() >= 0.0f) ? 0 : 1;
 }
-
-MountResult alpaca_bridge_set_side_of_pier(int side) {
-    (void) side;
-    return (MountResult){.ok = true, .message = ""};
-}

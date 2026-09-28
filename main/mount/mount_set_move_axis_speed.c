@@ -2,7 +2,15 @@
 #include "mount_internal.h"
 #include "motors.h"
 
+#include <math.h>
+
 static TrackingMode s_saved_tracking = TRACKING_NONE;
+
+/* Per-axis MoveAxis rate cache (deg/s).  Lives in the mount layer so any
+ * STOP — which calls mount_move_axis_reset() — clears it, preventing a stale
+ * residual rate from a previous manual move leaking into the next MoveAxis. */
+static float s_ra_rate = 0.0f;
+static float s_dec_rate = 0.0f;
 
 MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed) {
     if (mount_is_error()) {
@@ -32,6 +40,27 @@ MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed) {
     return motors_result_code_error_result(rc);
 }
 
+/*
+ * Move a single Alpaca axis (0 = RA, 1 = DEC) continuously at `rate` deg/s,
+ * preserving the other axis's current rate.  Clamps to the safe slew ceiling.
+ */
+MountResult mount_set_move_axis_rate(int axis, float rate) {
+    float hi = motors_get_slewing_speed(4);
+    float clamped = fmaxf(fminf(rate, hi), -hi);
+
+    if (axis == 0) {
+        s_ra_rate = clamped;
+    } else if (axis == 1) {
+        s_dec_rate = clamped;
+    } else {
+        return mount_result_error("Axis not supported");
+    }
+
+    return mount_set_move_axis_speed(s_ra_rate, s_dec_rate);
+}
+
 void mount_move_axis_reset(void) {
     s_saved_tracking = TRACKING_NONE;
+    s_ra_rate = 0.0f;
+    s_dec_rate = 0.0f;
 }

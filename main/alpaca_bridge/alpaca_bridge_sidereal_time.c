@@ -1,6 +1,6 @@
 /* Alpaca bridge — sidereal time
  *
- * Compute Local Apparent Sidereal Time at the configured site.
+ * Compute Local Mean Sidereal Time at the configured site.
  */
 
 #include "alpaca_bridge.h"
@@ -12,8 +12,9 @@
 #include "mount_internal.h"
 
 /*
- * Local Apparent Sidereal Time at the configured site (hours, 0–24).
- * Computed as GMST corrected by site longitude.
+ * Local Mean Sidereal Time at the configured site (hours, 0–24).
+ * Computed as GMST corrected by site longitude.  GMST is mean sidereal time
+ * (no nutation), not apparent sidereal time.
  */
 float alpaca_bridge_get_sidereal_time(void) {
     time_t now = time(NULL);

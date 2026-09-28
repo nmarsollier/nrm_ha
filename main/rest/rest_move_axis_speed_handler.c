@@ -18,6 +18,10 @@ esp_err_t rest_move_axis_speed_handler(httpd_req_t *request) {
     float ra_rate  = ra.ok  ? ra.value  : 0.0f;
     float dec_rate = dec.ok ? dec.value : 0.0f;
 
+#ifdef NRM_TEST_MODE
+    rest_set_snapshot_header(request);
+#endif
+
     MountResult result = mount_set_move_axis_speed(ra_rate, dec_rate);
     rest_send_result(request, result);
     return ESP_OK;
