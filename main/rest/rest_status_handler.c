@@ -7,6 +7,7 @@
 
 #include "mount.h"
 #include "motors/motors.h"
+#include "power.h"
 
 #include "utils/utils.h"
 
@@ -42,6 +43,7 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
             "{"
             "\"status\":\"%s\","
             "\"tracking\":\"%s\","
+            "\"power\":%s,"
             "\"ra\":\"%02d:%02d:%05.2f\","
             "\"dec\":\"%c%02d:%02d:%05.2f\","
             "\"lst\":\"%02d:%02d:%05.2f\","
@@ -85,6 +87,7 @@ esp_err_t rest_status_handler(httpd_req_t *request) {
     char response[1536];
     snprintf(response, sizeof(response), format,
              status, tracking,
+             power_has_external() ? "true" : "false",
              data.ra.hours, data.ra.minutes, data.ra.seconds,
              dec_sign, data.dec.degrees, data.dec.minutes, data.dec.seconds,
              lst_h, lst_m, lst_s,

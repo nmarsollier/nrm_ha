@@ -9,6 +9,8 @@
 
 #include "buzzer.h"
 #include "led.h"
+#include "motors.h"
+#include "power.h"
 
 #define MAIN_LOOP_PERIOD_MS     100
 #define MAIN_TASK_STACK_SIZE    4096
@@ -25,6 +27,7 @@ static void main_loop_task(void *arg) {
     const TickType_t period = pdMS_TO_TICKS(MAIN_LOOP_PERIOD_MS);
 
     while (true) {
+        motors_update_power(power_has_external());
         led_update();
         buzzer_update();
         vTaskDelay(period);

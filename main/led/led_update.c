@@ -6,10 +6,9 @@
  * Called from the runtime loop every ~50 ms.  Inspects the motors status
  * to pick the correct LED state:
  *
- *   1. Fatal error (motor fault)
- *                     -> slow smooth breathing (permanent, reboot required)
- *   2. Motor SLEWING  -> full brightness
- *   3. Otherwise      -> dim (normal idle)
+ *   1. Fatal error   -> beacon (blink-blink-fade-pause)
+ *   2. Motor SLEWING -> full brightness
+ *   3. Otherwise     -> dim (normal idle)
  *
  * No other module calls led_set_state() directly.  This keeps all LED
  * logic cohesive in one place and prevents scattered, conflicting calls.
@@ -23,8 +22,8 @@ void led_update(void) {
     MotorsState ms = motors_current_state();
 
     /*
-     * 1. Fatal conditions override everything and breathe in ERROR until
-     *    reboot: a motor hardware fault.
+     * 1. Fatal conditions override everything and beacon in ERROR: a motor
+     *    hardware fault or unpowered motors.
      */
     if (motors_status_is_error(ms.status)) {
         led_set_state(LED_STATE_ERROR);

@@ -108,6 +108,13 @@ esp_err_t motors_init(void);
 void motors_enter_error_state(void);
 
 /*
+ * Update the mount's view of the external-power rail.  When power is lost
+ * the motors enter ERROR and reject all motion; when power returns they
+ * recover to READY (only if the error was caused by the power loss).
+ */
+void motors_update_power(bool power_ok);
+
+/*
  * Return a snapshot copy of the current `MotorsState`.
  */
 MotorsState motors_current_state(void);

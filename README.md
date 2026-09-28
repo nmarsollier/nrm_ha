@@ -13,7 +13,8 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 - **Belt reduction**: 3:1 (HTD3M 15T → 45T, 171mm belt)
 - **Total reduction**: 300:1 on both axes
 - **Power**: 12V 5A supply → LM2596 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
-- **LED**: PWM indicator (GPIO 42) — three states: dim (~10%) at idle, bright (100%) during slewing, slow breathing on error.
+- **Power sense**: 10k/10k divider on the 5.5V rail → GPIO 1 (ADC). When the 12V switch is off (USB-only), the mount enters ERROR and refuses to move the motors.
+- **LED**: PWM indicator (GPIO 42) — three states: dim (~10%) at idle, bright (100%) during slewing, beacon (blink-blink + slow fade) on error.
 - **Buzzer**: passive event beeper (GPIO 41, 2 kHz) — beeps on boot and on goto/move-axis start & end.
 - **Outputs**: STEP/DIR/LED/buzzer all pass through a UMC2003 Darlington array (open-collector sinking).
 
@@ -37,6 +38,7 @@ This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop 
 
 | GPIO | Function  | Notes                                              |
 |------|-----------|----------------------------------------------------|
+| 1    | PWR-SENSE | 12V rail present (ADC, 10k/10k divider on 5.5V)     |
 | 42   | LED (PWM) | External status indicator (via UMC2003)                          |
 | 41   | Buzzer    | Event beeper, 2 kHz PWM (via UMC2003)                          |
 | 14   | RA STEP   | Right ascension step pulse (via UMC2003)             |
@@ -95,7 +97,8 @@ REST API  (port 80)  ── serves embedded SPA at /
   Motors  (move / track, STEP/DIR GPIO, RMT pulse generation)
 
 USB Net  (CDC-NCM gadget, 192.168.7.1, DHCP server)
-LED  (GPIO 42 PWM: dim / bright / breathing)
+Power  (GPIO 1 ADC: 12V rail sense — blocks motion when unpowered)
+LED  (GPIO 42 PWM: dim / bright / beacon)
 Buzzer  (GPIO 41, 2 kHz PWM beeps: boot / motion start / motion end)
 Runtime  (init sequence + periodic loop)
 ```
@@ -160,6 +163,7 @@ Speed profiles: `1` = 1°/s, `2` = 3°/s, `3` = 4.5°/s, `4` = 6°/s.
 {
   "status": "ready | slewing | tracking | parked | error",
   "tracking": "none | sidereal | lunar | solar",
+  "power": true,
   "ra": "HH:MM:SS.ss",
   "dec": "±DD:MM:SS.ss",
   "lst": "HH:MM:SS.ss",

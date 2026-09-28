@@ -30,6 +30,7 @@
         </div>
         <div class="info-row">
             <div>Tracking <span x-text="serverTracking"></span></div>
+            <div>Power <span x-text="hasPower ? 'ON' : 'OFF'" :class="{ 'power-off': !hasPower }"></span></div>
             <div>Lat <span x-text="settings.lat"></span></div>
             <div>Lon <span x-text="settings.lon"></span></div>
             <div>Elev <span x-text="settings.elevation"></span> m</div>

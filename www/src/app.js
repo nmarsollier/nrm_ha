@@ -5,6 +5,7 @@ function mountApp() {
         pierSide: '--',
         statusText: 'UNKNOWN',
         isError: false,
+        hasPower: true,
         debug: {},
         settings: {lat: 0, lon: 0, elevation: 0},
         mountTime: '--',
@@ -55,6 +56,7 @@ function mountApp() {
                 this.isHome = j.is_home || false;
                 this.isParked = (j.status === 'parked');
                 this.isError = (j.status === 'error');
+                this.hasPower = (j.power !== false);
                 this.debug = j.debug || {};
 
                 const s = j.settings;
@@ -184,6 +186,9 @@ function mountApp() {
         },
 
         fatalMessage() {
+            if (!this.hasPower) {
+                return 'Motors unpowered — turn on the 12V switch. Movement is disabled.';
+            }
             return 'Mount error — reboot required. Mount will not accept movement commands.';
         },
 

@@ -543,6 +543,11 @@ input::placeholder {
     border-color: var(--danger) !important;
 }
 
+.power-off {
+    color: var(--danger);
+    font-weight: 600;
+}
+
 button:disabled {
     opacity: 0.35;
     cursor: not-allowed;

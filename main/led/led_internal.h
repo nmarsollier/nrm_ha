@@ -21,7 +21,6 @@
 /* ── Timing ───────────────────────────────────────────────── */
 
 #define LED_FADE_MS           1000  /* normal <-> slewing transition */
-#define LED_BREATHE_SLOW_MS   1500  /* half-period of error breathing */
 
 /* ── Shared state (defined in led_set_state.c) ────────────── */
 
@@ -32,9 +31,9 @@ extern LedState led_current_state;
 /* Start a hardware fade to target_duty over time_ms. */
 void led_start_fade(uint32_t target_duty, uint32_t time_ms);
 
-/* Start / stop the breathing animation (slow error pulse). */
-void led_breathe_start(void);
-void led_breathe_stop(void);
+/* Start / stop the beacon animation (blink-blink-fade-pause, error). */
+void led_beacon_start(void);
+void led_beacon_stop(void);
 
 /*
  * Internal: apply a state transition (dim / bright / breathing).

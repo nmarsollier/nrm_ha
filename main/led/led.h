@@ -8,8 +8,8 @@
  *
  * NORMAL     — dim brightness (~24 %), mount idle.
  * SLEWING    — full brightness (100 %), mount in motion.
- * ERROR      — slow smooth breathing, fatal fault: motor hardware error
- *              (reboot required).
+ * ERROR      — beacon (blink-blink, slow fade-out), fatal fault:
+ *              motor hardware error or unpowered motors.
  *
  * All state decisions are made inside led_update(), which is the
  * single public entry point for LED state changes. It inspects motor

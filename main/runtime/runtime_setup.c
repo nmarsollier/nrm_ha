@@ -14,6 +14,7 @@
 #include "led.h"
 #include "motors.h"
 #include "mount.h"
+#include "power.h"
 #include "usb_net.h"
 
 static const char *TAG = "RUNTIME_SETUP";
@@ -56,11 +57,19 @@ void setup_init(void) {
 
     mount_init();
 
+    esp_err_t power_err = power_init();
+    if (power_err != ESP_OK) {
+        ESP_LOGW(TAG, "power_init failed: %s", esp_err_to_name(power_err));
+    }
+
     esp_err_t motors_err = motors_init();
     if (motors_err != ESP_OK) {
         ESP_LOGE(TAG, "motors_init failed: %s — mount in ERROR state, reboot required",
                  esp_err_to_name(motors_err));
     }
+
+    /* Block motion immediately if the mount is running on USB only. */
+    motors_update_power(power_has_external());
 
     ESP_LOGI(TAG, "Mount ready");
 }

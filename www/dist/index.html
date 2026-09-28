@@ -551,6 +551,11 @@ input::placeholder {
     border-color: var(--danger) !important;
 }
 
+.power-off {
+    color: var(--danger);
+    font-weight: 600;
+}
+
 button:disabled {
     opacity: 0.35;
     cursor: not-allowed;
@@ -669,6 +674,7 @@ footer code {
         </div>
         <div class="info-row">
             <div>Tracking <span x-text="serverTracking"></span></div>
+            <div>Power <span x-text="hasPower ? 'ON' : 'OFF'" :class="{ 'power-off': !hasPower }"></span></div>
             <div>Lat <span x-text="settings.lat"></span></div>
             <div>Lon <span x-text="settings.lon"></span></div>
             <div>Elev <span x-text="settings.elevation"></span> m</div>
@@ -937,6 +943,7 @@ footer code {
         pierSide: '--',
         statusText: 'UNKNOWN',
         isError: false,
+        hasPower: true,
         debug: {},
         settings: {lat: 0, lon: 0, elevation: 0},
         mountTime: '--',
@@ -987,6 +994,7 @@ footer code {
                 this.isHome = j.is_home || false;
                 this.isParked = (j.status === 'parked');
                 this.isError = (j.status === 'error');
+                this.hasPower = (j.power !== false);
                 this.debug = j.debug || {};
 
                 const s = j.settings;
@@ -1116,6 +1124,9 @@ footer code {
         },
 
         fatalMessage() {
+            if (!this.hasPower) {
+                return 'Motors unpowered — turn on the 12V switch. Movement is disabled.';
+            }
             return 'Mount error — reboot required. Mount will not accept movement commands.';
         },
 

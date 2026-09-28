@@ -58,6 +58,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 
 | GPIO | Funcion           | Notas                                              |
 |------|-------------------|----------------------------------------------------|
+| 1    | PWR-SENSE         | Deteccion de energia externa 12V (ADC1_CH0, divisor 10k/10k sobre 5.5V) |
 | 14   | STEP- RA          | Pulso STEP eje ascension recta (via UMC2003)         |
 | 10   | DIR- RA           | Direccion eje ascension recta (via UMC2003)           |
 | 12   | STEP- DEC         | Pulso STEP eje declinacion (via UMC2003)              |
@@ -128,6 +129,7 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 - **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP.
 - **LED** (`main/led/`) — Control PWM del LED externo en GPIO 42. Estados: tenue (normal), brillante (slewing), respiracion (error).
 - **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 41 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
+- **Power** (`main/power/`) — Sensor de energia externa (ADC en GPIO 1). Bloquea el movimiento cuando la montura esta solo con USB (12V apagado).
 - **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo NCM.
 - **Tools** (`main/tools/`) — Utilidades transversales (parser, validacion).
 

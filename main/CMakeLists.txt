@@ -2,10 +2,12 @@ idf_component_register(
         SRCS
         "main.c"
 
+        "power/power.c"
+
         "led/led_init.c"
         "led/led_set_state.c"
         "led/led_update.c"
-        "led/led_breathe_cb.c"
+        "led/led_beacon.c"
 
         "buzzer/buzzer_init.c"
         "buzzer/buzzer_play.c"
@@ -36,6 +38,7 @@ idf_component_register(
         "motors/motors_motion_task.c"
         "motors/motors_pulse_guide.c"
         "motors/motors_is_pulse_guiding.c"
+        "motors/motors_power.c"
 
         "mount/mount_init.c"
         "mount/mount_coordinate_tools.c"
@@ -198,6 +201,7 @@ idf_component_register(
         "rest"
         "rest_alpaca"
         "motors"
+        "power"
         "runtime"
         "utils"
         "udp_alpaca"
@@ -215,4 +219,5 @@ idf_component_register(
         esp_driver_gpio
         esp_driver_ledc
         esp_driver_rmt
+        esp_adc
 )

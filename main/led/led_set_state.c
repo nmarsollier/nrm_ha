@@ -44,18 +44,18 @@ void led_set_state(LedState state) {
 
     led_current_state = state;
 
+    /* Stop the animation (if any) before applying the new state. */
+    led_beacon_stop();
+
     switch (state) {
     case LED_STATE_NORMAL:
-        led_breathe_stop();
         apply_normal();
         break;
     case LED_STATE_SLEWING:
-        led_breathe_stop();
         apply_slewing();
         break;
     case LED_STATE_ERROR:
-        led_breathe_stop();
-        led_breathe_start();
+        led_beacon_start();
         break;
     }
 }
