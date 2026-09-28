@@ -1,5 +1,7 @@
 #pragma once
 
+#include "config.h"
+
 #include <esp_http_server.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -10,9 +12,9 @@
  * ═══════════════════════════════════════════════════════════════ */
 
 /* ─── Alpaca server identity ─── */
-#define ALPACA_SERVER_NAME        "NRM-HA"
-#define ALPACA_SERVER_DESCRIPTION "NRM-HA \xe2\x80\x94 Ecuatorial Mount Controller"
-#define ALPACA_DRIVER_INFO        "NRM-HA Alpaca Driver v1.0"
+#define ALPACA_SERVER_NAME        MOUNT_NAME
+#define ALPACA_SERVER_DESCRIPTION MOUNT_NAME " \xe2\x80\x94 Ecuatorial Mount Controller"
+#define ALPACA_DRIVER_INFO        MOUNT_NAME " Alpaca Driver v1.0"
 #define ALPACA_DRIVER_VERSION     "1.0.0"
 #define ALPACA_INTERFACE_VERSION  3
 
@@ -21,7 +23,7 @@
 #define ALPACA_MAX_URI_HANDLERS   64
 
 /* ─── Telescope device ─── */
-#define ALPACA_DEVICE_NAME        "NRM-HA"
+#define ALPACA_DEVICE_NAME        MOUNT_NAME
 #define ALPACA_DEVICE_TYPE        "Telescope"
 #define ALPACA_DEVICE_NUMBER      0
 #define ALPACA_UNIQUE_ID          "nrm-ha-telescope-001"

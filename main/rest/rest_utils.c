@@ -1,17 +1,16 @@
-/* Tools - rest_tools.c
+/* REST - rest_utils.c
  *
  * Shared HTTP route registration helpers used by both the REST API and
  * Alpaca servers. Avoids duplicating register_get / register_post / register_put
  * across server modules.
  */
-#include "utils.h"
 #include "rest.h"
 
 #include <esp_log.h>
 #include <stdio.h>
 #include <string.h>
 
-static const char *TAG = "REST_TOOLS";
+static const char *TAG = "REST_UTILS";
 
 void rest_register_get(httpd_handle_t server, const char *uri,
                        esp_err_t (*handler)(httpd_req_t *)) {
@@ -78,4 +77,3 @@ void rest_send_result(httpd_req_t *request, MountResult result) {
 
     http_response_json(request, response);
 }
-

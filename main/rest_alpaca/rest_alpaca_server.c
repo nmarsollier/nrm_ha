@@ -2,7 +2,7 @@
 
 #include "rest_alpaca.h"
 #include "rest_alpaca_internal.h"
-#include "utils/utils.h"
+#include "rest.h"
 
 #include <esp_http_server.h>
 #include <esp_log.h>

@@ -9,7 +9,7 @@
 
 #include "mount.h"
 
-#include "utils/utils.h"
+#include "rest_internal.h"
 
 esp_err_t rest_slew_to_coordinates_handler(httpd_req_t *request) {
     HttpRequestBody body = http_request_read_body(request);

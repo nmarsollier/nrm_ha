@@ -9,7 +9,7 @@
 
 #include "mount.h"
 
-#include "utils/utils.h"
+#include "rest_internal.h"
 
 /*
  * Business use case: expose tracking changes via the API.

@@ -2,26 +2,24 @@
 
 Equatorial mount with harmonic drives for astrophotography, controlled by an ESP32-S3, compatible with N.I.N.A. (Alpaca / ASCOM) and its own REST API.
 
-This firmware runs on an ESP32-S3 44-pin board, driving two NEMA 17 closed-loop stepper motors with integrated drivers. It exposes a full ASCOM Alpaca interface on port 11111 so that N.I.N.A. and other clients can discover and control the mount directly.
-
 ## Hardware
 
-- **Board**: ESP32-S3 44-pin (16 MB Flash, 8 MB PSRAM)
+- **Board**: ESP32-S3-WROOM-1 N16R8 
 - **Motor drivers**: Integrated closed-loop ISS42 (64 microsteps via DIP switches, specs in [`MOTOR.txt`](MOTOR.txt))
 - **Motors**: 2× NEMA 17 Closed Loop (0.44 Nm torque, integrated driver)
 - **Harmonic Drives**: 100:1 reduction
-- **Belt reduction**: 3:1 (HTD3M 15T → 45T, 171mm belt)
+- **Belt reduction**: 3:1 (GT2 9mm, 20T → 60T)
 - **Total reduction**: 300:1 on both axes
 - **Power**: 12V 5A supply → LM2596 (12V→5.5V for ESP32-S3). Motors powered directly from 12V.
 - **Power sense**: 10k/10k divider on the 5.5V rail → GPIO 1 (ADC). When the 12V switch is off (USB-only), the mount enters ERROR and refuses to move the motors.
-- **LED**: PWM indicator (GPIO 42) — three states: dim (~10%) at idle, bright (100%) during slewing, beacon (blink-blink + slow fade) on error.
+- **LED**: PWM indicator (GPIO 42) — three states: dim (~10%) at idle, bright (100%) during slewing, beacon when motors does not have energy.
 - **Buzzer**: passive event beeper (GPIO 41, 2 kHz) — beeps on boot and on goto/move-axis start & end.
 - **Outputs**: STEP/DIR/LED/buzzer all pass through a UMC2003 Darlington array (open-collector sinking).
 
 ### Harmonic Drives
 
 - Harmonic Drive 100:1 reduction (https://www.ebay.com/itm/286960016334)
-- Belt reduction 3:1 at harmonic input: HTD3M 15T → HTD3M 45T, 171mm belt
+- Belt reduction 3:1 at harmonic input: GT2 9mm, 20T → 60T
 - Total reduction on both axes: 300:1
 - DEC body threads onto the RA structure through the Harmonic output
 - DEC control cables pass through the Harmonic center
@@ -152,7 +150,7 @@ The mount exposes a REST API on port 80, the ASCOM Alpaca interface on port
 | POST   | `/api/park`               | —                                                                                             | Move to parked position |
 | POST   | `/api/unpark`             | —                                                                                             | Exit parked state |
 | POST   | `/api/reset`              | —                                                                                             | Reboot the firmware |
-| POST   | `/api/settings`           | `{"lat":<deg>,"lon":<deg>,"elevation":<m>,"time":"<ISO8601>"}`                                 | Update site settings (`time` optional) |
+| POST   | `/api/settings`           | `{"lat":<deg>,"lon":<deg>,"elevation":<m>,"time":"<ISO8601>"}`                                | Update site settings (`time` optional) |
 | POST   | `/api/limits`             | `{"action":"set_home\|set_ra_left\|set_ra_right\|set_dec_left\|set_dec_right"}`               | Set a limit/home from the current position |
 
 Speed profiles: `1` = 1°/s, `2` = 3°/s, `3` = 4.5°/s, `4` = 6°/s.

@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#include "config.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -55,13 +56,14 @@ static void udp_alpaca_task(void *arg) {
     char buf[128];
     struct sockaddr_in sender_addr;
 
-    static const char response[] =
+    char response[128];
+    snprintf(response, sizeof(response),
         "{"
         "\"AlpacaPort\":11111,"
-        "\"ServerName\":\"NRM-HA\","
+        "\"ServerName\":\"%s\","
         "\"Version\":\"v1\","
         "\"InterfaceVersion\":3"
-        "}";
+        "}", MOUNT_NAME);
 
     while (true) {
         socklen_t sender_len = sizeof(sender_addr);

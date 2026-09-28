@@ -8,12 +8,6 @@
  * source of truth for mount activity.
  */
 
-/*
- * Microstep resolution — the closed-loop driver's actual DIP-switch
- * setting (NRM-HA: 64 microsteps / 12800 steps per revolution).
- */
-#define MOTORS_MICROSTEPS 64
-
 typedef enum {
     /* Ready to accept slews/tracking requests. */
     MOTORS_STATUS_READY,

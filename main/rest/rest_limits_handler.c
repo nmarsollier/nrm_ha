@@ -10,7 +10,7 @@
 #include "rest.h"
 
 #include "mount.h"
-#include "utils/utils.h"
+#include "rest_internal.h"
 
 esp_err_t rest_limits_handler(httpd_req_t *request) {
     HttpRequestBody body = http_request_read_body(request);

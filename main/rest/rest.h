@@ -13,6 +13,23 @@ typedef enum {
     MOTOR_AXIS_UNKNOWN
 } MotorAxis;
 
+/* HTTP response helpers. */
+#define HTTP_RESPONSE_BODY_MAX_LENGTH 512
+
+typedef struct {
+    int length;
+    bool complete;
+    char value[HTTP_RESPONSE_BODY_MAX_LENGTH];
+} HttpRequestBody;
+
+void http_response_json(httpd_req_t *request, const char *json);
+
+void http_response_html(httpd_req_t *request, const char *html, unsigned int len);
+
+void http_response_bad_request(httpd_req_t *request, const char *message);
+
+HttpRequestBody http_request_read_body(httpd_req_t *request);
+
 void rest_server_start(void);
 
 esp_err_t rest_status_handler(httpd_req_t *request);
@@ -43,6 +60,16 @@ esp_err_t rest_limits_handler(httpd_req_t *request);
 void rest_send_result(
     httpd_req_t *request,
     MountResult result);
+
+/* Route registration helpers — shared with the Alpaca server. */
+void rest_register_get(httpd_handle_t server, const char *uri,
+                       esp_err_t (*handler)(httpd_req_t *));
+
+void rest_register_post(httpd_handle_t server, const char *uri,
+                        esp_err_t (*handler)(httpd_req_t *));
+
+void rest_register_put(httpd_handle_t server, const char *uri,
+                       esp_err_t (*handler)(httpd_req_t *));
 
 /* Axis string helpers for REST API parameter parsing. */
 MotorAxis rest_axis_from_string(const char *value);

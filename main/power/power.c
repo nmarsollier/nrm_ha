@@ -5,15 +5,12 @@
  * motion when the motors have no power.
  */
 #include "power.h"
+#include "config.h"
 
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 
 static const char *TAG = "POWER";
-
-/* GPIO 1 = ADC1_CH0. */
-#define POWER_SENSE_ADC_UNIT    ADC_UNIT_1
-#define POWER_SENSE_ADC_CHANNEL ADC_CHANNEL_0
 
 /* 10k/10k divider on the 5.5V rail -> ~2.75V present, ~0V absent.
  * Raw threshold ~2000 (~1.5V) cleanly separates the two. */

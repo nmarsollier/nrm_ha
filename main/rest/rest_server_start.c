@@ -3,7 +3,6 @@
  * Purpose: create the REST API HTTP server on port 80.
  */
 #include "rest.h"
-#include "utils.h"
 
 #include "esp_http_server.h"
 #include "esp_log.h"

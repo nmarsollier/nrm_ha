@@ -61,6 +61,9 @@ idf_component_register(
         "mount/mount_pulse_guide.c"
 
         "rest/rest_server_start.c"
+        "rest/rest_http_utils.c"
+        "rest/rest_json_utils.c"
+        "rest/rest_utils.c"
         "rest/rest_slew_to_coordinates_handler.c"
         "rest/rest_home_handler.c"
         "rest/rest_limits_handler.c"
@@ -72,7 +75,7 @@ idf_component_register(
         "rest/rest_settings_handler.c"
         "rest/rest_status_handler.c"
         "rest/rest_stop_handler.c"
-        "rest/rest_tools.c"
+        "rest/rest_axis_utils.c"
         "rest/rest_tracking_handler.c"
         "rest/rest_unpark_handler.c"
 
@@ -184,10 +187,7 @@ idf_component_register(
         "runtime/runtime_loop.c"
         "runtime/runtime_setup.c"
 
-        "utils/http_utils.c"
-        "utils/json_utils.c"
         "utils/number_utils.c"
-        "utils/rest_utils.c"
         "utils/string_utils.c"
 
         "udp_alpaca/udp_alpaca.c"
@@ -196,6 +196,7 @@ idf_component_register(
         "."
         "alpaca_bridge"
         "buzzer"
+        "config"
         "led"
         "mount"
         "rest"

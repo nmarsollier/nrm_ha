@@ -1,6 +1,7 @@
 #pragma once
 
 #include "motors.h"
+#include "config.h"
 
 #include "driver/rmt_tx.h"
 #include "freertos/FreeRTOS.h"
@@ -63,52 +64,8 @@ bool motors_is_valid_dec_steps(int64_t steps);
  * Mechanical constants — hardware configuration.
  * ========================================================================= */
 
-/*
- * Total gear reduction: 3:1 belt (15T→45T HTD3M) × 100:1 harmonic drive.
- */
-#define TOTAL_GEAR_REDUCTION     (300.0f)  /* motor shaft turns : axis turns */
-
 /* Maximum safe slew speed in deg/s — hardware ceiling for this reduction. */
 #define MOTORS_MAX_SLEW_SPEED_DPS 6.0f
-
-/*
- * Motion calibration factor.
- *
- * Compensates for discrepancies between configured and actual step
- * resolution.  Adjust until commanded angle equals physical movement:
- *   - Mount moves too little → increase the factor
- *   - Mount moves too much   → decrease the factor
- *
- * factor = commanded_angle / actual_angle
- */
-#define MOTION_CALIBRATION_FACTOR 1.0f
-
-/* =========================================================================
- * GPIO pin assignments — single source of truth for the motors module.
- *
- * STEP pins are owned by the RMT peripheral (motors_rmt.c).
- * DIR pins remain under GPIO control (motors_hw.c).
- *
- * NRM-HA pinout (ESP32-S3 44-pin board):
- *
- *   Outputs (contiguous GPIO 14→11, for clean PCB routing):
- *     GPIO 14: STEP- RA
- *     GPIO 10: DIR- RA   (test: was GPIO 13)
- *     GPIO 12: STEP- DEC
- *     GPIO 9:  DIR- DEC   (test: was GPIO 11)
- *
- *   All outputs go through a UMC2003 Darlington array (open-collector
- *   sinking outputs, 3.3 V → 5 V level shift) because the integrated
- *   drivers use optocoupler inputs that require 5 V / ~10 mA.
- *   See CLAUDE.md for the wiring diagram.
- *
- *   ENABLE is hardwired (always enabled) — no GPIO control needed.
- *   ALARM pins are not connected in this revision.
- * ========================================================================= */
-#define RA_STEP_GPIO       GPIO_NUM_14
-#define RA_DIR_GPIO        GPIO_NUM_10
-#define DEC_STEP_GPIO      GPIO_NUM_12
-#define DEC_DIR_GPIO       GPIO_NUM_9
 
 /*
  * Angular displacement per microstep at the mount axis.
@@ -119,8 +76,7 @@ bool motors_is_valid_dec_steps(int64_t steps);
  */
 static inline float motors_get_deg_per_microstep(void) {
     return 1.8f / ((float) MOTORS_MICROSTEPS *
-                    TOTAL_GEAR_REDUCTION *
-                    MOTION_CALIBRATION_FACTOR);
+                    TOTAL_GEAR_REDUCTION);
 }
 
 /* =========================================================================

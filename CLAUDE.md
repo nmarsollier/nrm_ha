@@ -5,7 +5,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 ## Definicion del proyecto
 
 - Logica para manejar montura ecuatorial con harmonic drives para astrofotografia
-- Montura NRM-HA con harmonic drives de reduccion 100:1 y poleas HTD3M 3:1 (15T→45T)
+- Montura NRM-HA con harmonic drives de reduccion 100:1 y poleas GT2 9mm 3:1 (20T→60T)
 - Reduccion total: 300:1 en ambos ejes
 - Utiliza una placa ESP32-S3 44 pines
 - Utiliza 2 motores Nema 17 Closed Loop con driver integrado, configurados a 64 microsteps
@@ -17,7 +17,7 @@ Mantener este archivo en formato simple, para que pueda leerse y editarse rapida
 ### Harmonic Drives
 
 - Harmonic Drive de reduccion 100:1 (https://www.ebay.com/itm/286960016334)
-- Reduccion de poleas 3:1 en la entrada del harmonico: HTD3M 15T → HTD3M 45T, correa 171mm
+- Reduccion de poleas 3:1 en la entrada del harmonico: GT2 9mm 20T → 60T
 - Reduccion Total en ambos Ejes: 300:1
 - El cuerpo DEC se enrosca a la estructura RA a traves de la salida del Harmonic
 - Los cables que controlan el eje DEC se pasan por dentro del Harmonic

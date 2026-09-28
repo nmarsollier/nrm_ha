@@ -13,13 +13,13 @@ esp_err_t alpaca_management_description_handler(httpd_req_t *req) {
     snprintf(buf, sizeof(buf),
              "{\"Value\":{"
              "\"ServerName\":\"%s\","
-             "\"Manufacturer\":\"NRM-HA\","
+             "\"Manufacturer\":\"%s\","
              "\"ManufacturerVersion\":\"%s\","
              "\"Location\":\"Embedded\""
              "},"
              "\"ErrorNumber\":0,\"ErrorMessage\":\"\","
              "\"ClientTransactionID\":0,\"ServerTransactionID\":0}",
-             ALPACA_SERVER_NAME, ALPACA_DRIVER_VERSION);
+             ALPACA_SERVER_NAME, MOUNT_NAME, ALPACA_DRIVER_VERSION);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, buf, strlen(buf));
     return ESP_OK;

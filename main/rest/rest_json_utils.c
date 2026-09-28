@@ -1,8 +1,8 @@
-/* Tools - json_utils.c
+/* REST - rest_json_utils.c
  *
  * Purpose: parse small JSON payloads used by REST handlers.
  */
-#include "utils/utils.h"
+#include "rest_internal.h"
 
 #include <stdio.h>
 #include <string.h>

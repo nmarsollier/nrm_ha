@@ -1,8 +1,8 @@
-/* Tools - http_response.c
+/* REST - rest_http_utils.c
  *
  * Purpose: send HTTP responses from REST handlers.
  */
-#include "utils/utils.h"
+#include "rest.h"
 
 #include <stdio.h>
 #include <string.h>

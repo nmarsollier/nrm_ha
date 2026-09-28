@@ -8,8 +8,7 @@
 #include "mount.h"
 #include "motors/motors.h"
 #include "power.h"
-
-#include "utils/utils.h"
+#include "config.h"
 
 /*
  * Business use case: expose the mount's current status via the API.

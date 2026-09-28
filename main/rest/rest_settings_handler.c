@@ -8,7 +8,7 @@
 
 #include "mount.h"
 
-#include "utils/utils.h"
+#include "rest_internal.h"
 
 /*
  * Business use case: expose settings updates via the API.
