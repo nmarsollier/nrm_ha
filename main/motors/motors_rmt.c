@@ -541,6 +541,14 @@ bool motors_rmt_try_wait_dec(void)
  */
 static esp_err_t recreate_channel(rmt_chan_ctx_t *ctx)
 {
+    if (ctx->channel != NULL && ctx->enabled) {
+        /* Wait for the in-flight DMA transfer(s) to complete before touching
+         * the encoder or channel.  Tearing down a channel whose DMA is still
+         * streaming is a use-after-free: the TX-done ISR (or a queued
+         * transaction) fires into freed memory and panics with an
+         * InstructionFetchError. */
+        rmt_tx_wait_all_done(ctx->channel, 100);
+    }
     if (ctx->encoder != NULL) {
         rmt_del_encoder(ctx->encoder);
         ctx->encoder = NULL;
