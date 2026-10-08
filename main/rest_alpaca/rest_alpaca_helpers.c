@@ -39,6 +39,25 @@ void alpaca_response_value(httpd_req_t *req, const char *value_json,
     alpaca_send_json(req, buf);
 }
 
+void alpaca_response_value_dynamic(httpd_req_t *req, const char *value_json,
+                                   uint32_t client_transaction_id, uint32_t server_tx) {
+    /* Envelope text + two up-to-10-digit transaction IDs + NUL. */
+    size_t need = strlen(value_json) + 128;
+    char *buf = malloc(need);
+    if (!buf) {
+        alpaca_response_error(req, 0x500, "Out of memory",
+                              client_transaction_id, server_tx);
+        return;
+    }
+    snprintf(buf, need,
+             "{\"Value\":%s,\"ClientTransactionID\":%lu,"
+             "\"ServerTransactionID\":%lu,\"ErrorNumber\":0,"
+             "\"ErrorMessage\":\"\"}",
+             value_json, (unsigned long) client_transaction_id, (unsigned long) server_tx);
+    alpaca_send_json(req, buf);
+    free(buf);
+}
+
 void alpaca_response_ok(httpd_req_t *req,
                         uint32_t client_transaction_id, uint32_t server_tx) {
     char buf[ALPACA_RESPONSE_BUFFER];

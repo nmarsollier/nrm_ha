@@ -48,7 +48,7 @@ static const char *TAG = "MOTORS_MOTION_TASK";
  * Target batch duration in RMT ticks.  Shorter batches give finer ramp
  * granularity but increase CPU overhead.  40k ticks = 20 ms at 2 MHz.
  */
-#define RMT_BATCH_TARGET_TICKS  120000U
+#define RMT_BATCH_TARGET_TICKS  320000U
 
 /*
  * Buffer and batch limits — unified for both axes.

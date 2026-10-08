@@ -94,6 +94,7 @@ idf_component_register(
         "rest_alpaca/rest_alpaca_azimuth_handler.c"
 
         "alpaca_bridge/alpaca_bridge_altitude.c"
+        "alpaca_bridge/alpaca_bridge_device_state.c"
         "alpaca_bridge/alpaca_bridge_mount_state.c"
         "alpaca_bridge/alpaca_bridge_pier_side.c"
         "alpaca_bridge/alpaca_bridge_destination_pier.c"
@@ -124,7 +125,9 @@ idf_component_register(
         "rest_alpaca/rest_alpaca_canunpark_handler.c"
         "rest_alpaca/rest_alpaca_connected_handler.c"
         "rest_alpaca/rest_alpaca_connected_put_handler.c"
+        "rest_alpaca/rest_alpaca_connecting_handler.c"
         "rest_alpaca/rest_alpaca_declination_handler.c"
+        "rest_alpaca/rest_alpaca_devicestate_handler.c"
         "rest_alpaca/rest_alpaca_declinationrate_handler.c"
         "rest_alpaca/rest_alpaca_declinationrate_put_handler.c"
         "rest_alpaca/rest_alpaca_description_handler.c"

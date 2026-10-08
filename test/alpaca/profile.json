@@ -3,7 +3,7 @@
   "alpaca_base": "http://192.168.7.1:11111",
   "rest_base": "http://192.168.7.1",
   "device_number": 0,
-  "interface_version": 3,
+  "interface_version": 4,
   "firmware_version": "to_read_at_runtime",
   "hemisphere": "south",
   "alignment_mode": 2,

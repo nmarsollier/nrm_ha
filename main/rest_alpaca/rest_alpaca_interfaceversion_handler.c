@@ -4,7 +4,7 @@
 
 /* Alpaca — Device — InterfaceVersion
  *
- * Purpose: Returns the ASCOM interface version number (3 = ITelescopeV3).
+ * Purpose: Returns the ASCOM interface version number (4 = ITelescopeV4).
  *
  * Alpaca usage: Checked by clients to determine available features.
  */

@@ -1,4 +1,4 @@
-"""ASCOM Alpaca client (ITelescopeV3) — GET/PUT with ErrorNumber validation.
+"""ASCOM Alpaca client (ITelescopeV4) — GET/PUT with ErrorNumber validation.
 
 Three kinds of failure are separated:
   - TransportError: could not talk to the device (network/timeout).

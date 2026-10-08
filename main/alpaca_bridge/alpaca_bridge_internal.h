@@ -35,3 +35,12 @@ double alpaca_bridge_unix_to_jd(time_t t);
  * Uses the standard USNO approximation valid to ~1 arcsecond.
  */
 double alpaca_bridge_gmst_hours(double jd);
+
+/*
+ * Compute horizontal coordinates (altitude, azimuth) from the given
+ * equatorial position and current site/UTC time.  Coordinates are passed in
+ * so a caller can supply a coherent snapshot instead of re-reading the mount.
+ * Either output pointer may be NULL to skip that value.
+ */
+void alpaca_bridge_horizontal(float ra_hours, float dec_deg,
+                              float *alt_deg, float *az_deg);

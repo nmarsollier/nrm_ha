@@ -92,3 +92,22 @@ float alpaca_bridge_get_guide_rate_ra(void);
 float alpaca_bridge_get_guide_rate_dec(void);
 void alpaca_bridge_set_guide_rate_ra(float rate_dps);
 void alpaca_bridge_set_guide_rate_dec(float rate_dps);
+
+/* Coherent snapshot of every Telescope operational property, read once from
+ * the motors layer so the Alpaca DeviceState endpoint can build its response
+ * without re-reading each property individually. */
+typedef struct {
+    float right_ascension;   /* hours */
+    float declination;       /* degrees */
+    float altitude;          /* degrees */
+    float azimuth;           /* degrees */
+    int side_of_pier;        /* 0 = pierEast, 1 = pierWest */
+    bool slewing;
+    bool tracking;
+    bool at_park;
+    bool at_home;
+    bool is_pulse_guiding;
+} AlpacaDeviceState;
+
+/* Fill *out from a single motors_current_state() read. */
+void alpaca_bridge_get_device_state(AlpacaDeviceState *out);

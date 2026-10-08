@@ -49,9 +49,6 @@ void motors_limits_load(void) {
     if (nvs_get_u32(h, "dec_max", &v) == ESP_OK) motors_state.limits.dec_max = uint32_to_float(v);
 
     nvs_close(h);
-    ESP_LOGI(TAG, "Limits loaded: RA [%.1f, %.1f]  DEC [%.1f, %.1f]",
-             motors_state.limits.ra_min, motors_state.limits.ra_max,
-             motors_state.limits.dec_min, motors_state.limits.dec_max);
 }
 
 void motors_limits_save(void) {
@@ -72,10 +69,6 @@ void motors_limits_save(void) {
         ESP_LOGE(TAG, "NVS commit failed: %s", esp_err_to_name(err));
     }
     nvs_close(h);
-
-    ESP_LOGI(TAG, "Limits saved: RA [%.1f, %.1f]  DEC [%.1f, %.1f]",
-             motors_state.limits.ra_min, motors_state.limits.ra_max,
-             motors_state.limits.dec_min, motors_state.limits.dec_max);
 }
 
 /* ── Runtime setters ─────────────────────────────────────── */
@@ -89,7 +82,6 @@ void motors_set_current_as_home(void) {
     motors_state.status    = MOTORS_STATUS_READY;
     portEXIT_CRITICAL(&motors_state_lock);
     motors_limits_save();
-    ESP_LOGI(TAG, "Home set at current position");
 }
 
 void motors_set_current_as_ra_left_limit(void) {
@@ -98,7 +90,6 @@ void motors_set_current_as_ra_left_limit(void) {
     float pos = motors_get_ra_deg();
     motors_state.limits.ra_min = pos;
     motors_limits_save();
-    ESP_LOGI(TAG, "RA left limit set to %.3f", motors_state.limits.ra_min);
 }
 
 void motors_set_current_as_ra_right_limit(void) {
@@ -107,7 +98,6 @@ void motors_set_current_as_ra_right_limit(void) {
     float pos = motors_get_ra_deg();
     motors_state.limits.ra_max = pos;
     motors_limits_save();
-    ESP_LOGI(TAG, "RA right limit set to %.3f", motors_state.limits.ra_max);
 }
 
 void motors_set_current_as_dec_left_limit(void) {
@@ -116,7 +106,6 @@ void motors_set_current_as_dec_left_limit(void) {
     float pos = motors_get_dec_deg();
     motors_state.limits.dec_min = pos;
     motors_limits_save();
-    ESP_LOGI(TAG, "DEC left limit set to %.3f", motors_state.limits.dec_min);
 }
 
 void motors_set_current_as_dec_right_limit(void) {
@@ -125,7 +114,6 @@ void motors_set_current_as_dec_right_limit(void) {
     float pos = motors_get_dec_deg();
     motors_state.limits.dec_max = pos;
     motors_limits_save();
-    ESP_LOGI(TAG, "DEC right limit set to %.3f", motors_state.limits.dec_max);
 }
 
 void motors_limits_reset(void) {
@@ -138,5 +126,4 @@ void motors_limits_reset(void) {
     motors_state.limits.dec_max = LIMITS_DEFAULT_DEC_MAX;
     portEXIT_CRITICAL(&motors_state_lock);
     motors_limits_save();
-    ESP_LOGI(TAG, "Limits reset to factory defaults");
 }

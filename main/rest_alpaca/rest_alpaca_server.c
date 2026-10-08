@@ -53,12 +53,14 @@ void rest_alpaca_server_start(void) {
     /* ─── Common device endpoints ─── */
     rest_register_get(server, T "/connected", alpaca_connected_handler);
     rest_register_put(server, T "/connected", alpaca_connected_put_handler);
+    rest_register_get(server, T "/connecting", alpaca_connecting_handler);
     rest_register_get(server, T "/description", alpaca_description_handler);
     rest_register_get(server, T "/driverinfo", alpaca_driverinfo_handler);
     rest_register_get(server, T "/driverversion", alpaca_driverversion_handler);
     rest_register_get(server, T "/interfaceversion", alpaca_interfaceversion_handler);
     rest_register_get(server, T "/name", alpaca_name_handler);
     rest_register_get(server, T "/supportedactions", alpaca_supportedactions_handler);
+    rest_register_get(server, T "/devicestate", alpaca_devicestate_handler);
 
     /* ─── Capabilities ─── */
     rest_register_get(server, T "/canfindhome", alpaca_canfindhome_handler);

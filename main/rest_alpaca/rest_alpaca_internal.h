@@ -16,7 +16,7 @@
 #define ALPACA_SERVER_DESCRIPTION MOUNT_NAME " \xe2\x80\x94 Ecuatorial Mount Controller"
 #define ALPACA_DRIVER_INFO        MOUNT_NAME " Alpaca Driver v1.0"
 #define ALPACA_DRIVER_VERSION     "1.0.0"
-#define ALPACA_INTERFACE_VERSION  3
+#define ALPACA_INTERFACE_VERSION  4
 
 /* ─── Network ─── */
 #define ALPACA_DEFAULT_PORT       11111
@@ -44,6 +44,14 @@
  */
 void alpaca_response_value(httpd_req_t *req, const char *value_json,
                            uint32_t client_transaction_id, uint32_t server_tx);
+
+/*
+ * Like alpaca_response_value but for a Value payload that may exceed the
+ * fixed 512-byte buffer (e.g. the DeviceState array).  Uses a heap buffer
+ * sized to the actual content.
+ */
+void alpaca_response_value_dynamic(httpd_req_t *req, const char *value_json,
+                                   uint32_t client_transaction_id, uint32_t server_tx);
 
 /*
  * Send a successful Alpaca response with no value (void).

@@ -60,7 +60,7 @@ static void udp_alpaca_task(void *arg) {
         "\"AlpacaPort\":11111,"
         "\"ServerName\":\"%s\","
         "\"Version\":\"v1\","
-        "\"InterfaceVersion\":3"
+        "\"InterfaceVersion\":4"
         "}", MOUNT_NAME);
 
     while (true) {

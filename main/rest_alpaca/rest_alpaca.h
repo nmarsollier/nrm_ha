@@ -8,6 +8,8 @@ void rest_alpaca_server_start(void);
 /* ─── Common GET handlers ─── */
 esp_err_t alpaca_connected_handler(httpd_req_t *req);
 
+esp_err_t alpaca_connecting_handler(httpd_req_t *req);
+
 esp_err_t alpaca_description_handler(httpd_req_t *req);
 
 esp_err_t alpaca_driverinfo_handler(httpd_req_t *req);
@@ -19,6 +21,8 @@ esp_err_t alpaca_interfaceversion_handler(httpd_req_t *req);
 esp_err_t alpaca_name_handler(httpd_req_t *req);
 
 esp_err_t alpaca_supportedactions_handler(httpd_req_t *req);
+
+esp_err_t alpaca_devicestate_handler(httpd_req_t *req);
 
 /* ─── Capability GET handlers (all return bool) ─── */
 esp_err_t alpaca_canfindhome_handler(httpd_req_t *req);
