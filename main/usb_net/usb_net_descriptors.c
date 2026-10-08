@@ -18,11 +18,7 @@
  */
 #include "usb_net_internal.h"
 
-#include "esp_log.h"
-
 #include "tinyusb.h"
-
-static const char *TAG = "USB_NET_DESCRIPTORS";
 
 /* ── Microsoft OS 2.0 descriptor constants ───────────────────────── */
 
@@ -133,7 +129,6 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
         return false;
     }
 
-    ESP_LOGI(TAG, "serving Microsoft OS 2.0 descriptor to Windows host");
     return tud_control_xfer(rhport, request, (void *)(uintptr_t)s_ms_os_20_desc,
                             (uint16_t)sizeof(s_ms_os_20_desc));
 }

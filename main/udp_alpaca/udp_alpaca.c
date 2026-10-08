@@ -51,8 +51,6 @@ static void udp_alpaca_task(void *arg) {
         return;
     }
 
-    ESP_LOGI(TAG, "Listening on UDP %d", ALPACA_DISCOVERY_PORT);
-
     char buf[128];
     struct sockaddr_in sender_addr;
 
@@ -77,19 +75,12 @@ static void udp_alpaca_task(void *arg) {
         }
         buf[len] = '\0';
 
-        ESP_LOGI(TAG, "rx %d bytes from %s:%d: \"%s\"",
-                 (int) len,
-                 inet_ntoa(sender_addr.sin_addr),
-                 ntohs(sender_addr.sin_port),
-                 buf);
-
         if (strstr(buf, "alpacadiscovery1") != NULL) {
             if (motors_status_is_error(motors_current_state().status)) {
                 ESP_LOGW(TAG, "motors in ERROR — suppressing discovery response");
             } else {
                 sendto(sock, response, strlen(response), 0,
                        (struct sockaddr *) &sender_addr, sender_len);
-                ESP_LOGI(TAG, "discovery response sent");
             }
         }
     }
@@ -102,5 +93,4 @@ void udp_alpaca_start(void) {
                 DISCOVERY_TASK_STACK_WORDS, NULL,
                 DISCOVERY_TASK_PRIORITY, NULL,
                 0);  /* CPU 0 — keep CPU 1 isolated for the motion task */
-    ESP_LOGI(TAG, "Task created");
 }

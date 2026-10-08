@@ -50,7 +50,6 @@ esp_err_t power_init(void) {
         return err;
     }
 
-    ESP_LOGI(TAG, "external-power sensor ready (GPIO 1)");
     return ESP_OK;
 }
 

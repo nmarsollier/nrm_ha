@@ -13,9 +13,6 @@
 #include "buzzer_internal.h"
 
 #include "esp_err.h"
-#include "esp_log.h"
-
-static const char *TAG = "BUZZER_INIT";
 
 void buzzer_init(void) {
     ledc_timer_config_t timer_conf = {
@@ -40,8 +37,6 @@ void buzzer_init(void) {
         .flags          = { .output_invert = 1 },
     };
     ESP_ERROR_CHECK(ledc_channel_config(&chan_conf));
-
-    ESP_LOGI(TAG, "LEDC PWM ready on GPIO %d, %d Hz", BUZZER_GPIO, BUZZER_FREQ_HZ);
 
     buzzer_play(BUZZER_PATTERN_BOOT);
 }

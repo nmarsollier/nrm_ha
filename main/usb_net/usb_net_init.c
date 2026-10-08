@@ -89,8 +89,6 @@ static esp_err_t create_netif(void)
     mac[5] ^= 0x01;
     esp_netif_set_mac(s_netif, mac);
 
-    ESP_LOGI(TAG, "USB netif MAC %02x:%02x:%02x:%02x:%02x:%02x",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     return ESP_OK;
 }
 
@@ -131,7 +129,6 @@ static void usb_net_event_cb(tinyusb_event_t *event, void *arg)
 
     switch (event->id) {
     case TINYUSB_EVENT_ATTACHED:
-        ESP_LOGI(TAG, "USB host attached, link up");
         esp_netif_action_connected(netif, NULL, 0, NULL);
         /* esp_netif_action_connected() only raises the link inside lwIP.
          * tud_network_link_state() is what sends the CDC NetworkConnection
@@ -194,7 +191,6 @@ static esp_err_t init_tinyusb(void)
         return err;
     }
 
-    ESP_LOGI(TAG, "TinyUSB NCM network class ready");
     return ESP_OK;
 }
 
@@ -251,8 +247,6 @@ esp_err_t usb_net_init(void)
     vTaskDelay(pdMS_TO_TICKS(250));
     tud_connect();
 
-    ESP_LOGI(TAG, "USB Net IP: http://" IPSTR, IP2STR(&s_ip.ip));
-
     return ESP_OK;
 
 rollback_tusb:
@@ -284,7 +278,6 @@ esp_err_t usb_net_tinyusb_recv_cb(void *buffer, uint16_t len, void *ctx)
 
 void usb_net_tinyusb_init_cb(void *ctx)
 {
-    ESP_LOGI(TAG, "NCM network initialised by host");
 }
 
 void usb_net_tinyusb_free_tx(void *buffer, void *ctx)

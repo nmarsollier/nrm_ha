@@ -119,7 +119,4 @@ void usb_net_tx_init(void) {
         ESP_LOGE(TAG, "failed to create TX task");
         return;
     }
-
-    ESP_LOGI(TAG, "TX queue ready (%d x %d bytes)",
-             USB_NET_TX_POOL_SIZE, USB_NET_TX_BUFFER_SIZE);
 }

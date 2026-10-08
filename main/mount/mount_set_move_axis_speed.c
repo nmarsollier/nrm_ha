@@ -30,10 +30,15 @@ MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed) {
 
     MotorsState s = motors_current_state();
     if (s.status == MOTORS_STATUS_TRACKING && s.tracking != TRACKING_NONE) {
-        /* Save before mount_stop() — it calls mount_move_axis_reset(). */
+        /* Stop tracking first.  mount_stop() calls mount_move_axis_reset(),
+         * which wipes both the saved tracking mode and the MoveAxis rate
+         * cache — restore both so a later per-axis MoveAxis keeps the rate
+         * of the axis not being touched. */
         TrackingMode saved = s.tracking;
         mount_stop();
         s_saved_tracking = saved;
+        s_ra_rate = ra_speed;
+        s_dec_rate = dec_speed;
     }
 
     MotorResultCode rc = motors_set_move_axis_speed(ra_speed, dec_speed);

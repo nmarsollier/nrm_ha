@@ -69,13 +69,6 @@ static void sntp_task(void *arg) {
      * running afterwards for the periodic re-sync. */
     for (int retry = 0; retry < 300; retry++) {
         if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
-            time_t now;
-            time(&now);
-            struct tm timeinfo;
-            gmtime_r(&now, &timeinfo);
-            ESP_LOGI(TAG, "SNTP sync completed — UTC: %04d-%02d-%02dT%02d:%02d:%02dZ",
-                     timeinfo.tm_year + 1900, timeinfo.tm_mon + 1,
-                     timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
             break;
         }
         vTaskDelay(pdMS_TO_TICKS(100));

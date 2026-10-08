@@ -1294,8 +1294,6 @@ static void motors_motion_task_run(void *arg) {
         vTaskDelete(NULL);
         return;
     }
-    ESP_LOGI(TAG, "RMT initialized on core 1");
-
     while (true) {
         /* Signal idle so control ops (home/limits) can wait for the motion
          * to actually stop before touching counters/limits. */
@@ -1359,11 +1357,6 @@ esp_err_t motors_motion_task_init(void) {
         ESP_LOGE(TAG, "Failed to create motion task");
         return ESP_ERR_NO_MEM;
     }
-
-    /* Report stack high-water mark for diagnostics. */
-    UBaseType_t high_water = uxTaskGetStackHighWaterMark(motors_motion_task_handle);
-    ESP_LOGI(TAG, "Stack high-water mark: %lu words (total %d)",
-             (unsigned long) high_water, MOTION_TASK_STACK_WORDS);
 
     return ESP_OK;
 }

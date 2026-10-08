@@ -31,8 +31,6 @@ static const char *TAG = "RUNTIME_SETUP";
  * motor status on its first tick.
  */
 void setup_init(void) {
-    ESP_LOGI(TAG, "Setting up mount");
-
     esp_err_t nvs_result = nvs_flash_init();
     if (nvs_result == ESP_ERR_NVS_NO_FREE_PAGES || nvs_result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());

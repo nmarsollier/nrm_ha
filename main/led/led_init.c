@@ -12,9 +12,6 @@
 #include "led_internal.h"
 
 #include "esp_err.h"
-#include "esp_log.h"
-
-static const char *TAG = "LED_INIT";
 
 void led_init(void) {
     /* ── Timer ─────────────────────────────────────────── */
@@ -44,7 +41,4 @@ void led_init(void) {
 
     /* ── Fade service (needed for ledc_set_fade_time_and_start) ── */
     ESP_ERROR_CHECK(ledc_fade_func_install(0));
-
-    ESP_LOGI(TAG, "LEDC PWM ready on GPIO %d, dim=%u, bright=%u",
-             LED_GPIO, LED_DIM_DUTY, LED_BRIGHT_DUTY);
 }

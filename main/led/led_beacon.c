@@ -8,10 +8,7 @@
  */
 #include "led_internal.h"
 
-#include "esp_log.h"
 #include "esp_timer.h"
-
-static const char *TAG = "LED_BEACON";
 
 /* One step of the beacon cycle. */
 typedef struct {
@@ -67,8 +64,6 @@ void led_beacon_start(void) {
 
     /* Apply the first step immediately and schedule the next. */
     beacon_tick(NULL);
-
-    ESP_LOGI(TAG, "beacon started");
 }
 
 void led_beacon_stop(void) {
@@ -79,6 +74,4 @@ void led_beacon_stop(void) {
     esp_timer_stop(s_beacon_timer);
     esp_timer_delete(s_beacon_timer);
     s_beacon_timer = NULL;
-
-    ESP_LOGI(TAG, "stopped");
 }
