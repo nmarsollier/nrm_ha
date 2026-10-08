@@ -165,7 +165,6 @@ static esp_err_t create_channel(gpio_num_t gpio, rmt_chan_ctx_t *ctx,
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "Channel ready: GPIO %d", gpio);
     return ESP_OK;
 }
 
@@ -196,8 +195,7 @@ esp_err_t motors_rmt_init(void)
     }
 
     s_rmt.initialized = true;
-    ESP_LOGI(TAG, "RMT+DMA step generation ready (RA GPIO %d, DEC GPIO %d)",
-             RA_STEP_GPIO, DEC_STEP_GPIO);
+
     return ESP_OK;
 }
 
