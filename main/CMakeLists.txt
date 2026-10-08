@@ -17,6 +17,7 @@ idf_component_register(
 
         "usb_net/usb_net_init.c"
         "usb_net/usb_net_data.c"
+        "usb_net/usb_net_tx.c"
         "usb_net/usb_net_descriptors.c"
 
         "motors/motors_current_state.c"

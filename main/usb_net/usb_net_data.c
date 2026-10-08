@@ -1,26 +1,13 @@
 /* USB Net — usb_net_data.c — NCM data path.
  *
- * NCM mode uses the well-tested tinyusb_net_send_sync wrapper.
+ * usb_net_transmit() is lwIP's TX hook: it copies each frame into the bounded
+ * TX queue (usb_net_tx.c) and returns immediately, so the single TCP/IP thread
+ * never blocks on the USB send while other connections wait.
  */
 #include "usb_net_internal.h"
 
-#include "esp_log.h"
-
 #include "lwip/netif.h"
 #include "lwip/pbuf.h"
-
-#include "freertos/FreeRTOS.h"
-#include "tinyusb_net.h"
-
-static const char *TAG = "USB_NET_DATA";
-
-/*
- * lwIP calls usb_net_transmit() from its TCP/IP thread.  A long timeout
- * would stall the entire lwIP stack.  100 ms is enough for the
- * TinyUSB task to process a deferred send under normal conditions while
- * keeping lwIP responsive — the USB frame interval is 1 ms in Full Speed.
- */
-#define USB_NET_TX_TIMEOUT_MS  100
 
 esp_err_t usb_net_lwip_input(void *netif_handle, void *buffer, size_t len, void *l2_buff)
 {
@@ -36,18 +23,7 @@ esp_err_t usb_net_lwip_input(void *netif_handle, void *buffer, size_t len, void 
 
 esp_err_t usb_net_transmit(void *driver_handle, void *buffer, size_t len)
 {
-    if (!buffer || !len) return ESP_ERR_INVALID_ARG;
-
-    esp_err_t r = tinyusb_net_send_sync(buffer, (uint16_t)len, NULL,
-                                         pdMS_TO_TICKS(USB_NET_TX_TIMEOUT_MS));
-
-    /* ESP_ERR_INVALID_STATE means tud_mounted() == false — the USB cable
-     * was unplugged.  Log it so the disconnect is visible in diagnostics. */
-    if (r == ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(TAG, "TX dropped: USB not mounted");
-    }
-
-    return r;
+    return usb_net_tx_enqueue(buffer, len);
 }
 
 void usb_net_free_rx_buffer(void *driver_handle, void *buffer)

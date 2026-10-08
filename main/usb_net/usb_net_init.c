@@ -166,6 +166,13 @@ static esp_err_t init_tinyusb(void)
     cfg.descriptor.string = s_usb_string_desc;
     cfg.descriptor.string_count = USB_NET_STRING_COUNT;
 
+    /* Keep the TinyUSB task off core 1: the motion task (priority 23) would
+     * starve it mid-slew.  Priority 20 keeps the USB send above lwIP (18) so it
+     * is never starved, but below the motion task so STOP's RMT teardown never
+     * races it. */
+    cfg.task.xCoreID = 0;
+    cfg.task.priority = 20;
+
     err = tinyusb_driver_install(&cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "tinyusb_driver_install: %s", esp_err_to_name(err));
@@ -210,6 +217,10 @@ esp_err_t usb_net_init(void)
     }
 
     esp_netif_action_start(s_netif, NULL, 0, NULL);
+
+    /* Start the dedicated TX task before the host re-enumerates, so lwIP can
+     * hand frames to the queue as soon as the link comes up. */
+    usb_net_tx_init();
 
     /* DHCP server starts with defaults via esp_netif_action_start().
      * esp_netif_dhcps_option(ESP_NETIF_OP_SET) is rejected while the

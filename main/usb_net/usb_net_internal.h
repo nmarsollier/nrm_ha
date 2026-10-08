@@ -23,6 +23,28 @@
 #define USB_NET_DHCP_LEASE_MINUTES 1440
 #define USB_NET_MTU               1500
 
+/* ── TX queue / dedicated sender task ────────────────────────
+ *
+ * usb_net_transmit() runs on lwIP's single TCP/IP thread.  A blocking
+ * tinyusb_net_send_sync() there stalls every other connection.  Frames are
+ * instead copied into a bounded pool and sent by a dedicated task (see
+ * usb_net_tx.c), so lwIP keeps processing while USB is busy.
+ *
+ * When the pool is momentarily full (a large response such as the ~82 KiB
+ * embedded web page bursts through the queue faster than USB Full Speed can
+ * drain it) the enqueue *blocks* up to USB_NET_TX_ENQUEUE_TIMEOUT_MS instead
+ * of dropping the frame.  A drop forces a TCP retransmission and a ~1 s stall;
+ * blocking for the time it takes the sender to free one slot (≈150 µs) is the
+ * flow-control that keeps the queue lossless without holding lwIP hostage.
+ */
+#define USB_NET_TX_POOL_SIZE      16      /* pre-allocated TX slots */
+#define USB_NET_TX_BUFFER_SIZE    1536    /* 14 (Ethernet) + 1500 (MTU) + margin */
+#define USB_NET_TX_TIMEOUT_MS     100     /* per-frame send timeout */
+#define USB_NET_TX_ENQUEUE_TIMEOUT_MS 100 /* max wait for a free TX slot */
+
+void       usb_net_tx_init(void);
+esp_err_t  usb_net_tx_enqueue(const void *buffer, size_t len);
+
 /* ── lwIP / driver helpers ─────────────────────────────────── */
 
 esp_err_t  usb_net_lwip_input(void *netif_handle, void *buffer, size_t len, void *l2_buff);

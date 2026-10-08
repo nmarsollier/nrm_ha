@@ -30,6 +30,11 @@ CONFIG_TINYUSB_DESC_SERIAL_STRING="000001"
 # LWIP: more sockets for multiple HTTP servers + Alpaca
 CONFIG_LWIP_MAX_SOCKETS=32
 
+# LWIP: more active TCP connections — rapid REST/Alpaca polling exhausts the
+# default 16-PCB pool (FIN_WAIT_2/TIME_WAIT), which makes accept() fail and
+# freezes the network.
+CONFIG_LWIP_MAX_ACTIVE_TCP=48
+
 # SNTP: network time sync over the USB link (host NTP + public pools).
 # The lwIP SNTP app is always compiled in this IDF; only the server
 # count needs to match ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE's list.
@@ -43,6 +48,15 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # 100 Hz tick makes vTaskDelay(1ms) resolve to 0 ticks (a no-op) and the
 # motion task busy-spins, starving IDLE and tripping the task watchdog.
 CONFIG_FREERTOS_HZ=1000
+
+# ── Task watchdog: don't monitor the CPU0 idle task ──
+# Under sustained network load (N.I.N.A. polling status while MoveAxis holds
+# the axis) every network task — tcpip, TinyUSB, both httpd servers and
+# usb_net_tx — runs on CPU 0, so the idle task legitimately starves for >5 s.
+# That is high load making progress, not a hang, and monitoring the idle task
+# turns it into a spurious "Task watchdog got triggered" warning/reset.
+# CPU 1 (the motors_motion task, prio 23) stays protected via IDLE1.
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
 
 # ── CPU affinity: all non-motion tasks pinned to CPU 0 ──
 # CPU 1 is reserved exclusively for the motors_motion task (prio 23).
