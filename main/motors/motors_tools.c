@@ -37,7 +37,7 @@ bool motors_status_is_parked(MotorsStatus status) {
 }
 
 /*
- * Tracking string helpers live here so REST and UI layers use the same
+ * Tracking string helpers live here so the protocol and UI layers use the same
  * canonical values as the motors module.
  */
 const char *motors_tracking_to_string(TrackingMode tracking) {

@@ -18,17 +18,6 @@ static const char *TAG = "POWER";
 
 static adc_oneshot_unit_handle_t s_adc_handle;
 
-#ifdef NRM_TEST_MODE
-/* Test/bench override — compiled only under NRM_TEST_MODE. */
-static bool s_debug_force_power = false;
-static bool s_debug_force_value = false;
-
-void power_debug_force(bool force, bool value) {
-    s_debug_force_power = force;
-    s_debug_force_value = value;
-}
-#endif
-
 esp_err_t power_init(void) {
     adc_oneshot_unit_init_cfg_t unit_cfg = {
         .unit_id = POWER_SENSE_ADC_UNIT,
@@ -54,11 +43,6 @@ esp_err_t power_init(void) {
 }
 
 bool power_has_external(void) {
-#ifdef NRM_TEST_MODE
-    if (s_debug_force_power) {
-        return s_debug_force_value;
-    }
-#endif
     if (s_adc_handle == NULL) {
         /* Sensor not initialised — fail safe (block motion). */
         return false;

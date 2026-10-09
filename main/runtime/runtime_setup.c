@@ -5,9 +5,7 @@
 #include "runtime.h"
 
 #include "esp_err.h"
-#include "esp_event.h"
 #include "esp_log.h"
-#include "esp_netif.h"
 #include "nvs_flash.h"
 
 #include "buzzer.h"
@@ -15,15 +13,16 @@
 #include "motors.h"
 #include "mount.h"
 #include "power.h"
-#include "sntp.h"
-#include "usb_net.h"
+#if CONFIG_TINYUSB_CDC_ENABLED
+#include "usb_cdc.h"
+#endif
 
 static const char *TAG = "RUNTIME_SETUP";
 
 /*
  * Business use case: prepare the mount for operation.
  *
- * Objective: bring network, core services, and peripherals online so the
+ * Objective: bring the transports, core services, and peripherals online so the
  * mount starts in a usable state.
  *
  * LED state is managed exclusively by led_update() in the runtime loop —
@@ -38,25 +37,16 @@ void setup_init(void) {
     }
     ESP_ERROR_CHECK(nvs_result);
 
-    /* Network stack bootstrap — required by USB net and the HTTP servers. */
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
     led_init();
     buzzer_init();
 
-    /*
-     * USB Ethernet (ECM/RNDIS) — non-fatal, mount works without USB.
-     * Blocking call with 10 s timeout for host enumeration.
-     */
-    esp_err_t usb_result = usb_net_init();
-    if (usb_result != ESP_OK) {
-        ESP_LOGW(TAG, "USB net init skipped: %s", esp_err_to_name(usb_result));
+#if CONFIG_TINYUSB_CDC_ENABLED
+    /* USB CDC-ACM serial transport — non-fatal, mount works without USB. */
+    esp_err_t cdc_result = usb_cdc_init();
+    if (cdc_result != ESP_OK) {
+        ESP_LOGW(TAG, "USB CDC init skipped: %s", esp_err_to_name(cdc_result));
     }
-
-    /* Background SNTP sync — non-fatal; the client (Alpaca/browser) can also
-     * set the clock if no NTP server is reachable. */
-    sntp_start();
+#endif
 
     mount_init();
 

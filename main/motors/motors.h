@@ -111,16 +111,6 @@ void motors_enter_error_state(void);
  */
 void motors_update_power(bool power_ok);
 
-#ifdef NRM_TEST_MODE
-/*
- * Test/bench hook: inject a latched hardware fault (unrecoverable, only a
- * reboot clears it).  Used by the debug endpoint to reach error conditions a
- * black-box harness cannot trigger over the public API.  Absent from
- * production builds.
- */
-void motors_debug_force_hardware_fault(void);
-#endif
-
 /*
  * Return a snapshot copy of the current `MotorsState`.
  */
@@ -133,6 +123,11 @@ MotorsState motors_current_state(void);
 float motors_get_ra_deg(void);
 
 float motors_get_dec_deg(void);
+
+/* Convert an absolute microstep counter to degrees.  Public so the protocol
+ * layer can derive degrees from a single coherent MotorsState snapshot rather
+ * than re-reading each axis separately. */
+float motors_steps_to_deg(int64_t steps);
 
 /*
  * Stop both axes and return to READY.
@@ -166,8 +161,7 @@ MotorResultCode motors_start_tracking(TrackingMode mode);
 /*
  * Move one or both axes continuously at the given rates in deg/s.
  * Positive = forward, negative = reverse, zero = stop that axis.
- * Both zero is equivalent to STOP.  Used by Alpaca MoveAxis and
- * manual controls (joystick).
+ * Both zero is equivalent to STOP.  Used by MoveAxis and manual controls.
  * Returns MOTOR_ERR_HARDWARE_ERROR if motors are in ERROR state.
  */
 MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed);

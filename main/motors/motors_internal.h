@@ -10,7 +10,7 @@
 /* =========================================================================
  * Motion command queue — thread-safe communication with the motion task.
  *
- * External callers (REST handlers, button poller) send MotionCommand
+ * External callers (protocol handlers, button poller) send MotionCommand
  * structs to the queue.  The motors task is the sole consumer and the
  * sole writer of motors_state position fields.
  *
@@ -139,10 +139,9 @@ void motors_hw_set_direction_dec(MotorDirection direction);
  * for zero-accumulation-error precision over arbitrarily long sessions.
  * ========================================================================= */
 
-/* Convert between steps and degrees using the active microstep resolution. */
-static inline float motors_steps_to_deg(int64_t steps) {
-    return (float)steps * motors_get_deg_per_microstep();
-}
+/* Convert between steps and degrees using the active microstep resolution.
+ * Defined in motors_current_state.c; declared public in motors.h. */
+float motors_steps_to_deg(int64_t steps);
 
 static inline int64_t motors_deg_to_steps(float degrees) {
     float deg_per_step = motors_get_deg_per_microstep();

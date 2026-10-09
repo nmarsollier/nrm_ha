@@ -18,12 +18,3 @@ esp_err_t power_init(void);
 
 /* True when the external 5.5V rail (12V switch on) is present. */
 bool power_has_external(void);
-
-#ifdef NRM_TEST_MODE
-/*
- * Test/bench hook: force the external-power reading to `value`.
- * When `force` is false the sensor read falls back to the ADC.
- * Compiled only under NRM_TEST_MODE; absent from production builds.
- */
-void power_debug_force(bool force, bool value);
-#endif

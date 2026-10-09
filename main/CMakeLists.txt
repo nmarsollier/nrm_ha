@@ -1,10 +1,29 @@
+# CDC-ACM protocol sources — compiled when the TinyUSB CDC class is enabled.
+set(PROTO_CDC_SRCS "")
+if(CONFIG_TINYUSB_CDC_ENABLED)
+        set(PROTO_CDC_SRCS
+        "usb_cdc/usb_cdc_init.c"
+        "usb_cdc/usb_cdc_rx.c"
+        "usb_cdc/usb_cdc_tx.c"
+
+        "proto/proto_init.c"
+        "proto/proto_frame.c"
+        "proto/proto_json.c"
+        "proto/proto_dispatch.c"
+        "proto/proto_session.c"
+        "proto/proto_capabilities.c"
+        "proto/proto_state.c"
+        "proto/proto_config.c"
+        "proto/proto_control.c"
+        "proto/proto_action.c"
+        )
+endif()
+
 idf_component_register(
         SRCS
         "main.c"
 
         "power/power.c"
-
-        "debug/debug_rest.c"
 
         "led/led_init.c"
         "led/led_set_state.c"
@@ -14,11 +33,6 @@ idf_component_register(
         "buzzer/buzzer_init.c"
         "buzzer/buzzer_play.c"
         "buzzer/buzzer_update.c"
-
-        "usb_net/usb_net_init.c"
-        "usb_net/usb_net_data.c"
-        "usb_net/usb_net_tx.c"
-        "usb_net/usb_net_descriptors.c"
 
         "motors/motors_current_state.c"
         "motors/motors_enter_error_state.c"
@@ -64,166 +78,28 @@ idf_component_register(
         "mount/mount_get_visible_status_data.c"
         "mount/mount_pulse_guide.c"
 
-        "rest/rest_server_start.c"
-        "rest/rest_http_utils.c"
-        "rest/rest_json_utils.c"
-        "rest/rest_utils.c"
-        "rest/rest_slew_to_coordinates_handler.c"
-        "rest/rest_home_handler.c"
-        "rest/rest_limits_handler.c"
-        "rest/rest_move_axis_handler.c"
-        "rest/rest_move_axis_speed_handler.c"
-        "rest/rest_park_handler.c"
-        "rest/rest_reset_handler.c"
-        "rest/rest_html_handler.c"
-        "rest/rest_settings_handler.c"
-        "rest/rest_status_handler.c"
-        "rest/rest_stop_handler.c"
-        "rest/rest_axis_utils.c"
-        "rest/rest_tracking_handler.c"
-        "rest/rest_unpark_handler.c"
-
-        "rest_alpaca/rest_alpaca_abortslew_handler.c"
-        "rest_alpaca/rest_alpaca_alignmentmode_handler.c"
-        "rest_alpaca/rest_alpaca_altitude_handler.c"
-        "rest_alpaca/rest_alpaca_aperturearea_handler.c"
-        "rest_alpaca/rest_alpaca_aperturediameter_handler.c"
-        "rest_alpaca/rest_alpaca_athome_handler.c"
-        "rest_alpaca/rest_alpaca_atpark_handler.c"
-        "rest_alpaca/rest_alpaca_axisrates_handler.c"
-        "rest_alpaca/rest_alpaca_azimuth_handler.c"
-
-        "alpaca_bridge/alpaca_bridge_altitude.c"
-        "alpaca_bridge/alpaca_bridge_device_state.c"
-        "alpaca_bridge/alpaca_bridge_mount_state.c"
-        "alpaca_bridge/alpaca_bridge_pier_side.c"
-        "alpaca_bridge/alpaca_bridge_destination_pier.c"
-        "alpaca_bridge/alpaca_bridge_sidereal_time.c"
-        "alpaca_bridge/alpaca_bridge_site.c"
-        "alpaca_bridge/alpaca_bridge_slew_to_coordinates.c"
-        "alpaca_bridge/alpaca_bridge_state.c"
-        "alpaca_bridge/alpaca_bridge_target.c"
-        "alpaca_bridge/alpaca_bridge_tracking_rate.c"
-        "alpaca_bridge/alpaca_bridge_utc_date.c"
-        "alpaca_bridge/alpaca_bridge_guide_rate.c"
-        "rest_alpaca/rest_alpaca_canfindhome_handler.c"
-        "rest_alpaca/rest_alpaca_canmoveaxis_handler.c"
-        "rest_alpaca/rest_alpaca_canpark_handler.c"
-        "rest_alpaca/rest_alpaca_canpulseguide_handler.c"
-        "rest_alpaca/rest_alpaca_cansetdeclinationrate_handler.c"
-        "rest_alpaca/rest_alpaca_cansetguiderates_handler.c"
-        "rest_alpaca/rest_alpaca_cansetpark_handler.c"
-        "rest_alpaca/rest_alpaca_cansetpierside_handler.c"
-        "rest_alpaca/rest_alpaca_cansetrightascensionrate_handler.c"
-        "rest_alpaca/rest_alpaca_cansettracking_handler.c"
-        "rest_alpaca/rest_alpaca_canslew_handler.c"
-        "rest_alpaca/rest_alpaca_canslewaltaz_handler.c"
-        "rest_alpaca/rest_alpaca_canslewaltazasync_handler.c"
-        "rest_alpaca/rest_alpaca_canslewasync_handler.c"
-        "rest_alpaca/rest_alpaca_cansync_handler.c"
-        "rest_alpaca/rest_alpaca_cansyncaltaz_handler.c"
-        "rest_alpaca/rest_alpaca_canunpark_handler.c"
-        "rest_alpaca/rest_alpaca_connected_handler.c"
-        "rest_alpaca/rest_alpaca_connected_put_handler.c"
-        "rest_alpaca/rest_alpaca_connecting_handler.c"
-        "rest_alpaca/rest_alpaca_declination_handler.c"
-        "rest_alpaca/rest_alpaca_devicestate_handler.c"
-        "rest_alpaca/rest_alpaca_declinationrate_handler.c"
-        "rest_alpaca/rest_alpaca_declinationrate_put_handler.c"
-        "rest_alpaca/rest_alpaca_description_handler.c"
-        "rest_alpaca/rest_alpaca_destinationsideofpier_handler.c"
-        "rest_alpaca/rest_alpaca_doesrefraction_handler.c"
-        "rest_alpaca/rest_alpaca_driverinfo_handler.c"
-        "rest_alpaca/rest_alpaca_driverversion_handler.c"
-        "rest_alpaca/rest_alpaca_equatorialsystem_handler.c"
-        "rest_alpaca/rest_alpaca_findhome_handler.c"
-        "rest_alpaca/rest_alpaca_focallength_handler.c"
-        "rest_alpaca/rest_alpaca_guideratedec_handler.c"
-        "rest_alpaca/rest_alpaca_guideratedec_put_handler.c"
-        "rest_alpaca/rest_alpaca_guideratera_handler.c"
-        "rest_alpaca/rest_alpaca_guideratera_put_handler.c"
-        "rest_alpaca/rest_alpaca_helpers.c"
-        "rest_alpaca/rest_alpaca_interfaceversion_handler.c"
-        "rest_alpaca/rest_alpaca_ispulseguiding_handler.c"
-        "rest_alpaca/rest_alpaca_management_apiversions_handler.c"
-        "rest_alpaca/rest_alpaca_management_configureddevices_handler.c"
-        "rest_alpaca/rest_alpaca_management_description_handler.c"
-        "rest_alpaca/rest_alpaca_moveaxis_handler.c"
-        "rest_alpaca/rest_alpaca_name_handler.c"
-        "rest_alpaca/rest_alpaca_park_handler.c"
-        "rest_alpaca/rest_alpaca_pulseguide_handler.c"
-        "rest_alpaca/rest_alpaca_rightascension_handler.c"
-        "rest_alpaca/rest_alpaca_rightascensionrate_handler.c"
-        "rest_alpaca/rest_alpaca_rightascensionrate_put_handler.c"
-        "rest_alpaca/rest_alpaca_server.c"
-        "rest_alpaca/rest_alpaca_setpark_handler.c"
-        "rest_alpaca/rest_alpaca_sideofpier_handler.c"
-        "rest_alpaca/rest_alpaca_sideofpier_put_handler.c"
-        "rest_alpaca/rest_alpaca_siderealtime_handler.c"
-        "rest_alpaca/rest_alpaca_siteelevation_handler.c"
-        "rest_alpaca/rest_alpaca_siteelevation_put_handler.c"
-        "rest_alpaca/rest_alpaca_sitelatitude_handler.c"
-        "rest_alpaca/rest_alpaca_sitelatitude_put_handler.c"
-        "rest_alpaca/rest_alpaca_sitelongitude_handler.c"
-        "rest_alpaca/rest_alpaca_sitelongitude_put_handler.c"
-        "rest_alpaca/rest_alpaca_slewing_handler.c"
-        "rest_alpaca/rest_alpaca_slewsettletime_handler.c"
-        "rest_alpaca/rest_alpaca_slewsettletime_put_handler.c"
-        "rest_alpaca/rest_alpaca_slewtoaltazasync_handler.c"
-        "rest_alpaca/rest_alpaca_slewtocoordinatesasync_handler.c"
-        "rest_alpaca/rest_alpaca_slewtotargetasync_handler.c"
-        "rest_alpaca/rest_alpaca_supportedactions_handler.c"
-        "rest_alpaca/rest_alpaca_synctocoordinates_handler.c"
-        "rest_alpaca/rest_alpaca_synctoaltaz_handler.c"
-        "rest_alpaca/rest_alpaca_synctotarget_handler.c"
-        "rest_alpaca/rest_alpaca_targetdec_handler.c"
-        "rest_alpaca/rest_alpaca_targetdec_put_handler.c"
-        "rest_alpaca/rest_alpaca_targetra_handler.c"
-        "rest_alpaca/rest_alpaca_targetra_put_handler.c"
-        "rest_alpaca/rest_alpaca_tracking_handler.c"
-        "rest_alpaca/rest_alpaca_tracking_put_handler.c"
-        "rest_alpaca/rest_alpaca_trackingrate_handler.c"
-        "rest_alpaca/rest_alpaca_trackingrate_put_handler.c"
-        "rest_alpaca/rest_alpaca_trackingrates_handler.c"
-        "rest_alpaca/rest_alpaca_unpark_handler.c"
-        "rest_alpaca/rest_alpaca_utcdate_handler.c"
-        "rest_alpaca/rest_alpaca_utcdate_put_handler.c"
-
         "runtime/runtime_loop.c"
         "runtime/runtime_setup.c"
-
-        "sntp/sntp_start.c"
 
         "utils/number_utils.c"
         "utils/string_utils.c"
 
-        "udp_alpaca/udp_alpaca.c"
+        ${PROTO_CDC_SRCS}
 
         INCLUDE_DIRS
         "."
-        "alpaca_bridge"
         "buzzer"
         "config"
-        "debug"
         "led"
         "mount"
-        "rest"
-        "rest_alpaca"
         "motors"
         "power"
         "runtime"
-        "sntp"
         "utils"
-        "udp_alpaca"
-        "usb_net"
-
-        EMBED_TXTFILES
-        "../www/dist/index.html"
+        "usb_cdc"
+        "proto"
 
         REQUIRES
-        esp_http_server
-        esp_netif
-        esp_event
         esp_timer
         nvs_flash
         esp_driver_gpio
@@ -231,11 +107,3 @@ idf_component_register(
         esp_driver_rmt
         esp_adc
 )
-
-# Test/bench build mode — opt-in, off by default:
-#   idf.py -DNRM_TEST_MODE=1 build
-# Injecting NRM_TEST_MODE compiles the debug REST surface (fake power, fault
-# injection) and the test-only logging.  Production builds leave it undefined.
-if(NRM_TEST_MODE)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE NRM_TEST_MODE=1)
-endif()

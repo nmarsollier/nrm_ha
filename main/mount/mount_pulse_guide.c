@@ -72,7 +72,7 @@ MountResult mount_pulse_guide(GuideDirection direction, uint32_t duration_ms) {
     return motors_result_code_error_result(rc);
 }
 
-/* ── Guide rate storage (deg/s) — per axis for Alpaca compliance ── */
+/* ── Guide rate storage (deg/s) — per axis ── */
 
 static float s_guide_rate_ra  = TRACKING_SPEED_SIDEREAL_DPS * 0.5f;
 static float s_guide_rate_dec = TRACKING_SPEED_SIDEREAL_DPS * 0.5f;

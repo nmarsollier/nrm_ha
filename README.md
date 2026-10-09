@@ -1,6 +1,8 @@
 # NRM-HA — Harmonic Drive Equatorial Mount
 
-Equatorial mount with harmonic drives for astrophotography, controlled by an ESP32-S3, compatible with N.I.N.A. (Alpaca / ASCOM) and its own REST API.
+Equatorial mount with harmonic drives for astrophotography, controlled by an
+ESP32-S3 over a USB CDC-ACM serial protocol. A desktop gateway (Go) translates
+that protocol to Alpaca/ASCOM for N.I.N.A. and PHD2.
 
 ## Hardware
 
@@ -88,107 +90,51 @@ Terminals in order: `DC+, GND, AM-, AM+, EN-, EN+, DR-, DR+, PU-, PU+`.
 ## Architecture
 
 ```
-N.I.N.A. / ASCOM client
-Alpaca REST API  (port 11111)  ◄── also: UDP discovery on 32227
-REST API  (port 80)  ── serves embedded SPA at /
-  Mount  (orchestration, coordinates, settings)
-  Motors  (move / track, STEP/DIR GPIO, RMT pulse generation)
-
-USB Net  (CDC-NCM gadget, 192.168.7.1, DHCP server)
-Power  (GPIO 1 ADC: 12V rail sense — blocks motion when unpowered)
-LED  (GPIO 42 PWM: dim / bright / beacon)
-Buzzer  (GPIO 41, 2 kHz PWM beeps: boot / motion start / motion end)
-Runtime  (init sequence + periodic loop)
+Desktop gateway (Go) — Alpaca + UI
+  └─ USB CDC-ACM serial protocol
+       └─ ESP32-S3: Proto → Mount → Motors → STEP/DIR (RMT)
 ```
 
-## USB Ethernet (CDC-NCM)
+- **usb_cdc** (`main/usb_cdc/`) — CDC-ACM transport (TinyUSB): init, RX task, TX.
+- **proto** (`main/proto/`) — the serial protocol: framing, dispatch, one handler per message family, session (`boot_id`, `config_rev`, idempotency).
+- **mount** (`main/mount/`) — orchestration: state, coordinates, settings.
+- **motors** (`main/motors/`) — motion: STEP/DIR GPIO, RMT pulse generation.
+- **power** (`main/power/`) — GPIO 1 ADC: 12 V rail sense (blocks motion when unpowered).
+- **led** (`main/led/`) — GPIO 42 PWM: dim / bright / beacon.
+- **buzzer** (`main/buzzer/`) — GPIO 41, 2 kHz PWM beeps.
+- **runtime** (`main/runtime/`) — init sequence + periodic loop.
 
-The ESP32-S3 acts as a USB Ethernet gadget via its native USB-OTG peripheral. Connect the mount to a laptop with a USB-C cable and it appears as a network adapter — the mount's only network interface.
+## Protocolo CDC-ACM (serial)
 
-| Property        | Value                    |
-|-----------------|--------------------------|
-| Protocol        | CDC-NCM (Linux/macOS/Windows) |
-| ESP32-S3 IP     | `192.168.7.1` (static)   |
-| Host IP         | `192.168.7.2` – `192.168.7.10` (DHCP) |
-| REST API        | `http://192.168.7.1/api/status` |
-| Alpaca API      | `http://192.168.7.1:11111` |
-| UDP Discovery   | `192.168.7.1:32227`      |
+The ESP32-S3 speaks a small, deterministic serial protocol over USB CDC-ACM.
+The desktop gateway (Go) is the only client and translates the protocol to
+Alpaca/REST/UI. The ESP is the authority over the mount: it publishes a coherent
+state and executes a small set of operations.
 
-USB Ethernet is the mount's only network interface — all servers bind to `INADDR_ANY`.
+### Message families
 
-### OS-specific notes
+| Family | Role |
+|---|---|
+| `capabilities` | identity + static capabilities (read once on connect) |
+| `state` | coherent snapshot of the whole mount (on-demand read) |
+| `config` | read/edit persistent config (site, time, guide rates) |
+| `control` | desired continuous-motion state (tracking + manual rates) |
+| `action` | operation with a start and end: `stop`, `goto`, `guide`, `home`, `park`, `unpark` (and `sync`, deferred) |
 
-- **Windows 10/11**: CDC-NCM is supported natively; the device appears as a USB Ethernet adapter.
-- **macOS**: CDC-NCM is supported natively (AppleUSBNCM); the device appears as "Mount USB Ethernet".
-- **Linux**: CDC-NCM is handled by the `cdc_ncm` kernel module (loaded automatically).
+**Framing**: frame = `[u32 little-endian length][JSON UTF-8]` (no app CRC — USB is
+reliable). ~2048 B max per frame, preallocated buffers.
 
-## API Reference
+The full protocol spec (format, per-family semantics, design decisions) lives in
+[`main/proto/README.md`](main/proto/README.md).
 
-The mount exposes a REST API on port 80, the ASCOM Alpaca interface on port
-11111, and UDP discovery on 32227. Every REST command returns JSON.
+### Tests
 
-### Response contract
+`test/proto/` drives the mount through the serial protocol (pytest).
 
-| Outcome   | HTTP | Body                                |
-|-----------|------|-------------------------------------|
-| Success   | 200  | `{"ok":true,"message":"..."}`       |
-| Rejected  | 409  | `{"ok":false,"message":"..."}`      |
-| Malformed | 400  | `{"ok":false,"message":"..."}`      |
-
-### Endpoints
-
-| Method | Path                      | Body                                                                                          | Purpose |
-|--------|---------------------------|-----------------------------------------------------------------------------------------------|---------|
-| GET    | `/`                       | —                                                                                             | Embedded web UI |
-| GET    | `/api/status`             | —                                                                                             | Full status snapshot |
-| POST   | `/api/tracking`           | `{"tracking":"none\|sidereal\|lunar\|solar"}`                                                 | Set tracking mode |
-| POST   | `/api/move-axis`          | `{"axis":"ra\|dec","degrees":<deg>,"speed":1..4}`                                             | Relative single-axis move |
-| POST   | `/api/move-axis-speed`    | `{"ra_rate":<deg/s>,"dec_rate":<deg/s>}`                                                      | Continuous move; `0` stops an axis |
-| POST   | `/api/slew-to-coordinates`| `{"ra":<hours>,"dec":<deg>,"speed":1..4}`                                                     | Slew to equatorial coordinates |
-| POST   | `/api/stop`               | —                                                                                             | Stop all motion |
-| POST   | `/api/home`               | —                                                                                             | Move to home position |
-| POST   | `/api/park`               | —                                                                                             | Move to parked position |
-| POST   | `/api/unpark`             | —                                                                                             | Exit parked state |
-| POST   | `/api/reset`              | —                                                                                             | Reboot the firmware |
-| POST   | `/api/settings`           | `{"lat":<deg>,"lon":<deg>,"elevation":<m>,"time":"<ISO8601>"}`                                | Update site settings (`time` optional) |
-| POST   | `/api/limits`             | `{"action":"set_home\|set_ra_left\|set_ra_right\|set_dec_left\|set_dec_right"}`               | Set a limit/home from the current position |
-
-Speed profiles: `1` = 1°/s, `2` = 3°/s, `3` = 4.5°/s, `4` = 6°/s.
-
-### Status snapshot — `GET /api/status`
-
-```json
-{
-  "status": "ready | slewing | tracking | parked | error",
-  "tracking": "none | sidereal | lunar | solar",
-  "power": true,
-  "ra": "HH:MM:SS.ss",
-  "dec": "±DD:MM:SS.ss",
-  "lst": "HH:MM:SS.ss",
-  "pier_side": "East | West",
-  "time": "2026-09-25T12:00:00Z",
-  "settings": { "lat": 0.0, "lon": 0.0, "elevation": 0 },
-  "is_home": true,
-  "debug": {
-    "ra_axis_deg": 0.0,
-    "dec_axis_deg": 0.0,
-    "ra_steps": 0,
-    "dec_steps": 0,
-    "ra_speed": 0.0,
-    "dec_speed": 0.0,
-    "guiding": false,
-    "microsteps": 64,
-    "limits": { "ra_min": -95.0, "ra_max": 100.0, "dec_min": -150.0, "dec_max": 150.0 },
-    "uptime_s": 1234
-  }
-}
+```sh
+make flash        # flash the firmware
+make test-cdc     # run the serial protocol suite (auto-detects the CDC port)
 ```
-
-### ASCOM Alpaca
-
-The mount also implements the ASCOM Alpaca protocol on port 11111 (for
-N.I.N.A. and other ASCOM clients) and answers UDP discovery on 32227. URLs
-are listed in the USB Ethernet section above.
 
 ## Setup
 
@@ -200,21 +146,16 @@ are listed in the USB Ethernet section above.
 | Python  | 3.10+ (venv) | Required by ESP-IDF tools     |
 | CMake   | 4.x          | Build system                  |
 | Ninja   | 1.x          | Build executor                |
-| Node.js | 22+          | Web UI build (`www/build.js`) |
-| npm     | 9+           | UI dependencies (Alpine.js)   |
 
 ### macOS install
 
 ```sh
-# ESP-IDF v6.0.1
 mkdir -p ~/.espressif
 git clone --depth 1 --branch v6.0.1 https://github.com/espressif/esp-idf.git ~/.espressif/v6.0.1/esp-idf
 export IDF_TOOLS_PATH="$HOME/.espressif/tools"
 cd ~/.espressif/v6.0.1/esp-idf && bash install.sh esp32s3
 
-# build tools + Node.js
-brew install cmake ninja node
-cd www && npm install
+brew install cmake ninja
 ```
 
 Add to `~/.zshrc` (adjust paths to match your system):
@@ -234,21 +175,10 @@ idf.py set-target esp32s3
 idf.py build flash monitor
 ```
 
-### Web UI
-
-The SPA lives in `www/src/` (HTML, CSS, JS). Rebuild the embedded UI with:
-
-```sh
-node www/build.js
-idf.py build
-```
-
-The resulting `www/dist/index.html` is embedded into the firmware via `EMBED_TXTFILES`.
-
 ## Project conventions
 
 - Language: **C** (C23), snake_case
 - One `.c` file per use case within each module
 - Public API: `module.h` — Internal API: `module_internal.h`
-- Function prefix matches module name (`motors_`, `mount_`, `alpaca_bridge_`, …)
-- Dependencies: REST → Mount → Motors (no reverse deps)
+- Function prefix matches module name (`motors_`, `mount_`, …)
+- Dependencies: proto → mount → motors (no reverse deps)

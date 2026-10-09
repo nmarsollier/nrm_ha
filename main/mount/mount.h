@@ -20,7 +20,7 @@ typedef struct {
 } MountResult;
 
 /*
- * Astronomical guide directions — Alpaca PulseGuide input.
+ * Astronomical guide directions — serial protocol `guide` input.
  * Mapped to physical axis signs inside the mount layer.
  */
 typedef enum {
@@ -91,7 +91,7 @@ void mount_init(void);
 /*
  * mount_get_visible_status_data
  * -----------------------------
- * Return the current status view that the REST/API layer and UI consume.
+ * Return the current status view that the serial protocol and its clients consume.
  * The structure contains motors-derived status, current tracking mode,
  * RA/DEC coordinates, LST, pier side, and persisted settings.
  */
@@ -154,6 +154,9 @@ MountResult mount_settings_update(MountSettings settings);
 
 MountResult mount_set_system_time(const char *iso_time);
 
+/* True once a valid system time has been set — gates GOTO. */
+bool mount_time_is_valid(void);
+
 /*
  * Move the mount to its home position.
  */
@@ -177,13 +180,13 @@ MountResult mount_move_axis_dec(float degrees, int speed_rate);
  * ------------------------
  * Move one or both axes continuously at the given rates in deg/s until
  * a subsequent call with both rates = 0 (or STOP / PARK) halts motion.
- * Positive = forward, negative = reverse.  Used by Alpaca MoveAxis and
- * manual centering controls.
+ * Positive = forward, negative = reverse.  Used by MoveAxis and manual
+ * centering controls.
  */
 MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed);
 
 /* Move a single axis (0 = RA, 1 = DEC) at `rate` deg/s, preserving the
- * other axis's current rate.  Used by Alpaca MoveAxis. */
+ * other axis's current rate. */
 MountResult mount_set_move_axis_rate(int axis, float rate);
 
 /* Discard saved tracking state when MoveAxis is aborted externally. */
@@ -213,8 +216,7 @@ MountResult mount_pulse_guide(GuideDirection direction, uint32_t duration_ms);
  * mount_set_guide_rate / mount_get_guide_rate
  * -------------------------------------------
  * Store or retrieve the guide rate per axis in degrees/second.
- * Kept separate because Alpaca exposes GuideRateRA and GuideRateDEC
- * as independent properties.
+ * Kept separate to expose independent RA and DEC guide-rate properties.
  */
 void mount_set_guide_rate_ra(float rate_dps);
 void mount_set_guide_rate_dec(float rate_dps);

@@ -88,7 +88,3 @@ cmake-build-release/
 __pycache__/
 *.pyc
 .pytest_cache/
-
-# Compiled frontend (generated from www/src by www/build.js)
-www/dist/
-www/node_modules/

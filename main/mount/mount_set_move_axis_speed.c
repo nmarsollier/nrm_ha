@@ -32,21 +32,24 @@ MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed) {
     if (s.status == MOTORS_STATUS_TRACKING && s.tracking != TRACKING_NONE) {
         /* Stop tracking first.  mount_stop() calls mount_move_axis_reset(),
          * which wipes both the saved tracking mode and the MoveAxis rate
-         * cache — restore both so a later per-axis MoveAxis keeps the rate
-         * of the axis not being touched. */
+         * cache — remember the tracking mode so a later full stop restores it. */
         TrackingMode saved = s.tracking;
         mount_stop();
         s_saved_tracking = saved;
-        s_ra_rate = ra_speed;
-        s_dec_rate = dec_speed;
     }
+
+    /* Keep the per-axis rate cache in sync on every non-stop command so a later
+     * single-axis change (mount_set_move_axis_rate) preserves the untouched
+     * axis.  Skipping this made "stop one axis" stop both axes. */
+    s_ra_rate = ra_speed;
+    s_dec_rate = dec_speed;
 
     MotorResultCode rc = motors_set_move_axis_speed(ra_speed, dec_speed);
     return motors_result_code_error_result(rc);
 }
 
 /*
- * Move a single Alpaca axis (0 = RA, 1 = DEC) continuously at `rate` deg/s,
+ * Move a single axis (0 = RA, 1 = DEC) continuously at `rate` deg/s,
  * preserving the other axis's current rate.  Clamps to the safe slew ceiling.
  */
 MountResult mount_set_move_axis_rate(int axis, float rate) {

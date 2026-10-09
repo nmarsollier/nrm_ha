@@ -1,28 +1,18 @@
 # NRM-HA — test suite runner
 #
-#   make test           runs both suites (Alpaca + REST)
-#   make test-alpaca    Alpaca only (port 11111)
-#   make test-rest      REST only (port 80)
-#   make flash          flash in TEST MODE (enables the debug seam)
+#   make flash         flash the firmware
+#   make test-cdc      serial protocol (CDC-ACM)
 
-HOST ?= 192.168.7.1
-PORT ?= /dev/cu.usbserial-1410
+PORT   ?= /dev/cu.usbserial-1410      # USB-Serial/JTAG (flash/monitor)
+SERIAL ?=                               # CDC-ACM port — auto-detected when empty
 
-.PHONY: test test-alpaca test-rest flash
+.PHONY: flash test-cdc
 
-test: test-alpaca test-rest
-
-test-alpaca:
-	@echo "== Alpaca =="
-	@cd alpaca && python3 -m pytest -q
-
-test-rest:
-	@echo "== REST validation =="
-	@cd api && python3 test_blackbox.py $(HOST)
-	@echo "== REST state machine (requires TEST MODE) =="
-	@cd api && python3 -m pytest test_state_machine.py -q
-
-# Flash the board in TEST MODE: compiles the debug seam (/api/debug/*) that the
-# REST state machine uses to reach the ERROR state.
+# Flash the firmware.
 flash:
-	cd .. && source ~/.espressif/v6.0.1/esp-idf/export.sh && idf.py -DNRM_TEST_MODE=1 -p $(PORT) flash
+	cd .. && source ~/.espressif/v6.0.1/esp-idf/export.sh && idf.py -p $(PORT) flash
+
+# Serial protocol suite.
+test-cdc:
+	@echo "== Serial protocol (CDC-ACM) =="
+	@cd proto && NRM_SERIAL=$(SERIAL) python3 -m pytest -q

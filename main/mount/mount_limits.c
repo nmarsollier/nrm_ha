@@ -1,6 +1,6 @@
 /* Mount - mount_limits.c
  *
- * Purpose: bridge the REST API to the motors limits subsystem.
+ * Purpose: bridge the serial protocol to the motors limits subsystem.
  *
  * Validates mount state (rejects if motors are in ERROR) and maps
  * action strings to the corresponding motors_limits setters.

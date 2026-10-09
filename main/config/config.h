@@ -16,7 +16,7 @@
  * Mount identity.
  * ========================================================================= */
 
-/* Mount model identifier — reported in Alpaca discovery / identification. */
+/* Mount model identifier — reported in the serial protocol `capabilities`. */
 #define MOUNT_NAME "NRM-HA"
 
 /* =========================================================================

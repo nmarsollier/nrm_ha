@@ -122,3 +122,7 @@ MountResult mount_set_system_time(const char *iso_time) {
     mount_time_valid = true;
     return mount_result_ok();
 }
+
+bool mount_time_is_valid(void) {
+    return mount_time_valid;
+}

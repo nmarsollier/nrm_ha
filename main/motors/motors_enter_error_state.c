@@ -28,12 +28,6 @@ void motors_enter_hardware_fault(void) {
     motors_enter_error_state();
 }
 
-#ifdef NRM_TEST_MODE
-void motors_debug_force_hardware_fault(void) {
-    motors_enter_hardware_fault();
-}
-#endif
-
 bool motors_has_hardware_fault(void) {
     return s_hardware_fault;
 }

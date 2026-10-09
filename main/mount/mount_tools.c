@@ -35,7 +35,7 @@ MountResult mount_result_error(const char *message) {
 /*
  * Business use case: normalize mount command responses.
  *
- * Objective: provide a uniform success/error contract for REST and UI
+ * Objective: provide a uniform success/error contract for the protocol and UI
  * clients.
  */
 MountResult mount_result_ok() {

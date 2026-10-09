@@ -2,7 +2,7 @@
  *
  * Purpose: request continuous single-axis speed motion.
  * Positive rate = forward, negative = reverse, zero = stop that axis.
- * Used by Alpaca MoveAxis, joystick, and guiding.
+ * Used by MoveAxis, joystick, and guiding.
  *
  * Speeds are clamped to [-MOTORS_MAX_SLEW_SPEED_DPS, +MOTORS_MAX_SLEW_SPEED_DPS].
  */

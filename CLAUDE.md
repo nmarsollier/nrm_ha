@@ -2,6 +2,17 @@
 
 Mantener este archivo en formato simple, para que pueda leerse y editarse rapidamente
 
+## Proyecto hermano (gateway Go)
+
+Este firmware se comunica por USB CDC-ACM con una app de escritorio Go que expone
+Alpaca/UI. Su código vive en **otro repo local**:
+
+- **`~/Dev/nrm_ha_go`** — gateway Go (módulo `github.com/nmarsollier/nrm_ha_go`).
+  Documentación en su `README.md` y `CLAUDE.md`.
+
+Cuando se necesite buscar referencias de código del gateway, leer su protocolo de
+consumo o consultar cómo se implementa el lado Alpaca/UI, mirar ahí.
+
 ## Definicion del proyecto
 
 - Logica para manejar montura ecuatorial con harmonic drives para astrofotografia
@@ -119,19 +130,18 @@ Los pines ALARM no se conectan en esta revision.
 Capas del sistema, de afuera hacia adentro:
 
 ```
-Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STEP/DIR (hardware)
+App de escritorio Go (Alpaca/UI) → USB CDC-ACM → Proto → Mount (orquestacion) → Motors → STEP/DIR (hardware)
 ```
 
-- **www/** — UI Web embebida programada con Alpine.js. Compila con `node www/build.js`, genera `www/dist/`.
-- **REST API** (`main/rest/`) — Expone endpoints HTTP para control de la montura.
+- **usb_cdc** (`main/usb_cdc/`) — Transporte USB CDC-ACM via TinyUSB: init, RX task, TX.
+- **proto** (`main/proto/`) — Protocolo serial: framing, dispatch, handlers por familia, sesion.
 - **Mount** (`main/mount/`) — Orquestacion logica del montaje: estado, coordenadas, sincronizacion.
 - **Runtime** (`main/runtime/`) — Inicializacion y ciclo de vida del sistema.
 - **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP.
 - **LED** (`main/led/`) — Control PWM del LED externo en GPIO 42. Estados: tenue (normal), brillante (slewing), respiracion (error).
 - **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 41 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
 - **Power** (`main/power/`) — Sensor de energia externa (ADC en GPIO 1). Bloquea el movimiento cuando la montura esta solo con USB (12V apagado).
-- **USB Net** (`main/usb_net/`) — Interfaz de red USB Ethernet via TinyUSB en modo NCM.
-- **Tools** (`main/tools/`) — Utilidades transversales (parser, validacion).
+- **Utils** (`main/utils/`) — Utilidades transversales (parser, validacion).
 
 ## Reglas generales
 
@@ -165,6 +175,6 @@ Cliente Web (Alpine.js) → REST API → Mount (orquestacion) → Motors → STE
 
 ## Relaciones entre modulos (dependencias)
 
-- USB Net depende de TinyUSB (componente gestionado `espressif/esp_tinyusb`) y esp_netif
-- REST API y Alpaca se enlazan a INADDR_ANY, accesibles por USB Net
+- usb_cdc depende de TinyUSB (componente gestionado `espressif/esp_tinyusb`)
+- proto depende de usb_cdc (transporte) y de mount/motors (estado y comandos)
 - Motors es autocontenido: controla GPIOs DIR y RMT para STEP
