@@ -3,6 +3,7 @@ import time
 
 import pytest
 
+from client import DeviceError
 from conftest import axis_position, wait_not_moving, wait_slewing
 
 
@@ -19,6 +20,28 @@ def test_move_axis_constant_speed(proto):
     proto.control(manual_ra_dps=0.0)
     wait_not_moving(proto)
     assert proto.state()["state"] != "slewing"
+
+
+def test_rejected_rate_not_remembered(proto):
+    """A manual rate rejected while parked must not leak into a later move.
+
+    Regression: the firmware cached the rate before motors accepted it, so a
+    rejected RA order left s_ra_rate set and a later single-axis DEC move
+    replayed it (RA=1, DEC=1).  A rejected order must change nothing.
+    """
+    proto.action("park")
+    with pytest.raises(DeviceError):
+        proto.control(manual_ra_dps=1.0)
+    proto.action("unpark")
+
+    # Request only DEC; the rejected RA rate must not reappear.
+    proto.control(manual_dec_dps=1.0)
+    wait_slewing(proto)
+    st = proto.state()
+    assert st["ra_speed_dps"] == 0.0, f"rejected RA rate leaked: {st['ra_speed_dps']}"
+    assert st["dec_speed_dps"] != 0.0
+    proto.control(manual_dec_dps=0.0)
+    wait_not_moving(proto)
 
 
 def test_move_axis_reverse(proto):

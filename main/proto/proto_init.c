@@ -15,6 +15,10 @@ static void proto_on_conn(bool connected, void *arg) {
         /* The client closed the serial port: drop idempotency state so a
          * restarted client's id numbering cannot collide with ours. */
         proto_session_reset();
+    } else {
+        /* Host reconnected: drop any half-received frame so it cannot be
+         * completed by bytes belonging to the new session. */
+        proto_frame_reset();
     }
 }
 

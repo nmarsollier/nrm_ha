@@ -93,6 +93,19 @@ class ProtoClient:
         self._send(obj)
         return self._read_frame()
 
+    def raw_frame(self, body):
+        """Send a raw JSON body (str) as a length-prefixed frame and return the
+        parsed response, without auto-assigning an id.
+
+        Exercises malformed frames the typed helpers cannot build (nested or
+        duplicate keys, negative/fractional numbers, trailing bytes); the caller
+        asserts on the returned dict rather than expecting ok=true.
+        """
+        data = body.encode("utf-8")
+        self.ser.write(struct.pack("<I", len(data)) + data)
+        self.ser.flush()
+        return self._read_frame()
+
     def _expect_ok(self, resp):
         if not resp.get("ok"):
             raise DeviceError(resp.get("error", "unknown error"), json.dumps(resp))

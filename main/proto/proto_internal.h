@@ -32,6 +32,9 @@ void proto_session_reset(void);
 
 /* ── JSON helpers (proto_json.c) ──────────────────────────────── */
 
+/* True if `json` is a single well-formed JSON object with no duplicate
+ * top-level keys and no trailing bytes. */
+bool proto_json_validate(const char *json);
 bool proto_json_has_key(const char *json, const char *key);
 bool proto_json_get_string(const char *json, const char *key, char *out, size_t cap);
 bool proto_json_get_float(const char *json, const char *key, float *out);
@@ -46,6 +49,8 @@ bool proto_buf_append(char *buf, size_t cap, size_t *len, const char *fmt, ...)
 
 /* Feed received bytes into the frame parser. */
 void proto_feed(const uint8_t *data, size_t len);
+/* Drop any half-received frame (host reconnect). */
+void proto_frame_reset(void);
 /* Frame and send a null-terminated JSON body. */
 void proto_send_body(const char *body);
 

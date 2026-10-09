@@ -15,6 +15,7 @@ test/proto/          serial protocol acceptance suite
   test_state.py         snapshot coherence and fields
   test_cfg.py           site, time, coordinates
   test_val.py           contract, invalid inputs, errors
+  test_json.py          structural rejection of malformed JSON frames
   test_trk.py           tracking (rate coherence, limits)
   test_stp.py           stop and cancellation
   test_got*.py          slewing (GOTO): duration, speed, sequence, sites, limits, flip, guide

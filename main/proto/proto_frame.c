@@ -90,6 +90,12 @@ void proto_feed(const uint8_t *data, size_t len) {
     }
 }
 
+/* Drop any half-received frame.  Called on host reconnect so a frame split
+ * across the old and new sessions cannot be completed by the new bytes. */
+void proto_frame_reset(void) {
+    s_rx_len = 0;
+}
+
 void proto_send_body(const char *body) {
     size_t len = strlen(body);
     if (len == 0 || len > PROTO_MAX_FRAME) {

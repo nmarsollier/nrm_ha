@@ -12,10 +12,29 @@ void proto_dispatch(const char *body) {
     char type[PROTO_MAX_TYPE_LEN] = {0};
     uint32_t id = 0;
 
-    proto_json_get_string(body, "type", type, sizeof(type));
-    proto_json_get_u32(body, "id", &id);
-
     char out[PROTO_MAX_FRAME];
+
+    /* Reject a structurally invalid request (bad JSON, duplicate top-level
+     * keys, trailing bytes) before it can reach any handler. */
+    if (!proto_json_validate(body)) {
+        ESP_LOGW(TAG, "rejecting invalid request body");
+        snprintf(out, sizeof(out),
+                 "{\"type\":\"error\",\"id\":0,\"ok\":false,\"error\":\"invalid request\"}");
+        proto_send_body(out);
+        return;
+    }
+
+    proto_json_get_string(body, "type", type, sizeof(type));
+
+    /* `id` is optional; when present it must be a valid unsigned integer
+     * (rejects negatives, fractions and overflow). */
+    if (proto_json_has_key(body, "id") && !proto_json_get_u32(body, "id", &id)) {
+        ESP_LOGW(TAG, "rejecting invalid id");
+        snprintf(out, sizeof(out),
+                 "{\"type\":\"error\",\"id\":0,\"ok\":false,\"error\":\"invalid id\"}");
+        proto_send_body(out);
+        return;
+    }
 
     if (strcmp(type, "capabilities") == 0) {
         proto_handle_capabilities(body, id, out, sizeof(out));

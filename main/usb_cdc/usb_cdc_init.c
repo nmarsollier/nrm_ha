@@ -27,8 +27,14 @@ static void usb_cdc_rx_event(int itf, cdcacm_event_t *event) {
 /* CDC_EVENT_LINE_STATE_CHANGED — the host opened or closed the serial port. */
 static void usb_cdc_line_state(int itf, cdcacm_event_t *event) {
     (void) itf;
+    bool dtr = event->line_state_changed_data.dtr;
+    if (dtr) {
+        /* Host opened the port — drop any half-sent frame left from a previous
+         * failed session before the new session's first byte goes out. */
+        usb_cdc_tx_reset();
+    }
     if (s_conn_fn != NULL) {
-        s_conn_fn(event->line_state_changed_data.dtr, s_conn_arg);
+        s_conn_fn(dtr, s_conn_arg);
     }
 }
 
