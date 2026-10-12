@@ -90,16 +90,24 @@ Toda trama es un objeto JSON:
 Leída **una vez al conectar**. Devuelve identidad y capacidades estáticas (no
 nombres Alpaca como `CanSlew` o `InterfaceVersion`; la app los deriva).
 
+La cabecera es **común** con el controlador de accesorios (enfocador), para que
+el cliente identifique el tipo de dispositivo con un único parser. El
+discriminador es `device_type` (`mount` | `accessories`); `boot_id` es un string
+hex en ambos.
+
 ```json
 {
   "type": "capabilities", "id": 1, "ok": true,
-  "boot_id": 383890973, "proto": 1, "name": "NRM-HA",
-  "axes": ["ra", "dec"],
-  "slew_speeds_dps": [1.0, 3.0, 4.5, 6.0],
-  "tracking_modes": ["none", "sidereal", "lunar", "solar"],
-  "caps": { "guide": true, "home": true, "park": true, "unpark": true,
-            "move_axis": true, "slew": true, "tracking": true, "sync": false },
-  "config_rev": 3
+  "boot_id": "16e38e47", "proto": 1,
+  "device_type": "mount", "device_id": "nrm-ha",
+  "name": "NRM-HA", "firmware_version": "0.1.0",
+  "capabilities": {
+    "axes": ["ra", "dec"],
+    "slew_speeds_dps": [1.0, 3.0, 4.5, 6.0],
+    "tracking_modes": ["none", "sidereal", "lunar", "solar"],
+    "caps": { "guide": true, "home": true, "park": true, "unpark": true,
+              "move_axis": true, "slew": true, "tracking": true, "sync": false }
+  }
 }
 ```
 

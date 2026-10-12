@@ -16,8 +16,10 @@
  * Mount identity.
  * ========================================================================= */
 
-/* Mount model identifier — reported in the serial protocol `capabilities`. */
-#define MOUNT_NAME "NRM-HA"
+/* Mount identity — reported in the unified `capabilities` handshake. */
+#define MOUNT_NAME             "NRM-HA"
+#define MOUNT_DEVICE_ID        "nrm-ha"
+#define MOUNT_FIRMWARE_VERSION "0.1.0" /* TODO: bump to the real version */
 
 /* =========================================================================
  * Pin assignments — NRM-HA (ESP32-S3 44-pin board).
