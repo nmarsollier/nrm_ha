@@ -106,7 +106,8 @@ hex en ambos.
     "slew_speeds_dps": [1.0, 3.0, 4.5, 6.0],
     "tracking_modes": ["none", "sidereal", "lunar", "solar"],
     "caps": { "guide": true, "home": true, "park": true, "unpark": true,
-              "move_axis": true, "slew": true, "tracking": true, "sync": false }
+              "move_axis": true, "slew": true, "tracking": true, "sync": false,
+              "meridian_flip": true }
   }
 }
 ```

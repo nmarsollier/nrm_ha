@@ -37,6 +37,8 @@ def test_capabilities_flags(proto):
     assert caps["tracking"] is True
     # Sync is deferred in this iteration.
     assert caps["sync"] is False
+    # German equatorial mount: performs meridian flips.
+    assert caps["meridian_flip"] is True
 
 
 def test_capabilities_boot_id_stable(proto):
