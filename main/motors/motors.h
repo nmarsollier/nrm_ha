@@ -172,6 +172,15 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed);
 float motors_get_slewing_speed(int speed_rate);
 
 /*
+ * Return the manual move-axis angular speed (deg/s) for a given speed_rate
+ * profile (1..10, higher = faster).  Continuous MoveAxis / joystick motion
+ * runs at constant velocity (no acceleration ramp), so this geometric scale
+ * is gentle: rate 1 sits near the sidereal rate for fine centering, rate 10
+ * is the manual ceiling (1 deg/s).
+ */
+float motors_get_move_axis_speed(int speed_rate);
+
+/*
  * Canonical status and tracking name helpers.
  */
 const char *motors_status_to_string(MotorsStatus status);

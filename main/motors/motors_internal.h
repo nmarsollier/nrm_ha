@@ -79,6 +79,11 @@ bool motors_is_valid_dec_steps(int64_t steps);
 /* Maximum safe slew speed in deg/s — hardware ceiling for this reduction. */
 #define MOTORS_MAX_SLEW_SPEED_DPS 6.0f
 
+/* Maximum manual move-axis speed in deg/s — ceiling for continuous
+ * MoveAxis / joystick motion.  Lower than the slew ceiling because manual
+ * motion runs at constant velocity (no acceleration ramp). */
+#define MOTORS_MAX_MOVE_AXIS_SPEED_DPS 1.0f
+
 /*
  * Angular displacement per microstep at the mount axis.
  *

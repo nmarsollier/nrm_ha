@@ -104,6 +104,7 @@ hex en ambos.
   "capabilities": {
     "axes": ["ra", "dec"],
     "slew_speeds_dps": [1.0, 3.0, 4.5, 6.0],
+    "move_axis_speeds_dps": [0.005, 0.009, 0.016, 0.029, 0.053, 0.095, 0.171, 0.308, 0.555, 1.0],
     "tracking_modes": ["none", "sidereal", "lunar", "solar"],
     "caps": { "guide": true, "home": true, "park": true, "unpark": true,
               "move_axis": true, "slew": true, "tracking": true, "sync": false,

@@ -29,6 +29,12 @@ void proto_handle_capabilities(const char *req, uint32_t id, char *out, size_t c
                          rate > 1 ? "," : "", motors_get_slewing_speed(rate));
     }
 
+    proto_buf_append(out, cap, &len, "],\"move_axis_speeds_dps\":[");
+    for (int rate = 1; rate <= 10; rate++) {
+        proto_buf_append(out, cap, &len, "%s%.3f",
+                         rate > 1 ? "," : "", motors_get_move_axis_speed(rate));
+    }
+
     proto_buf_append(out, cap, &len,
         "],\"tracking_modes\":[\"none\",\"sidereal\",\"lunar\",\"solar\"],"
         "\"caps\":{\"guide\":true,\"home\":true,\"park\":true,\"unpark\":true,"

@@ -57,12 +57,12 @@ MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed) {
 
 /*
  * Move a single axis (0 = RA, 1 = DEC) continuously at `rate` deg/s,
- * preserving the other axis's current rate.  Clamps to the safe slew ceiling.
- * The candidate rates are built from the accepted cache and committed only if
- * motors accepts them (inside mount_set_move_axis_speed).
+ * preserving the other axis's current rate.  Clamps to the manual move-axis
+ * ceiling.  The candidate rates are built from the accepted cache and
+ * committed only if motors accepts them (inside mount_set_move_axis_speed).
  */
 MountResult mount_set_move_axis_rate(int axis, float rate) {
-    float hi = motors_get_slewing_speed(4);
+    float hi = motors_get_move_axis_speed(10); /* 10 = fastest manual rate (1 °/s) */
     float clamped = fmaxf(fminf(rate, hi), -hi);
 
     float next_ra = s_ra_rate;

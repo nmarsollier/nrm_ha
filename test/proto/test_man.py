@@ -100,21 +100,23 @@ def test_move_axis_limit(proto, axis, limit):
     proto.action("home")
     wait_not_moving(proto)
 
-    rate = {"ra": 6.0, "dec": 6.0}
+    # Manual motion is capped at 1.0 deg/s; 100° (RA) / 150° (DEC) at that
+    # rate needs up to 150 s, so the poll timeout reflects the real travel.
+    rate = {"ra": 1.0, "dec": 1.0}
     if axis == 0:
         proto.control(manual_ra_dps=rate["ra"])
     else:
         proto.control(manual_dec_dps=rate["dec"])
-    wait_not_moving(proto, timeout=40)
+    wait_not_moving(proto, timeout=180)
     pos = axis_position(proto)
     val = pos["ra_deg"] if axis == 0 else pos["dec_deg"]
     assert val <= limit + 0.1, f"axis {axis} passed the limit: {val}"
 
     # away from the limit
     if axis == 0:
-        proto.control(manual_ra_dps=-6.0)
+        proto.control(manual_ra_dps=-1.0)
     else:
-        proto.control(manual_dec_dps=-6.0)
+        proto.control(manual_dec_dps=-1.0)
     wait_slewing(proto)
     if axis == 0:
         proto.control(manual_ra_dps=0.0)

@@ -113,9 +113,10 @@ def test_tracking_stops_at_limit(proto):
     proto.action("home")
     wait_not_moving(proto)
 
-    # move RA to the positive limit (+100°)
-    proto.control(manual_ra_dps=6.0)
-    wait_not_moving(proto, timeout=40)
+    # move RA to the positive limit (+100°); manual is capped at 1.0 deg/s
+    # so this takes ~100 s.
+    proto.control(manual_ra_dps=1.0)
+    wait_not_moving(proto, timeout=130)
     pos = axis_position(proto)
     assert pos["ra_deg"] > 99.0, f"RA not near the limit: {pos['ra_deg']}"
 

@@ -4,7 +4,7 @@
  * Positive rate = forward, negative = reverse, zero = stop that axis.
  * Used by MoveAxis, joystick, and guiding.
  *
- * Speeds are clamped to [-MOTORS_MAX_SLEW_SPEED_DPS, +MOTORS_MAX_SLEW_SPEED_DPS].
+ * Speeds are clamped to [-MOTORS_MAX_MOVE_AXIS_SPEED_DPS, +MOTORS_MAX_MOVE_AXIS_SPEED_DPS].
  */
 #include "motors.h"
 #include "motors_internal.h"
@@ -22,8 +22,8 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
         return MOTOR_ERR_PARKED;
     }
 
-    /* Clamp to hardware-safe maximum. */
-    float max_dps = MOTORS_MAX_SLEW_SPEED_DPS;
+    /* Clamp to the manual move-axis ceiling. */
+    float max_dps = MOTORS_MAX_MOVE_AXIS_SPEED_DPS;
     if (ra_speed > max_dps) ra_speed = max_dps;
     if (ra_speed < -max_dps) ra_speed = -max_dps;
     if (dec_speed > max_dps) dec_speed = max_dps;
