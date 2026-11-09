@@ -49,3 +49,62 @@ def test_guide_when_parked(proto):
     with pytest.raises(DeviceError):
         proto.action("guide", direction="north", duration_ms=100)
     proto.action("unpark")
+
+
+def test_guide_rate_negative_rejected(proto):
+    """A negative guide rate is rejected and the stored rate is unchanged."""
+    cfg = proto.config_get()["config"]
+    with pytest.raises(DeviceError):
+        proto.config_set(guide_rate_ra=-0.1)
+    assert proto.config_get()["config"]["guide_rate_ra"] == cfg["guide_rate_ra"]
+
+
+def test_guide_rate_above_ceiling_rejected(proto):
+    """A guide rate above 1 deg/s is rejected (gateway contract is 0..1)."""
+    with pytest.raises(DeviceError):
+        proto.config_set(guide_rate_ra=1.5)
+
+
+def test_guide_rate_zero_disables_axis_but_not_other(proto):
+    """Zero is an explicit per-axis 'guiding disabled'; the other axis works."""
+    proto.config_set(guide_rate_dec=0.0)
+    try:
+        with pytest.raises(DeviceError):
+            proto.action("guide", direction="north", duration_ms=100)
+        proto.action("guide", direction="east", duration_ms=100)
+    finally:
+        proto.config_set(guide_rate_dec=0.001)
+
+
+def test_config_atomicity_on_invalid_guide_rate(proto):
+    """A config with a valid site and an invalid guide rate changes neither."""
+    cfg = proto.config_get()["config"]
+    with pytest.raises(DeviceError):
+        proto.config_set(lat=-33.0, guide_rate_ra=-0.5)
+    after = proto.config_get()["config"]
+    assert after["lat"] == cfg["lat"], "invalid guide_rate must not apply lat"
+    assert after["guide_rate_ra"] == cfg["guide_rate_ra"]
+
+
+def test_config_atomicity_on_invalid_utc(proto):
+    """A config with a valid guide rate and an invalid UTC changes neither,
+    nor does it bump the revision — the whole request is validated first."""
+    before = proto.config_get()
+    with pytest.raises(DeviceError):
+        proto.config_set(guide_rate_dec=0.0, utc="invalid")
+    after = proto.config_get()
+    assert after["config"]["guide_rate_dec"] == before["config"]["guide_rate_dec"], \
+        "invalid UTC must not apply guide_rate_dec (which would disable DEC)"
+    assert after["config"]["lat"] == before["config"]["lat"], \
+        "invalid UTC must not apply the site"
+    assert after["config_rev"] == before["config_rev"], \
+        "invalid UTC must not bump the config revision"
+
+
+def test_config_wrong_type_rejected(proto):
+    """A present field with the wrong JSON type is an error, not an absence."""
+    cfg = proto.config_get()["config"]
+    with pytest.raises(DeviceError):
+        proto.config_set(lat="north")   # string where a number is required
+    after = proto.config_get()["config"]
+    assert after["lat"] == cfg["lat"], "a mistyped lat must not be silently ignored"

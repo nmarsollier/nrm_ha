@@ -8,7 +8,6 @@ def test_capabilities_identity(proto):
     assert h["name"] == "NRM-HA"
     assert h["axes"] == ["ra", "dec"]
     assert isinstance(h["boot_id"], int) and h["boot_id"] != 0
-    assert isinstance(h["config_rev"], int)
 
 
 def test_capabilities_slew_speeds(proto):

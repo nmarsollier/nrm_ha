@@ -69,6 +69,11 @@ typedef struct {
     float dec_speed;
     /* True when a PulseGuide is active on either axis. */
     bool guiding;
+    /* Latched: the most recent PulseGuide was cut short because an axis hit
+     * its configured limit.  Cleared when the next guide starts, so a client
+     * polling `guiding == false` can tell a limit truncation from a normal
+     * completion. */
+    bool guide_truncated;
 
     /* Operational limits enforced by the motors module. */
     struct {

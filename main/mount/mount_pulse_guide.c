@@ -15,6 +15,8 @@
 
 #include "motors.h"
 
+#include <math.h>
+
 #include "esp_log.h"
 
 static const char *TAG = "MOUNT_PULSE_GUIDE";
@@ -46,13 +48,25 @@ MountResult mount_pulse_guide(GuideDirection direction, uint32_t duration_ms) {
         /* +mechanical RA reduces celestial RA (RA = LST - HA, HA grows with
          * RA axis), i.e. it moves west.  So east is -mechanical RA.
          * See axis_to_equatorial(). */
+        if (ra_rate <= 0.0f) {
+            ESP_LOGW(TAG, "Rejected: RA guide rate is zero (guiding disabled)");
+            return mount_result_error("RA guide rate is zero — guiding disabled");
+        }
         rc = motors_pulse_guide_start(0, -ra_rate, duration_ms);
         break;
     case GUIDE_DIRECTION_WEST:
+        if (ra_rate <= 0.0f) {
+            ESP_LOGW(TAG, "Rejected: RA guide rate is zero (guiding disabled)");
+            return mount_result_error("RA guide rate is zero — guiding disabled");
+        }
         rc = motors_pulse_guide_start(0,  ra_rate, duration_ms);
         break;
     case GUIDE_DIRECTION_NORTH:
     case GUIDE_DIRECTION_SOUTH: {
+        if (dec_rate <= 0.0f) {
+            ESP_LOGW(TAG, "Rejected: DEC guide rate is zero (guiding disabled)");
+            return mount_result_error("DEC guide rate is zero — guiding disabled");
+        }
         /* North (increasing celestial DEC) maps to +mechanical DEC on the
          * east side of the pier (dec_axis >= 0) and to -mechanical DEC on the
          * west side (dec_axis < 0).  The pier side is encoded in the sign of
@@ -77,7 +91,27 @@ MountResult mount_pulse_guide(GuideDirection direction, uint32_t duration_ms) {
 static float s_guide_rate_ra  = TRACKING_SPEED_SIDEREAL_DPS * 0.5f;
 static float s_guide_rate_dec = TRACKING_SPEED_SIDEREAL_DPS * 0.5f;
 
-void mount_set_guide_rate_ra(float rate_dps)  { s_guide_rate_ra = rate_dps; }
-void mount_set_guide_rate_dec(float rate_dps) { s_guide_rate_dec = rate_dps; }
+bool mount_guide_rate_is_valid(float rate_dps) {
+    return isfinite(rate_dps)
+           && rate_dps >= 0.0f
+           && rate_dps <= MOUNT_MAX_GUIDE_RATE_DPS;
+}
+
+bool mount_set_guide_rate_ra(float rate_dps) {
+    if (!mount_guide_rate_is_valid(rate_dps)) {
+        return false;
+    }
+    s_guide_rate_ra = rate_dps;
+    return true;
+}
+
+bool mount_set_guide_rate_dec(float rate_dps) {
+    if (!mount_guide_rate_is_valid(rate_dps)) {
+        return false;
+    }
+    s_guide_rate_dec = rate_dps;
+    return true;
+}
+
 float mount_get_guide_rate_ra(void)           { return s_guide_rate_ra; }
 float mount_get_guide_rate_dec(void)          { return s_guide_rate_dec; }

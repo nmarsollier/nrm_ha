@@ -48,6 +48,26 @@ def detect_serial_port():
     return None
 
 
+def detect_flash_port():
+    """Return the NRM-HA USB-Serial/JTAG port used for flashing, or None.
+
+    The board exposes two USB endpoints: the native USB-Serial/JTAG (flashing +
+    monitor) and the CDC-ACM (the mount protocol).  The JTAG endpoint enumerates
+    as /dev/cu.usbserial-* on macOS (ttyUSB* on Linux) with the Espressif VID
+    0x303A, while the protocol endpoint is /dev/cu.usbmodem* (matched above).
+    """
+    ports = list(serial.tools.list_ports.comports())
+    for p in ports:
+        dev = p.device or ""
+        if getattr(p, "vid", None) == 0x303A and "usbserial" in dev:
+            return dev
+    for p in ports:
+        dev = p.device or ""
+        if "usbserial" in dev or "ttyUSB" in dev:
+            return dev
+    return None
+
+
 class ProtoClient:
     """Cliente del protocolo de montura sobre el puerto serial CDC-ACM."""
 
@@ -113,7 +133,17 @@ class ProtoClient:
 
     # ── message families ─────────────────────────────────────────
     def capabilities(self):
-        return self._expect_ok(self.request({"type": "capabilities"}))
+        resp = self._expect_ok(self.request({"type": "capabilities"}))
+        # Flatten the nested "capabilities" object and normalise boot_id (a hex
+        # string in capabilities) to int so it matches the state frame.
+        out = {k: v for k, v in resp.items() if k != "capabilities"}
+        nested = resp.get("capabilities")
+        if isinstance(nested, dict):
+            out.update(nested)
+        bid = out.get("boot_id")
+        if isinstance(bid, str):
+            out["boot_id"] = int(bid, 16)
+        return out
 
     def state(self):
         return self._expect_ok(self.request({"type": "state"}))

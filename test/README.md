@@ -6,6 +6,16 @@ driven through the **CDC-ACM serial protocol**.
 ## Structure
 
 ```text
+test/host/           host harness (no hardware): compiles the production
+                     mount/motors C (scheduler, queue, motion loop, RMT
+                     encoding) with RTOS/RMT/time mocked
+  harness.py         ctypes bindings + STEP observability + polling helpers
+  test_mount_guard.py    redundant manual-zero guard + guide-rate validation
+  test_phd_calibration.py  PHD2-style guide sequence, RMT fault injection
+  test_fork.py       coordinate/guide math (mount_coordinate_tools + GOTO),
+                     compiled with motors/clock mocked against an oracle
+  mount_stubs.c      motors/clock mocks for the test_fork.py compile
+
 test/proto/          serial protocol acceptance suite
   client.py          serial client (framing, request/response, error taxonomy)
   oracle.py          independent oracle (spherical angular distance + slew-time model)
@@ -17,11 +27,13 @@ test/proto/          serial protocol acceptance suite
   test_val.py           contract, invalid inputs, errors
   test_json.py          structural rejection of malformed JSON frames
   test_trk.py           tracking (rate coherence, limits)
+  test_trk_preserve.py  no motion (move/MoveAxis/guide) ever loses tracking
   test_stp.py           stop and cancellation
   test_got*.py          slewing (GOTO): duration, speed, sequence, sites, limits, flip, guide
   test_man.py           manual movement (MoveAxis) + axis limits
-  test_gui.py           autoguiding (PulseGuide)
-  test_guide_effect.py  PulseGuide position/time effect
+  test_gui.py           autoguiding (PulseGuide) + guide-rate validation
+  test_guide_effect.py  PulseGuide position/time effect (coarse + default rate)
+  test_phd_calibration.py  PHD2-style guide calibration sequence (real speed)
   test_mer.py           pier side / meridian flip
   test_prk.py           park / unpark
   test_ref.py           reference / home
@@ -43,6 +55,7 @@ python3 -m pip install pytest
 ## Running
 
 ```sh
+make -C test test-host    # host harness (no hardware, compiles production C)
 make -C test test-cdc     # the serial protocol suite
 make -C test flash        # flash the firmware
 ```
@@ -50,12 +63,23 @@ make -C test flash        # flash the firmware
 Manual equivalent:
 
 ```sh
+cd test/host
+python3 -m unittest discover -s . -v    # host harness
+
 cd test/proto
 python3 -m pytest -q            # the whole suite
 python3 -m pytest --lf          # only the ones that failed last time
 python3 -m pytest test_got.py   # one family
 python3 -m pytest -k "park"     # by name
 ```
+
+The host harness runs the *production* mount/motors C — the command queue,
+the motion task, `tracking_loop_rmt`, and the RMT encoding — with only RTOS,
+time and the RMT/GPIO peripherals mocked.  It observes the actual STEP
+transmissions per axis (not a stub that fakes movement), so a suppressed DEC
+output that still ACKs `ok` makes the nominal sequence fail.  It requires only
+`cc` and Python 3 (no ESP-IDF, no board).
+
 
 ## Skill
 

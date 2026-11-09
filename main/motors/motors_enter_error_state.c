@@ -19,6 +19,7 @@ static bool s_hardware_fault = false;
 void motors_enter_error_state(void) {
     portENTER_CRITICAL(&motors_state_lock);
     motors_state.status = MOTORS_STATUS_ERROR;
+    motors_state.tracking = TRACKING_NONE;
     motors_state.guiding = false;
     portEXIT_CRITICAL(&motors_state_lock);
 }
@@ -30,4 +31,14 @@ void motors_enter_hardware_fault(void) {
 
 bool motors_has_hardware_fault(void) {
     return s_hardware_fault;
+}
+
+/*
+ * Clear the latched hardware fault.  In production a hardware fault is only
+ * cleared by a full reboot; this reset exists solely for the host test harness,
+ * which reuses one process across many tests and must start each from a clean
+ * fault latch.
+ */
+void motors_reset_hardware_fault(void) {
+    s_hardware_fault = false;
 }

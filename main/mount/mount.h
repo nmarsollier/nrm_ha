@@ -154,6 +154,9 @@ MountResult mount_settings_update(MountSettings settings);
 
 MountResult mount_set_system_time(const char *iso_time);
 
+/* Validate an ISO-8601 UTC timestamp string without applying it. */
+bool mount_time_string_is_valid(const char *iso_time);
+
 /* True once a valid system time has been set — gates GOTO. */
 bool mount_time_is_valid(void);
 
@@ -213,13 +216,31 @@ float mount_get_lst(void);
 MountResult mount_pulse_guide(GuideDirection direction, uint32_t duration_ms);
 
 /*
+ * Guide rate contract (degrees/second).
+ *
+ * Rates are positive angles in deg/s; the default is 0.5 × sidereal
+ * (~0.002089 deg/s).  The accepted range is 0 .. MOUNT_MAX_GUIDE_RATE_DPS
+ * (1 deg/s, matching the gateway's 0..1 deg/s contract).  Zero is a valid,
+ * explicit per-axis "guiding disabled" value: PulseGuide to a disabled axis
+ * is rejected before enqueueing, while the other axis keeps working.
+ */
+#define MOUNT_MAX_GUIDE_RATE_DPS 1.0f
+
+/* True if `rate_dps` is a valid guide rate (finite, 0 .. 1 deg/s). */
+bool mount_guide_rate_is_valid(float rate_dps);
+
+/*
  * mount_set_guide_rate / mount_get_guide_rate
  * -------------------------------------------
  * Store or retrieve the guide rate per axis in degrees/second.
  * Kept separate to expose independent RA and DEC guide-rate properties.
+ *
+ * The setters return false and leave the stored rate unchanged when
+ * `rate_dps` is not a valid guide rate (negative, above 1 deg/s, or
+ * non-finite).  They never coerce an invalid value into a default.
  */
-void mount_set_guide_rate_ra(float rate_dps);
-void mount_set_guide_rate_dec(float rate_dps);
+bool mount_set_guide_rate_ra(float rate_dps);
+bool mount_set_guide_rate_dec(float rate_dps);
 float mount_get_guide_rate_ra(void);
 float mount_get_guide_rate_dec(void);
 

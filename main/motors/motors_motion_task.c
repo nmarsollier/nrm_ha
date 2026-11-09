@@ -222,7 +222,12 @@ void motors_motion_stop(void) {
     s_motion.dec_guide_offset_dps = 0.0f;
 
     if (motors_motion_task_handle) {
-        xTaskNotify(motors_motion_task_handle, 0, eNoAction);
+        /* eIncrement (xTaskNotifyGive) — the tracking loop sleeps in
+         * ulTaskNotifyTake(pdTRUE, …), which only wakes early when the
+         * notification count is non-zero.  eNoAction leaves the count at zero,
+         * so it produces a spurious wakeup that re-blocks and delays the stop
+         * by up to the sleep timeout. */
+        xTaskNotifyGive(motors_motion_task_handle);
     }
 }
 
@@ -293,11 +298,22 @@ static void finish_motion(void) {
     portEXIT_CRITICAL(&motors_state_lock);
 }
 
-/* Emergency abort: clean shutdown.  The channel teardown happens later in
- * motion_loop() via motors_rmt_reset_both(). */
-static void abort_motion(void) {
+/*
+ * RMT emission failure — a genuine hardware fault, not a user STOP or a limit.
+ * Enter the unrecoverable ERROR state and latch the fault so it is observable
+ * through the state snapshot, survives a power-loss recovery, and is
+ * distinguishable from a normal pulse completion.  Clear the guide state so a
+ * stale deadline cannot resume the pulse, and flag the motion as aborted so the
+ * loop tears down the RMT channels on exit.
+ */
+static void abort_rmt_hardware_fault(void) {
+    s_motion.active = false;
     s_motion.aborted = true;
-    finish_motion();
+    s_motion.ra_guide_deadline_us = 0;
+    s_motion.ra_guide_offset_dps = 0.0f;
+    s_motion.dec_guide_deadline_us = 0;
+    s_motion.dec_guide_offset_dps = 0.0f;
+    motors_enter_hardware_fault();
 }
 
 /* Recompute RA / DEC step-period ticks from current ramp or constant speed. */
@@ -362,10 +378,25 @@ static bool emit_ra_tracking_step(int direction, rmt_symbol_word_t *buffer) {
         ESP_LOGW(TAG, "RA limit at %.3f deg",
                  (double)motors_steps_to_deg(motors_state.ra_steps));
         s_motion.active = false;
+        /* A limit hit ends the tracking base AND any in-flight guide on either
+         * axis.  Clear both deadlines so the post-loop guiding recompute in
+         * motors_motion_task_run (ra_active/dec_active) sees them expired;
+         * otherwise it would recompute guiding=true and leave it stuck until
+         * the next command.  Flag truncation if a guide was actually cut short,
+         * regardless of which axis carried it. */
+        bool any_guide = (s_motion.ra_guide_deadline_us != 0
+                          || s_motion.dec_guide_deadline_us != 0);
+        s_motion.ra_guide_deadline_us = 0;
+        s_motion.ra_guide_offset_dps = 0.0f;
+        s_motion.dec_guide_deadline_us = 0;
+        s_motion.dec_guide_offset_dps = 0.0f;
         portENTER_CRITICAL(&motors_state_lock);
         motors_state.status = MOTORS_STATUS_READY;
         motors_state.tracking = TRACKING_NONE;
         motors_state.guiding = false;
+        if (any_guide) {
+            motors_state.guide_truncated = true;
+        }
         portEXIT_CRITICAL(&motors_state_lock);
         return false;
     }
@@ -377,12 +408,7 @@ static bool emit_ra_tracking_step(int direction, rmt_symbol_word_t *buffer) {
     esp_err_t tx_err = motors_rmt_transmit_ra(buffer, 1);
     if (tx_err != ESP_OK) {
         ESP_LOGE(TAG, "RMT RA tx fail: %s", esp_err_to_name(tx_err));
-        s_motion.active = false;
-        portENTER_CRITICAL(&motors_state_lock);
-        motors_state.status = MOTORS_STATUS_READY;
-        motors_state.tracking = TRACKING_NONE;
-        motors_state.guiding = false;
-        portEXIT_CRITICAL(&motors_state_lock);
+        abort_rmt_hardware_fault();
         return false;
     }
 
@@ -390,12 +416,7 @@ static bool emit_ra_tracking_step(int direction, rmt_symbol_word_t *buffer) {
     if (wait_err != ESP_OK) {
         ESP_LOGW(TAG, "RMT RA wait %s",
                  (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
-        s_motion.active = false;
-        portENTER_CRITICAL(&motors_state_lock);
-        motors_state.status = MOTORS_STATUS_READY;
-        motors_state.tracking = TRACKING_NONE;
-        motors_state.guiding = false;
-        portEXIT_CRITICAL(&motors_state_lock);
+        abort_rmt_hardware_fault();
         return false;
     }
 
@@ -596,6 +617,8 @@ static void process_command(MotionCommand cmd) {
             }
 
             motors_state.guiding = true;
+            /* A fresh guide clears the previous truncation latch. */
+            motors_state.guide_truncated = false;
             /*
              * Set active so a standalone guide pulse (READY, no tracking)
              * actually runs its motion loop.  During tracking active is
@@ -764,7 +787,7 @@ static void slewing_loop_rmt(void) {
         tx_err = motors_rmt_transmit_dec(dec_buf[0], dec_num[0]);
     if (tx_err != ESP_OK) {
         ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(tx_err));
-        abort_motion();
+        abort_rmt_hardware_fault();
         return;
     }
 
@@ -811,7 +834,7 @@ static void slewing_loop_rmt(void) {
                 tx_err = motors_rmt_transmit_no_drain_dec(dec_buf[1], dec_num[1]);
             if (tx_err != ESP_OK) {
                 ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(tx_err));
-                abort_motion();
+                abort_rmt_hardware_fault();
                 return;
             }
         }
@@ -886,7 +909,7 @@ static void slewing_loop_rmt(void) {
                 tx_err = motors_rmt_transmit_no_drain_ra(ra_buf[ra_ping], ra_num[ra_ping]);
                 if (tx_err != ESP_OK) {
                     ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(tx_err));
-                    abort_motion();
+                    abort_rmt_hardware_fault();
                     break;
                 }
             }
@@ -917,7 +940,7 @@ static void slewing_loop_rmt(void) {
                 tx_err = motors_rmt_transmit_no_drain_dec(dec_buf[dec_ping], dec_num[dec_ping]);
                 if (tx_err != ESP_OK) {
                     ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(tx_err));
-                    abort_motion();
+                    abort_rmt_hardware_fault();
                     break;
                 }
             }
@@ -1103,6 +1126,7 @@ static void tracking_loop_rmt(void) {
             if (!motors_is_valid_dec_steps(next)) {
                 ESP_LOGW(TAG, "DEC limit at %.3f deg",
                          (double)motors_steps_to_deg(motors_state.dec_steps));
+                motors_state.guide_truncated = true;
                 s_motion.dec_guide_deadline_us = 0;
                 s_motion.dec_guide_offset_dps = 0.0f;
                 dec_dir_set = 0;
@@ -1115,21 +1139,17 @@ static void tracking_loop_rmt(void) {
             esp_err_t tx_err = motors_rmt_transmit_dec(dec_sym, 1);
             if (tx_err != ESP_OK) {
                 ESP_LOGE(TAG, "RMT DEC tx fail: %s", esp_err_to_name(tx_err));
-                s_motion.dec_guide_deadline_us = 0;
-                s_motion.dec_guide_offset_dps = 0.0f;
-                dec_dir_set = 0;
+                abort_rmt_hardware_fault();
                 dec_phase = 0.0;
-                break;
+                return;
             }
             esp_err_t wait_err = motors_rmt_wait_dec(pdMS_TO_TICKS(2000));
             if (wait_err != ESP_OK) {
                 ESP_LOGW(TAG, "RMT DEC wait %s",
                          (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
-                s_motion.dec_guide_deadline_us = 0;
-                s_motion.dec_guide_offset_dps = 0.0f;
-                dec_dir_set = 0;
+                abort_rmt_hardware_fault();
                 dec_phase = 0.0;
-                break;
+                return;
             }
             if (!s_motion.active) { dec_phase = 0.0; return; }
 
@@ -1145,6 +1165,7 @@ static void tracking_loop_rmt(void) {
             if (!motors_is_valid_dec_steps(next)) {
                 ESP_LOGW(TAG, "DEC limit at %.3f deg",
                          (double)motors_steps_to_deg(motors_state.dec_steps));
+                motors_state.guide_truncated = true;
                 s_motion.dec_guide_deadline_us = 0;
                 s_motion.dec_guide_offset_dps = 0.0f;
                 dec_dir_set = 0;
@@ -1157,21 +1178,17 @@ static void tracking_loop_rmt(void) {
             esp_err_t tx_err = motors_rmt_transmit_dec(dec_sym, 1);
             if (tx_err != ESP_OK) {
                 ESP_LOGE(TAG, "RMT DEC tx fail: %s", esp_err_to_name(tx_err));
-                s_motion.dec_guide_deadline_us = 0;
-                s_motion.dec_guide_offset_dps = 0.0f;
-                dec_dir_set = 0;
+                abort_rmt_hardware_fault();
                 dec_phase = 0.0;
-                break;
+                return;
             }
             esp_err_t wait_err = motors_rmt_wait_dec(pdMS_TO_TICKS(2000));
             if (wait_err != ESP_OK) {
                 ESP_LOGW(TAG, "RMT DEC wait %s",
                          (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
-                s_motion.dec_guide_deadline_us = 0;
-                s_motion.dec_guide_offset_dps = 0.0f;
-                dec_dir_set = 0;
+                abort_rmt_hardware_fault();
                 dec_phase = 0.0;
-                break;
+                return;
             }
             if (!s_motion.active) { dec_phase = 0.0; return; }
 

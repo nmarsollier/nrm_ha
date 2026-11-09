@@ -104,6 +104,15 @@ static bool parse_iso8601_to_time(const char *s, time_t *out) {
     return true;
 }
 
+/* Validate an ISO-8601 UTC timestamp without applying it.  Used by the config
+ * handler to reject an invalid `utc` before any field is applied. */
+bool mount_time_string_is_valid(const char *iso_time) {
+    if (iso_time == NULL || iso_time[0] == '\0')
+        return false;
+    time_t t;
+    return parse_iso8601_to_time(iso_time, &t);
+}
+
 MountResult mount_set_system_time(const char *iso_time) {
     if (iso_time == NULL || iso_time[0] == '\0') {
         return mount_result_error("Missing time");
@@ -113,7 +122,6 @@ MountResult mount_set_system_time(const char *iso_time) {
     if (!parse_iso8601_to_time(iso_time, &new_time)) {
         return mount_result_error("Invalid time format");
     }
-
     struct timeval tv = {.tv_sec = new_time, .tv_usec = 0};
     if (settimeofday(&tv, NULL) != 0) {
         ESP_LOGW(TAG, "Failed to set system time");

@@ -205,6 +205,8 @@ extern MotorsState motors_state;
  * A hardware fault is never cleared by a power-loss recovery. */
 void motors_enter_hardware_fault(void);
 bool motors_has_hardware_fault(void);
+/* Test-only: clear the latched fault (production clears it only on reboot). */
+void motors_reset_hardware_fault(void);
 
 float motors_get_tracking_speed(TrackingMode mode);
 

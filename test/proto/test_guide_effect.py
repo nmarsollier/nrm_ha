@@ -8,9 +8,21 @@ from conftest import axis_position, setup_site_time, wait_not_moving
 GUIDE_RATE = 0.5          # deg/s
 DEG_PER_STEP = 1.8 / (64 * 300)
 
+# The mount's default guide rate (0.5 × sidereal).  GUIDE_RATE above is a
+# manual-slew speed (~239 × sidereal) chosen only to make coarse direction
+# assertions easy; guiding actually runs at this small rate.  A test must catch
+# an axis that accepts a pulse but never moves, so the real rate is exercised.
+SIDEREAL_DPS = 0.004178074
+DEFAULT_GUIDE_RATE = SIDEREAL_DPS * 0.5   # ≈ 0.002089 deg/s
+
 
 def _set_guide_rate(proto, rate):
     proto.config_set(guide_rate_ra=rate, guide_rate_dec=rate)
+
+
+def _move_dec(proto, degrees):
+    proto.action("move", axis="dec", degrees=degrees, speed=4)
+    wait_not_moving(proto)
 
 
 def _measure_pulse(proto, direction, duration_ms):
@@ -36,6 +48,28 @@ def test_pulse_effect_magnitude(proto):
     expected_steps = GUIDE_RATE * 500 / 1000.0 / DEG_PER_STEP
     assert abs(abs(change_steps) - expected_steps) <= expected_steps * 0.3 + 4, \
         f"DEC change {change_steps} steps != expected ~{expected_steps:.0f}"
+
+
+def test_pulse_default_guide_rate_dec(proto):
+    """A DEC pulse at the default 0.5×sidereal rate moves by rate × duration.
+
+    The coarse magnitude test above uses 0.5 °/s; this exercises the actual
+    guiding rate so a rate that only behaves at manual speeds — or an axis that
+    accepts a pulse and never moves — is caught.  Zero movement is a failure.
+    """
+    setup_site_time(proto)
+    proto.action("home")
+    wait_not_moving(proto)
+    _move_dec(proto, 30.0)          # away from the pole (D=30)
+    _set_guide_rate(proto, DEFAULT_GUIDE_RATE)
+
+    # 5 s at ~22.3 steps/s ≈ 111 steps — enough to measure, still a guide speed.
+    before, after = _measure_pulse(proto, "north", 5000)
+    change_steps = after["dec_steps"] - before["dec_steps"]
+    expected_steps = DEFAULT_GUIDE_RATE * 5.0 / DEG_PER_STEP
+    assert abs(abs(change_steps) - expected_steps) <= expected_steps * 0.3 + 4, \
+        f"DEC change {change_steps} steps != expected ~{expected_steps:.0f}"
+    assert abs(change_steps) > 0, "DEC pulse at default rate produced zero movement"
 
 
 def test_pulse_east_moves_ra_negative(proto):

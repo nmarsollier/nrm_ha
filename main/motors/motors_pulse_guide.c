@@ -29,9 +29,13 @@ MotorResultCode motors_pulse_guide_start(int axis, float offset_dps, uint32_t du
         return MOTOR_ERR_BUSY;
     }
 
-    /* Wake the motion task so it processes the command immediately. */
+    /* Wake the motion task so it processes the command immediately.
+     * eIncrement (xTaskNotifyGive): the tracking loop sleeps in
+     * ulTaskNotifyTake(pdTRUE, …), which only wakes early on a non-zero
+     * notification count.  eNoAction leaves the count at zero, so the new
+     * pulse would wait out the sleep timeout before the queue peek sees it. */
     if (motors_motion_task_handle) {
-        xTaskNotify(motors_motion_task_handle, 0, eNoAction);
+        xTaskNotifyGive(motors_motion_task_handle);
     }
     return MOTOR_OK;
 }
