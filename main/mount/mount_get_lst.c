@@ -32,9 +32,10 @@ float mount_get_lst(void) {
     double gmst_h = gmst_hours(jd);
     double lst_h = gmst_h + (mount_internal_state.lon / 15.0);
 
-    /* Normalize to [0, 24). */
-    while (lst_h < 0.0)  lst_h += 24.0;
-    while (lst_h >= 24.0) lst_h -= 24.0;
+    /* Normalize to [0, 24).  fmod keeps this O(1) and cannot spin forever on a
+     * non-finite longitude read from a corrupted settings store. */
+    lst_h = fmod(lst_h, 24.0);
+    if (lst_h < 0.0) lst_h += 24.0;
 
     return (float) lst_h;
 }

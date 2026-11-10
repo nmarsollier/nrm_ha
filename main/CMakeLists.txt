@@ -39,6 +39,7 @@ idf_component_register(
         "motors/motors_get_slewing_speed.c"
         "motors/motors_get_move_axis_speed.c"
         "motors/motors_get_tracking_speed.c"
+        "motors/motors_slew_duration.c"
         "motors/motors_home.c"
         "motors/motors_init.c"
         "motors/motors_move_axis_speed.c"

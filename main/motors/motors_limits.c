@@ -10,6 +10,8 @@
 #include "motors.h"
 #include "motors_internal.h"
 
+#include <math.h>
+
 #include "nvs.h"
 #include "utils/utils.h"
 
@@ -22,6 +24,54 @@ static const char *NVS_NS = "mount";
 #define LIMITS_DEFAULT_RA_MAX   100.0f
 #define LIMITS_DEFAULT_DEC_MIN -150.0f
 #define LIMITS_DEFAULT_DEC_MAX  150.0f
+
+/*
+ * Absolute mechanical range (degrees).  Each axis is physically meaningful
+ * within a half-turn: the DEC body sweeps ±180° between the two celestial
+ * poles and the RA body points below the horizon beyond ±180°.  Stored limits
+ * must stay inside this range and keep min < max, or the clamp logic breaks.
+ */
+#define LIMITS_MECHANICAL_RA_RANGE  180.0f
+#define LIMITS_MECHANICAL_DEC_RANGE 180.0f
+
+/* True when a full limit config is usable: finite, ordered, within range. */
+static bool limits_are_valid(float ra_min, float ra_max,
+                             float dec_min, float dec_max) {
+    if (!isfinite(ra_min) || !isfinite(ra_max)
+        || !isfinite(dec_min) || !isfinite(dec_max)) {
+        return false;
+    }
+    if (ra_min >= ra_max || dec_min >= dec_max) {
+        return false;
+    }
+    if (ra_min < -LIMITS_MECHANICAL_RA_RANGE || ra_max > LIMITS_MECHANICAL_RA_RANGE
+        || dec_min < -LIMITS_MECHANICAL_DEC_RANGE || dec_max > LIMITS_MECHANICAL_DEC_RANGE) {
+        return false;
+    }
+    return true;
+}
+
+/* Apply a candidate config only if it stays valid.  Returns false to reject,
+ * leaving both the runtime state and NVS untouched. */
+static bool apply_limits_if_valid(float ra_min, float ra_max,
+                                  float dec_min, float dec_max) {
+    if (!limits_are_valid(ra_min, ra_max, dec_min, dec_max)) {
+        ESP_LOGW(TAG, "Rejected invalid limits: ra[%.3f, %.3f] dec[%.3f, %.3f]",
+                 (double) ra_min, (double) ra_max,
+                 (double) dec_min, (double) dec_max);
+        return false;
+    }
+
+    portENTER_CRITICAL(&motors_state_lock);
+    motors_state.limits.ra_min = ra_min;
+    motors_state.limits.ra_max = ra_max;
+    motors_state.limits.dec_min = dec_min;
+    motors_state.limits.dec_max = dec_max;
+    portEXIT_CRITICAL(&motors_state_lock);
+
+    motors_limits_save();
+    return true;
+}
 
 /* ── NVS persistence ─────────────────────────────────────── */
 
@@ -49,6 +99,18 @@ void motors_limits_load(void) {
     if (nvs_get_u32(h, "dec_max", &v) == ESP_OK) motors_state.limits.dec_max = uint32_to_float(v);
 
     nvs_close(h);
+
+    /* A partially-written or corrupted NVS could yield NaN/inf, min >= max, or
+     * values outside the mechanical range.  Never boot with a broken clamp —
+     * fall back to the factory defaults. */
+    if (!limits_are_valid(motors_state.limits.ra_min, motors_state.limits.ra_max,
+                          motors_state.limits.dec_min, motors_state.limits.dec_max)) {
+        ESP_LOGW(TAG, "Stored limits invalid, using factory defaults");
+        motors_state.limits.ra_min  = LIMITS_DEFAULT_RA_MIN;
+        motors_state.limits.ra_max  = LIMITS_DEFAULT_RA_MAX;
+        motors_state.limits.dec_min = LIMITS_DEFAULT_DEC_MIN;
+        motors_state.limits.dec_max = LIMITS_DEFAULT_DEC_MAX;
+    }
 }
 
 void motors_limits_save(void) {
@@ -75,50 +137,47 @@ void motors_limits_save(void) {
 
 void motors_set_current_as_home(void) {
     motors_stop();
-    motors_motion_wait_idle();
     portENTER_CRITICAL(&motors_state_lock);
     motors_state.ra_steps  = 0;
     motors_state.dec_steps = 0;
     motors_state.status    = MOTORS_STATUS_READY;
+    /* The operator just re-established the physical origin, so the counters
+     * are trustworthy again — clear any uncertainty left by an aborted move. */
+    motors_state.position_uncertain = false;
     portEXIT_CRITICAL(&motors_state_lock);
     motors_limits_save();
 }
 
-void motors_set_current_as_ra_left_limit(void) {
+bool motors_set_current_as_ra_left_limit(void) {
     motors_stop();
-    motors_motion_wait_idle();
     float pos = motors_get_ra_deg();
-    motors_state.limits.ra_min = pos;
-    motors_limits_save();
+    return apply_limits_if_valid(pos, motors_state.limits.ra_max,
+                                 motors_state.limits.dec_min, motors_state.limits.dec_max);
 }
 
-void motors_set_current_as_ra_right_limit(void) {
+bool motors_set_current_as_ra_right_limit(void) {
     motors_stop();
-    motors_motion_wait_idle();
     float pos = motors_get_ra_deg();
-    motors_state.limits.ra_max = pos;
-    motors_limits_save();
+    return apply_limits_if_valid(motors_state.limits.ra_min, pos,
+                                 motors_state.limits.dec_min, motors_state.limits.dec_max);
 }
 
-void motors_set_current_as_dec_left_limit(void) {
+bool motors_set_current_as_dec_left_limit(void) {
     motors_stop();
-    motors_motion_wait_idle();
     float pos = motors_get_dec_deg();
-    motors_state.limits.dec_min = pos;
-    motors_limits_save();
+    return apply_limits_if_valid(motors_state.limits.ra_min, motors_state.limits.ra_max,
+                                 pos, motors_state.limits.dec_max);
 }
 
-void motors_set_current_as_dec_right_limit(void) {
+bool motors_set_current_as_dec_right_limit(void) {
     motors_stop();
-    motors_motion_wait_idle();
     float pos = motors_get_dec_deg();
-    motors_state.limits.dec_max = pos;
-    motors_limits_save();
+    return apply_limits_if_valid(motors_state.limits.ra_min, motors_state.limits.ra_max,
+                                 motors_state.limits.dec_min, pos);
 }
 
 void motors_limits_reset(void) {
     motors_stop();
-    motors_motion_wait_idle();
     portENTER_CRITICAL(&motors_state_lock);
     motors_state.limits.ra_min  = LIMITS_DEFAULT_RA_MIN;
     motors_state.limits.ra_max  = LIMITS_DEFAULT_RA_MAX;

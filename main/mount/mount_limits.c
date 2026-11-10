@@ -24,13 +24,21 @@ MountResult mount_limits_set(const char *action) {
     if (strcmp(action, "set_home") == 0) {
         motors_set_current_as_home();
     } else if (strcmp(action, "set_ra_left") == 0) {
-        motors_set_current_as_ra_left_limit();
+        if (!motors_set_current_as_ra_left_limit()) {
+            return mount_result_error("Invalid limit");
+        }
     } else if (strcmp(action, "set_ra_right") == 0) {
-        motors_set_current_as_ra_right_limit();
+        if (!motors_set_current_as_ra_right_limit()) {
+            return mount_result_error("Invalid limit");
+        }
     } else if (strcmp(action, "set_dec_left") == 0) {
-        motors_set_current_as_dec_left_limit();
+        if (!motors_set_current_as_dec_left_limit()) {
+            return mount_result_error("Invalid limit");
+        }
     } else if (strcmp(action, "set_dec_right") == 0) {
-        motors_set_current_as_dec_right_limit();
+        if (!motors_set_current_as_dec_right_limit()) {
+            return mount_result_error("Invalid limit");
+        }
     } else if (strcmp(action, "clear_limits") == 0) {
         motors_limits_reset();
     } else {

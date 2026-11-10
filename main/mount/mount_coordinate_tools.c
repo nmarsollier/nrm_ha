@@ -125,10 +125,11 @@ static float normalize_degf(float d) {
     return d;
 }
 
-/* Normalise hours to [0, 24). */
+/* Normalise hours to [0, 24).  fmodf keeps this O(1) and, unlike a `while`
+ * loop, cannot spin forever on a non-finite input. */
 static float normalize_hoursf(float h) {
-    while (h < 0.0f)   h += 24.0f;
-    while (h >= 24.0f) h -= 24.0f;
+    h = fmodf(h, 24.0f);
+    if (h < 0.0f) h += 24.0f;
     return h;
 }
 
@@ -151,20 +152,24 @@ static bool axis_within_limits(float ra, float dec) {
 bool equatorial_to_axis(EquatorialCoordinates eq, AxisCoordinates current,
                         time_t at_time, AxisCoordinates *out) {
 
+    if (!isfinite(eq.ra_hours) || !isfinite(eq.dec_deg)) {
+        ESP_LOGE("COORD_CONV", "Non-finite RA/DEC — rejecting");
+        return false;
+    }
+
     if (eq.dec_deg < -90.0f || eq.dec_deg > 90.0f) {
         ESP_LOGE("COORD_CONV", "Invalid DEC %.4f — rejecting", eq.dec_deg);
         return false;
     }
 
-    while (eq.ra_hours < 0.0f)   eq.ra_hours += 24.0f;
-    while (eq.ra_hours >= 24.0f) eq.ra_hours -= 24.0f;
+    eq.ra_hours = normalize_hoursf(eq.ra_hours);
 
     double lst  = gmst_hours_from_jd(unix_time_to_julian_date(at_time))
                   + (mount_internal_state.lon / 15.0);
 
-    float ha_h = (float)(lst - eq.ra_hours);
-    while (ha_h > 12.0f)   ha_h -= 24.0f;
-    while (ha_h < -12.0f)  ha_h += 24.0f;
+    float ha_h = fmodf((float)(lst - eq.ra_hours), 24.0f);
+    if (ha_h > 12.0f)  ha_h -= 24.0f;
+    if (ha_h < -12.0f) ha_h += 24.0f;
 
     float ha_deg = ha_h * 15.0f;
     float dec_base = eq.dec_deg + 90.0f;

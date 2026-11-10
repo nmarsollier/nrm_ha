@@ -59,6 +59,13 @@ typedef struct {
     int64_t ra_steps;
     /* Current DEC axis position — absolute microstep counter. */
     int64_t dec_steps;
+    /* Latched: true after an interrupted batched move (STOP mid-slew/move-axis)
+     * may have left already-emitted microsteps uncounted, so the step counters
+     * no longer provably match the physical axes.  Cleared only when the
+     * position is re-established against a physical reference
+     * (motors_set_current_as_home).  While set, clients must not treat the
+     * reported position as a trustworthy absolute. */
+    bool position_uncertain;
     /* High-level motors-derived status. */
     MotorsStatus status;
     /* Current requested tracking mode. */
@@ -177,6 +184,17 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed);
 float motors_get_slewing_speed(int speed_rate);
 
 /*
+ * Estimate the single-axis slew duration (seconds) for `distance_deg` at the
+ * commanded `speed_dps`, under the same ramp profile the motion task applies
+ * (constant slow speed below the short-slew threshold, capped speed below the
+ * gentle-slew threshold, then a trapezoidal/triangular accel-decel).  The mount
+ * layer uses it to predict a goto's arrival time and compensate for the sky
+ * rotation during the move, so it must mirror the real velocity profile rather
+ * than assume a constant `speed_dps`.
+ */
+float motors_slew_duration_seconds(float distance_deg, float speed_dps);
+
+/*
  * Return the manual move-axis angular speed (deg/s) for a given speed_rate
  * profile (1..10, higher = faster).  Continuous MoveAxis / joystick motion
  * runs at constant velocity (no acceleration ramp), so this geometric scale
@@ -239,11 +257,13 @@ void motors_limits_save(void);
 /* Set the current physical position as the new origin (home). */
 void motors_set_current_as_home(void);
 
-/* Set axis limits from the current physical position. */
-void motors_set_current_as_ra_left_limit(void);
-void motors_set_current_as_ra_right_limit(void);
-void motors_set_current_as_dec_left_limit(void);
-void motors_set_current_as_dec_right_limit(void);
+/* Set axis limits from the current physical position.  Each returns false
+ * (and changes nothing) when the new limit would make the config invalid
+ * (min >= max, non-finite, or outside the mechanical range). */
+bool motors_set_current_as_ra_left_limit(void);
+bool motors_set_current_as_ra_right_limit(void);
+bool motors_set_current_as_dec_left_limit(void);
+bool motors_set_current_as_dec_right_limit(void);
 
 /* Reset limits to factory defaults and persist. */
 void motors_limits_reset(void);

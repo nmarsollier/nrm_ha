@@ -18,5 +18,10 @@ MotorResultCode motors_park(void) {
     motors_state.status = MOTORS_STATUS_PARKED;
     motors_state.tracking = TRACKING_NONE;
     portEXIT_CRITICAL(&motors_state_lock);
+
+    /* Same barrier as STOP: PARKED must not be reported until the motion task
+     * has truly stopped and torn down RMT. */
+    motors_motion_wait_idle();
+
     return MOTOR_OK;
 }

@@ -9,12 +9,30 @@
 #include "motors.h"
 #include "motors_internal.h"
 
+#include <math.h>
+
+/* MoveAxis setpoint — the authoritative continuous-move rate.  Writing it
+ * bumps the version, which the motion task watches to pick up the newest rate
+ * without relying on the (FIFO) command queue. */
+volatile float motors_move_axis_ra_dps = 0.0f;
+volatile float motors_move_axis_dec_dps = 0.0f;
+volatile uint32_t motors_move_axis_version = 0;
+
 MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
     if (motors_status_is_error(motors_state.status)) {
         return MOTOR_ERR_HARDWARE_ERROR;
     }
 
+    /* Defense in depth: the protocol parser already rejects non-finite floats,
+     * but a NaN rate would silently slip past the clamp below. */
+    if (!isfinite(ra_speed) || !isfinite(dec_speed)) {
+        return MOTOR_ERR_OUT_OF_RANGE;
+    }
+
     if (ra_speed == 0.0f && dec_speed == 0.0f) {
+        motors_move_axis_ra_dps = 0.0f;
+        motors_move_axis_dec_dps = 0.0f;
+        motors_move_axis_version++;
         return motors_stop();
     }
 
@@ -28,6 +46,11 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
     if (ra_speed < -max_dps) ra_speed = -max_dps;
     if (dec_speed > max_dps) dec_speed = max_dps;
     if (dec_speed < -max_dps) dec_speed = -max_dps;
+
+    /* Publish the newest rate first, then signal the change. */
+    motors_move_axis_ra_dps = ra_speed;
+    motors_move_axis_dec_dps = dec_speed;
+    motors_move_axis_version++;
 
     MotionCommand cmd = {
         .type = MOTION_CMD_MOVE_AXIS,

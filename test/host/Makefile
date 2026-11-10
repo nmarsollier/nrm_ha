@@ -20,7 +20,7 @@ MOTOR_SRCS := \
   motors_get_move_axis_speed.c motors_move_axis_speed.c motors_start_tracking.c \
   motors_stop.c motors_tools.c motors_hw.c motors_rmt.c motors_command_queue.c \
   motors_motion_task.c motors_pulse_guide.c motors_is_pulse_guiding.c \
-  motors_power.c
+  motors_power.c motors_slew_duration.c
 
 MOUNT_SRCS := \
   mount_tools.c mount_pulse_guide.c mount_set_move_axis_speed.c \

@@ -24,5 +24,15 @@ MotorResultCode motors_stop(void) {
     motors_state.guiding = false;
     portEXIT_CRITICAL(&motors_state_lock);
     motors_motion_stop();
+
+    /*
+     * STOP is a barrier: it must not report READY (nor return to the caller)
+     * until the motion task has actually left its loop and finished tearing
+     * down RMT.  Without this wait a caller could observe READY and enqueue a
+     * new move while the motion task is still emitting steps or resetting RMT,
+     * and could read a position the task has not yet reconciled.
+     */
+    motors_motion_wait_idle();
+
     return MOTOR_OK;
 }

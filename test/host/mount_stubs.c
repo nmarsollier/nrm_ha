@@ -74,6 +74,13 @@ float motors_get_slewing_speed(int speed_rate) {
         default: return 4.0f;
     }
 }
+/* Test-only approximation — the real ramp model lives in the firmware
+ * (motors_slew_duration.c), which this fork harness does not compile. */
+float motors_slew_duration_seconds(float distance_deg, float speed_dps) {
+    return (distance_deg > 0.0f && speed_dps > 0.0f)
+           ? distance_deg / speed_dps + 2.0f
+           : 0.0f;
+}
 bool motors_status_is_error(MotorsStatus s) { return s == MOTORS_STATUS_ERROR; }
 const char *motors_status_to_string(MotorsStatus s) { (void) s; return "ready"; }
 MountResult mount_result_error(const char *msg) { return (MountResult){false, msg}; }

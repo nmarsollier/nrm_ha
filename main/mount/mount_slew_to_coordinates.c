@@ -43,9 +43,14 @@ MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate) {
     float speed = motors_get_slewing_speed(speed_rate);
     float ra_dist  = fabsf(axis_now.ra_axis_deg  - current.ra_axis_deg);
     float dec_dist = fabsf(axis_now.dec_axis_deg - current.dec_axis_deg);
-    float max_dist = (ra_dist > dec_dist) ? ra_dist : dec_dist;
-    /* Base move time plus ~2 s for the accel/decel ramp and queue latency. */
-    float duration_s = (speed > 0.0f) ? (max_dist / speed) + 2.0f : 0.0f;
+    /* Two-axis slew: the slower axis (larger per-axis duration) wins.  Use the
+     * real ramp profile rather than distance/speed, which under- or over-
+     * estimates short/gentle moves and skews the arrival-time compensation. */
+    float duration_s = motors_slew_duration_seconds(ra_dist, speed);
+    float dec_duration_s = motors_slew_duration_seconds(dec_dist, speed);
+    if (dec_duration_s > duration_s) {
+        duration_s = dec_duration_s;
+    }
     time_t arrive_at = now + (time_t) duration_s;
 
     AxisCoordinates axis;
@@ -56,7 +61,10 @@ MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate) {
     MotorResultCode rc1 = motors_slew_to_angle(axis.ra_axis_deg, axis.dec_axis_deg, speed_rate);
 
     if (rc1 != MOTOR_OK) {
-        return mount_result_error("Failed to start slew to coordinates");
+        /* Propagate the specific code (queue full, parked, out of range) so a
+         * rejected goto never reads as a generic success and clients get the
+         * same "command queue full — try again" contract as PulseGuide. */
+        return motors_result_code_error_result(rc1);
     }
 
     return mount_result_ok();

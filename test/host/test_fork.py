@@ -202,6 +202,15 @@ class ForkTests(unittest.TestCase):
             ok, _ = self.reverse(self.ha_ra(0), dec, Axis(0, 0, 0))
             self.assertFalse(ok)
 
+    def test_reverse_rejects_non_finite(self):
+        # NaN/inf must be rejected before normalization: a +inf RA would
+        # otherwise spin the `while` normalization forever.
+        for ra, dec in [(float("nan"), 0.0), (float("inf"), 0.0),
+                        (float("-inf"), 0.0), (0.0, float("nan")),
+                        (0.0, float("inf")), (0.0, float("-inf"))]:
+            ok, _ = self.reverse(ra, dec, Axis(0, 0, 0))
+            self.assertFalse(ok, f"non-finite ra={ra} dec={dec} must be rejected")
+
     # ── pole handling ───────────────────────────────────────────────
     def test_pole_maps_to_south_pole(self):
         # dec_axis = 0 (exact pole) reports DEC = -90 regardless of RA.

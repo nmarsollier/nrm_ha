@@ -92,6 +92,10 @@ void host_reset(void) {
     motors_state.ra_steps = 0;
     motors_state.dec_steps = 0;
     motors_state.guide_truncated = false;
+    motors_state.position_uncertain = false;
+    motors_move_axis_ra_dps = 0.0f;
+    motors_move_axis_dec_dps = 0.0f;
+    motors_move_axis_version = 0;
     motors_state.limits.ra_min  = HOST_RA_MIN;
     motors_state.limits.ra_max  = HOST_RA_MAX;
     motors_state.limits.dec_min = HOST_DEC_MIN;
@@ -148,11 +152,17 @@ int host_set_guide_rate_dec(float rate) {
 float host_get_guide_rate_ra(void) { return mount_get_guide_rate_ra(); }
 float host_get_guide_rate_dec(void) { return mount_get_guide_rate_dec(); }
 
+/* Pure slew-duration estimator — exposed to validate against the oracle. */
+float host_slew_duration(float distance_deg, float speed_dps) {
+    return motors_slew_duration_seconds(distance_deg, speed_dps);
+}
+
 /* State accessors. */
 int host_status(void) { return (int) motors_current_state().status; }
 int host_tracking(void) { return (int) motors_current_state().tracking; }
 int host_guiding(void) { return motors_current_state().guiding ? 1 : 0; }
 int host_guide_truncated(void) { return motors_current_state().guide_truncated ? 1 : 0; }
+int host_position_uncertain(void) { return motors_current_state().position_uncertain ? 1 : 0; }
 int host_has_hardware_fault(void) { return motors_has_hardware_fault() ? 1 : 0; }
 void host_update_power(int power_ok) { motors_update_power(power_ok ? true : false); }
 int64_t host_ra_steps(void) { return motors_current_state().ra_steps; }

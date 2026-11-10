@@ -131,11 +131,19 @@ aparentemente válidos).
   "pier_side": "east | west",
   "ra_speed_dps": 0.0, "dec_speed_dps": 0.0,
   "guiding": false, "at_home": false, "at_park": false,
+  "position_uncertain": false,                 // true tras un STOP que interrumpe un movimiento a mitad de un batch RMT
   "power": true, "time_valid": true,
   "limits": { "ra_min": -100.0, "ra_max": 100.0, "dec_min": -150.0, "dec_max": 150.0 },
   "config_rev": 3, "uptime_ms": 123456
 }
 ```
+
+`position_uncertain` se enciende cuando un `stop` interrumpe un slew o un
+move-axis a mitad de un batch RMT: parte de los micropasos ya emitidos no se
+contabilizaron, por lo que `ra_steps`/`dec_steps` ya no reproducen con certeza la
+posición física. Solo vuelve a `false` al re-referenciar el origen físico
+(`limits` → `set_home`). Mientras esté en `true`, el cliente no debe tratar la
+posición reportada como absoluta confiable.
 
 ### `config` — configuración, no movimiento
 

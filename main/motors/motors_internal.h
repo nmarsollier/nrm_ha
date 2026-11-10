@@ -33,6 +33,10 @@ typedef struct {
     float ra_speed;
     float dec_speed;
     TrackingMode tracking_mode;
+    /* SLEW: tracking mode to restore once the slew completes successfully.
+     * Carried by the command so the resume is atomic with the slew, not a
+     * separate order that a queue-full or a concurrent STOP could drop. */
+    TrackingMode resume_tracking;
     bool relative;
     float ra_delta_deg;
     float dec_delta_deg;
@@ -51,6 +55,14 @@ extern QueueHandle_t motion_cmd_queue;
 /* Stop epoch — incremented on every stop so queued commands can be
  * invalidated.  Read/written from multiple tasks (uint32, monotonic). */
 extern volatile uint32_t motors_stop_generation;
+
+/* MoveAxis continuous-move setpoint (signed deg/s) + version.  The newest
+ * value is authoritative: the producer overwrites it and bumps the version, and
+ * the motion task reads it directly, so obsolete MoveAxis orders never
+ * accumulate behind interleaved commands. */
+extern volatile float motors_move_axis_ra_dps;
+extern volatile float motors_move_axis_dec_dps;
+extern volatile uint32_t motors_move_axis_version;
 
 /* Spinlock guarding the int64_t position counters against torn cross-core
  * reads (motors_current_state / motors_get_*_deg). */
@@ -95,6 +107,24 @@ static inline float motors_get_deg_per_microstep(void) {
     return 1.8f / ((float) MOTORS_MICROSTEPS *
                     TOTAL_GEAR_REDUCTION);
 }
+
+/* =========================================================================
+ * Slew ramp profile — shared by the motion task (ramp_velocity) and the
+ * arrival-time estimator (motors_slew_duration.c), so the predicted goto
+ * duration matches the real velocity profile.  Centidegrees.
+ * ========================================================================= */
+
+/* Minimum slew velocity — floor for ramp curves. */
+#define MIN_SLEW_CDS     80
+
+/* Distance thresholds for ramp-profile selection. */
+#define SHORT_SLEW_CDS   200   /* constant slow speed below this */
+#define GENTLE_SLEW_CDS  800   /* cap target speed below this    */
+
+/* Accel/decel ramp window — fixed angular distance regardless of total
+ * travel (5 degrees). */
+#define ACCEL_DIST_CDS   500
+#define DECEL_DIST_CDS   500
 
 /* =========================================================================
  * Hardware layer — DIR GPIO control (motors_hw.c).

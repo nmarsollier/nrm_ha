@@ -26,7 +26,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
-#include "freertos/semphr.h"
 
 static const char *TAG = "MOTORS_MOTION_TASK";
 
@@ -68,10 +67,11 @@ TaskHandle_t motors_motion_task_handle = NULL;
  * can be discarded by the motion task. */
 volatile uint32_t motors_stop_generation = 0;
 
-/* Binary semaphore: "given" when the motion task is idle (blocked on the
- * command queue), "taken" while it runs a motion loop.  Control operations
- * (home, limits) wait on it so they never race the motion loop. */
-static SemaphoreHandle_t s_motion_idle_sem = NULL;
+/* Idle flag: true while the motion task is blocked on the command queue (not
+ * processing a command), false while it runs a motion loop.  Read by
+ * motors_motion_wait_idle() from other tasks — polled, never consumed, so
+ * repeated waits while already idle stay cheap and idempotent. */
+static volatile bool s_motion_idle = true;
 
 /* --------------------------------------------------------------------------
  * Motion state — active command being executed by the task.
@@ -87,6 +87,11 @@ static struct {
     int64_t dec_target;        /* steps */
     int64_t ra_start;          /* steps — captured at motion start (for ramps) */
     int64_t dec_start;         /* steps */
+    /* Tracking mode to restore after the current slew completes (SLEW only). */
+    TrackingMode resume_tracking;
+    /* MoveAxis setpoint version captured when the current move started — a
+     * version bump means the client published a newer rate. */
+    uint32_t move_axis_version;
 
     /* PulseGuide state — single-writer (motion task only). */
     int64_t ra_guide_deadline_us;
@@ -100,18 +105,9 @@ static struct {
  * -------------------------------------------------------------------------- */
 
 /*
- * Minimum slew velocity in centidegrees/second — floor for ramp curves.
+ * Distance thresholds and ramp window live in motors_internal.h (shared with
+ * the arrival-time estimator).  See ramp_velocity() below.
  */
-#define MIN_SLEW_CDS 80
-
-/* Distance thresholds in centidegrees for ramp-profile selection. */
-#define SHORT_SLEW_CDS   200   /* constant slow speed below this */
-#define GENTLE_SLEW_CDS  800   /* cap target speed below this    */
-
-/* Accel/decel ramp window in centidegrees — fixed angular distance
- * regardless of total travel (5 degrees). */
-#define ACCEL_DIST_CDS   500
-#define DECEL_DIST_CDS   500
 
 /*
  * Velocity percentage (0-100) at a given travelled distance for the
@@ -487,18 +483,6 @@ static bool check_motion_conditions(void) {
     return true;
 }
 
-/*
- * True when a newer MoveAxis setpoint is queued behind the running one.
- * MoveAxis speeds are live setpoints, not one-shot traversals: a new one
- * must preempt the in-flight continuous move instead of waiting for it to
- * reach the mechanical limit.
- */
-static bool move_axis_update_pending(void) {
-    MotionCommand queued;
-    return xQueuePeek(motion_cmd_queue, &queued, 0) == pdTRUE
-           && queued.type == MOTION_CMD_MOVE_AXIS;
-}
-
 /* --------------------------------------------------------------------------
  * Command processing — handle one MotionCommand and set up motion state.
  *
@@ -506,6 +490,40 @@ static bool move_axis_update_pending(void) {
  * the queue.  Stop / park are handled directly by their
  * callers via motors_motion_stop() + motors_state update.
  * -------------------------------------------------------------------------- */
+
+/*
+ * Enter tracking for `mode`: set the live base rate and the open-ended RA
+ * target so the tracking loop runs until an external stop.  Shared by the TRACK
+ * command and the inline tracking resume after a slew — the resume is therefore
+ * atomic with the slew, not a second queue order that could be lost.
+ */
+static void begin_tracking(TrackingMode mode) {
+    float ra_speed = motors_get_tracking_speed(mode);
+
+    portENTER_CRITICAL(&motors_state_lock);
+    motors_state.ra_speed = ra_speed;
+    motors_state.dec_speed = 0.0f;
+    motors_state.status = MOTORS_STATUS_TRACKING;
+    motors_state.tracking = mode;
+    portEXIT_CRITICAL(&motors_state_lock);
+
+    /*
+     * Tracking runs open-ended: target is set to the axis limit so the loop
+     * never completes on its own — it only stops when an external status
+     * change (STOP, PARK) is detected.  RA always tracks positive (hour angle
+     * increases at the sidereal rate on both hemispheres), so the target is
+     * ra_max; ra_min is the fallback for a negative rate.
+     */
+    s_motion.ra_target = (ra_speed >= 0.0f)
+        ? motors_deg_to_steps(motors_state.limits.ra_max)
+        : motors_deg_to_steps(motors_state.limits.ra_min);
+    s_motion.dec_target = motors_state.dec_steps;
+    s_motion.ra_start = motors_state.ra_steps;
+    s_motion.dec_start = motors_state.dec_steps;
+    s_motion.active_cmd_type = MOTION_CMD_TRACK;
+    s_motion.active = true;
+}
+
 static void process_command(MotionCommand cmd) {
     /*
      * If motors entered ERROR while this command was queued, reject it
@@ -524,6 +542,7 @@ static void process_command(MotionCommand cmd) {
     }
 
     s_motion.active_cmd_type = cmd.type;
+    s_motion.resume_tracking = TRACKING_NONE;
 
     switch (cmd.type) {
         case MOTION_CMD_SLEW:
@@ -551,59 +570,45 @@ static void process_command(MotionCommand cmd) {
             s_motion.dec_target = clamp_dec_steps(s_motion.dec_target);
             s_motion.ra_start = motors_state.ra_steps;
             s_motion.dec_start = motors_state.dec_steps;
+            s_motion.resume_tracking = cmd.resume_tracking;
             s_motion.active = true;
 
             break;
 
         case MOTION_CMD_TRACK:
-            portENTER_CRITICAL(&motors_state_lock);
-            motors_state.ra_speed = cmd.ra_speed;
-            motors_state.dec_speed = 0.0f;
-            motors_state.status = MOTORS_STATUS_TRACKING;
-            motors_state.tracking = cmd.tracking_mode;
-            portEXIT_CRITICAL(&motors_state_lock);
-
-            /*
-             * Tracking runs open-ended: target is set to the axis limit so
-             * the loop never completes on its own — it only stops when an
-             * external status change (STOP, PARK) is detected.
-             *
-             * RA always tracks positive (hour angle increases at the
-             * sidereal rate on both hemispheres), so the target is ra_max;
-             * ra_min is the fallback for a negative rate.
-             */
-            s_motion.ra_target = (cmd.ra_speed >= 0.0f)
-                                     ? motors_deg_to_steps(motors_state.limits.ra_max)
-                                     : motors_deg_to_steps(motors_state.limits.ra_min);
-            s_motion.dec_target = motors_state.dec_steps;
-            s_motion.ra_start = motors_state.ra_steps;
-            s_motion.dec_start = motors_state.dec_steps;
-            s_motion.active = true;
-
+            begin_tracking(cmd.tracking_mode);
             break;
 
         case MOTION_CMD_MOVE_AXIS:
-            portENTER_CRITICAL(&motors_state_lock);
-            motors_state.ra_speed = fabsf(cmd.ra_speed);
-            motors_state.dec_speed = fabsf(cmd.dec_speed);
-            motors_state.status = MOTORS_STATUS_SLEWING;
-            motors_state.tracking = TRACKING_NONE;
-            portEXIT_CRITICAL(&motors_state_lock);
+            /* MoveAxis is a setpoint: read the newest published rate, not the
+             * (possibly stale) queued value, so obsolete orders never win. */
+            {
+                float ra_sp = motors_move_axis_ra_dps;
+                float dec_sp = motors_move_axis_dec_dps;
 
-            s_motion.ra_target = (cmd.ra_speed > 0.0f)
-                                     ? motors_deg_to_steps(motors_state.limits.ra_max)
-                                     : (cmd.ra_speed < 0.0f)
-                                           ? motors_deg_to_steps(motors_state.limits.ra_min)
-                                           : motors_state.ra_steps;
-            s_motion.dec_target = (cmd.dec_speed > 0.0f)
-                                      ? motors_deg_to_steps(motors_state.limits.dec_max)
-                                      : (cmd.dec_speed < 0.0f)
-                                            ? motors_deg_to_steps(motors_state.limits.dec_min)
-                                            : motors_state.dec_steps;
+                portENTER_CRITICAL(&motors_state_lock);
+                motors_state.ra_speed = fabsf(ra_sp);
+                motors_state.dec_speed = fabsf(dec_sp);
+                motors_state.status = MOTORS_STATUS_SLEWING;
+                motors_state.tracking = TRACKING_NONE;
+                portEXIT_CRITICAL(&motors_state_lock);
 
-            s_motion.ra_start = motors_state.ra_steps;
-            s_motion.dec_start = motors_state.dec_steps;
-            s_motion.active = true;
+                s_motion.ra_target = (ra_sp > 0.0f)
+                                         ? motors_deg_to_steps(motors_state.limits.ra_max)
+                                         : (ra_sp < 0.0f)
+                                               ? motors_deg_to_steps(motors_state.limits.ra_min)
+                                               : motors_state.ra_steps;
+                s_motion.dec_target = (dec_sp > 0.0f)
+                                          ? motors_deg_to_steps(motors_state.limits.dec_max)
+                                          : (dec_sp < 0.0f)
+                                                ? motors_deg_to_steps(motors_state.limits.dec_min)
+                                                : motors_state.dec_steps;
+
+                s_motion.ra_start = motors_state.ra_steps;
+                s_motion.dec_start = motors_state.dec_steps;
+                s_motion.move_axis_version = motors_move_axis_version;
+                s_motion.active = true;
+            }
 
             break;
 
@@ -856,10 +861,12 @@ static void slewing_loop_rmt(void) {
      */
 
     while (s_motion.active) {
-        /* A newer MoveAxis setpoint preempts the running one: abort now so
-         * the main loop dequeues and applies it, instead of the continuous
-         * move running to the mechanical limit first. */
-        if (is_move_axis && move_axis_update_pending()) {
+        /* A newer MoveAxis setpoint preempts the running one: abort now so the
+         * main loop re-reads the setpoint and applies it.  Uses the version
+         * counter rather than peeking the queue, so a non-MOVE_AXIS command
+         * interleaved ahead of a newer rate cannot hide it. */
+        if (is_move_axis
+            && motors_move_axis_version != s_motion.move_axis_version) {
             s_motion.active = false;
             s_motion.aborted = true;
             break;
@@ -1274,6 +1281,19 @@ static void motion_loop(void) {
         tracking_loop_rmt();
     } else {
         slewing_loop_rmt();
+
+        /*
+         * A slew enqueued while tracking was active carries the mode to
+         * restore.  Resume it inline — not as a separate queue order — so the
+         * transition is atomic and cannot be lost to a queue-full or a
+         * concurrent STOP.  An aborted slew (STOP) cancels the resume too.
+         */
+        if (!s_motion.aborted && s_motion.resume_tracking != TRACKING_NONE) {
+            TrackingMode resume = s_motion.resume_tracking;
+            s_motion.resume_tracking = TRACKING_NONE;
+            begin_tracking(resume);
+            tracking_loop_rmt();
+        }
     }
 
     /*
@@ -1285,6 +1305,23 @@ static void motion_loop(void) {
      */
     if (s_motion.aborted) {
         motors_rmt_reset_both();
+
+        /*
+         * An aborted batched move (STOP / preempt during SLEW or MOVE_AXIS)
+         * drops whatever fraction of the in-flight batch had already been
+         * emitted but not yet counted, so the step counters may be off by up
+         * to one batch (RMT_BATCH_MAX_STEPS microsteps).  Surface that
+         * uncertainty so consumers stop trusting the position as absolute
+         * until a physical re-reference clears it.  The tracking loop emits
+         * one step per transaction and only counts it once it fully completes,
+         * so it is excluded here.
+         */
+        if (s_motion.active_cmd_type == MOTION_CMD_SLEW
+            || s_motion.active_cmd_type == MOTION_CMD_MOVE_AXIS) {
+            portENTER_CRITICAL(&motors_state_lock);
+            motors_state.position_uncertain = true;
+            portEXIT_CRITICAL(&motors_state_lock);
+        }
     }
 }
 
@@ -1312,20 +1349,16 @@ static void motors_motion_task_run(void *arg) {
         return;
     }
     while (true) {
-        /* Signal idle so control ops (home/limits) can wait for the motion
-         * to actually stop before touching counters/limits. */
-        if (s_motion_idle_sem != NULL) {
-            xSemaphoreGive(s_motion_idle_sem);
-        }
+        /* Signal idle so control ops (home/limits/stop) can wait for the
+         * motion to actually stop before touching counters/limits. */
+        s_motion_idle = true;
 
         MotionCommand cmd;
         if (xQueueReceive(motion_cmd_queue, &cmd, portMAX_DELAY) != pdTRUE)
             continue;
 
-        /* Consume the idle signal — the motion task is now running. */
-        if (s_motion_idle_sem != NULL) {
-            xSemaphoreTake(s_motion_idle_sem, 0);
-        }
+        /* The motion task is now running. */
+        s_motion_idle = false;
 
         process_command(cmd);
 
@@ -1357,12 +1390,6 @@ static void motors_motion_task_run(void *arg) {
  * -------------------------------------------------------------------------- */
 
 esp_err_t motors_motion_task_init(void) {
-    s_motion_idle_sem = xSemaphoreCreateBinary();
-    if (s_motion_idle_sem == NULL) {
-        ESP_LOGE(TAG, "Failed to create idle semaphore");
-        return ESP_ERR_NO_MEM;
-    }
-
     if (xTaskCreatePinnedToCore(
         motors_motion_task_run,
         "motors_motion",
@@ -1385,7 +1412,11 @@ esp_err_t motors_motion_task_init(void) {
  * this then blocks until the motion task has actually left its loop.
  */
 void motors_motion_wait_idle(void) {
-    if (s_motion_idle_sem != NULL) {
-        xSemaphoreTake(s_motion_idle_sem, pdMS_TO_TICKS(500));
+    const int64_t deadline_us = esp_timer_get_time() + 500 * 1000;
+    while (!s_motion_idle) {
+        if (esp_timer_get_time() >= deadline_us) {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
