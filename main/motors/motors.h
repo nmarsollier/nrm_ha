@@ -254,8 +254,9 @@ void motors_limits_load(void);
 /* Persist current limits to NVS. */
 void motors_limits_save(void);
 
-/* Set the current physical position as the new origin (home). */
-void motors_set_current_as_home(void);
+/* Set the current physical position as the new origin (home).  Returns false
+ * (and changes nothing) if the mount could not be stopped first. */
+bool motors_set_current_as_home(void);
 
 /* Set axis limits from the current physical position.  Each returns false
  * (and changes nothing) when the new limit would make the config invalid

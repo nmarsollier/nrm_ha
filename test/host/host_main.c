@@ -117,7 +117,7 @@ void host_reset(void) {
 }
 
 void host_wait_idle(void) {
-    motors_motion_wait_idle();
+    (void) motors_motion_wait_idle();
 }
 
 /* Mount commands — return 1 on ok, 0 on rejection. */

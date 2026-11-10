@@ -135,8 +135,12 @@ void motors_limits_save(void) {
 
 /* ── Runtime setters ─────────────────────────────────────── */
 
-void motors_set_current_as_home(void) {
-    motors_stop();
+bool motors_set_current_as_home(void) {
+    if (motors_stop() != MOTOR_OK) {
+        /* Never re-zero the counters if the stop did not complete — the motion
+         * task may still be running and would clobber the reference. */
+        return false;
+    }
     portENTER_CRITICAL(&motors_state_lock);
     motors_state.ra_steps  = 0;
     motors_state.dec_steps = 0;
@@ -146,31 +150,40 @@ void motors_set_current_as_home(void) {
     motors_state.position_uncertain = false;
     portEXIT_CRITICAL(&motors_state_lock);
     motors_limits_save();
+    return true;
 }
 
 bool motors_set_current_as_ra_left_limit(void) {
-    motors_stop();
+    if (motors_stop() != MOTOR_OK) {
+        return false;
+    }
     float pos = motors_get_ra_deg();
     return apply_limits_if_valid(pos, motors_state.limits.ra_max,
                                  motors_state.limits.dec_min, motors_state.limits.dec_max);
 }
 
 bool motors_set_current_as_ra_right_limit(void) {
-    motors_stop();
+    if (motors_stop() != MOTOR_OK) {
+        return false;
+    }
     float pos = motors_get_ra_deg();
     return apply_limits_if_valid(motors_state.limits.ra_min, pos,
                                  motors_state.limits.dec_min, motors_state.limits.dec_max);
 }
 
 bool motors_set_current_as_dec_left_limit(void) {
-    motors_stop();
+    if (motors_stop() != MOTOR_OK) {
+        return false;
+    }
     float pos = motors_get_dec_deg();
     return apply_limits_if_valid(motors_state.limits.ra_min, motors_state.limits.ra_max,
                                  pos, motors_state.limits.dec_max);
 }
 
 bool motors_set_current_as_dec_right_limit(void) {
-    motors_stop();
+    if (motors_stop() != MOTOR_OK) {
+        return false;
+    }
     float pos = motors_get_dec_deg();
     return apply_limits_if_valid(motors_state.limits.ra_min, motors_state.limits.ra_max,
                                  motors_state.limits.dec_min, pos);

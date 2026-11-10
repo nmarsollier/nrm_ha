@@ -583,10 +583,13 @@ static void process_command(MotionCommand cmd) {
             /* MoveAxis is a setpoint: read the newest published rate, not the
              * (possibly stale) queued value, so obsolete orders never win. */
             {
-                float ra_sp = motors_move_axis_ra_dps;
-                float dec_sp = motors_move_axis_dec_dps;
+                float ra_sp, dec_sp;
+                uint32_t ver;
 
                 portENTER_CRITICAL(&motors_state_lock);
+                ra_sp = motors_move_axis_ra_dps;
+                dec_sp = motors_move_axis_dec_dps;
+                ver = motors_move_axis_version;
                 motors_state.ra_speed = fabsf(ra_sp);
                 motors_state.dec_speed = fabsf(dec_sp);
                 motors_state.status = MOTORS_STATUS_SLEWING;
@@ -606,7 +609,7 @@ static void process_command(MotionCommand cmd) {
 
                 s_motion.ra_start = motors_state.ra_steps;
                 s_motion.dec_start = motors_state.dec_steps;
-                s_motion.move_axis_version = motors_move_axis_version;
+                s_motion.move_axis_version = ver;
                 s_motion.active = true;
             }
 
@@ -1411,12 +1414,14 @@ esp_err_t motors_motion_task_init(void) {
  * invoke motors_stop() first, which sets active=false and bumps the stop epoch;
  * this then blocks until the motion task has actually left its loop.
  */
-void motors_motion_wait_idle(void) {
+bool motors_motion_wait_idle(void) {
     const int64_t deadline_us = esp_timer_get_time() + 500 * 1000;
     while (!s_motion_idle) {
         if (esp_timer_get_time() >= deadline_us) {
-            break;
+            ESP_LOGW(TAG, "motion task did not become idle within 500 ms");
+            return false;
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
+    return true;
 }

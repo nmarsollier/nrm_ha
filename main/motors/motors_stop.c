@@ -30,9 +30,13 @@ MotorResultCode motors_stop(void) {
      * until the motion task has actually left its loop and finished tearing
      * down RMT.  Without this wait a caller could observe READY and enqueue a
      * new move while the motion task is still emitting steps or resetting RMT,
-     * and could read a position the task has not yet reconciled.
+     * and could read a position the task has not yet reconciled.  If the task
+     * fails to become idle in time, report the stop as failed rather than
+     * claiming the mount stopped.
      */
-    motors_motion_wait_idle();
+    if (!motors_motion_wait_idle()) {
+        return MOTOR_ERR_NOT_READY;
+    }
 
     return MOTOR_OK;
 }

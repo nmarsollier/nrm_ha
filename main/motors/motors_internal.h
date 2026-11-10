@@ -252,8 +252,10 @@ extern TaskHandle_t motors_motion_task_handle;
  * Safe to call from any task. */
 void motors_motion_stop(void);
 
-/* Wait (bounded) until the motion task is idle.  Call after motors_stop(). */
-void motors_motion_wait_idle(void);
+/* Wait (bounded) until the motion task is idle.  Call after motors_stop().
+ * Returns false if the task did not become idle within the timeout — the
+ * caller must then treat the stop as failed rather than report success. */
+bool motors_motion_wait_idle(void);
 
 esp_err_t motors_motion_task_init(void);
 

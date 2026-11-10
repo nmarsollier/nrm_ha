@@ -21,7 +21,9 @@ MotorResultCode motors_park(void) {
 
     /* Same barrier as STOP: PARKED must not be reported until the motion task
      * has truly stopped and torn down RMT. */
-    motors_motion_wait_idle();
+    if (!motors_motion_wait_idle()) {
+        return MOTOR_ERR_NOT_READY;
+    }
 
     return MOTOR_OK;
 }

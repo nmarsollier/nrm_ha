@@ -22,7 +22,9 @@ MountResult mount_limits_set(const char *action) {
     }
 
     if (strcmp(action, "set_home") == 0) {
-        motors_set_current_as_home();
+        if (!motors_set_current_as_home()) {
+            return mount_result_error("Stop failed");
+        }
     } else if (strcmp(action, "set_ra_left") == 0) {
         if (!motors_set_current_as_ra_left_limit()) {
             return mount_result_error("Invalid limit");

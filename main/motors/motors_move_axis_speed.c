@@ -30,9 +30,12 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
     }
 
     if (ra_speed == 0.0f && dec_speed == 0.0f) {
+        /* Zero is a stop: publish the zero setpoint and stop everything. */
+        portENTER_CRITICAL(&motors_state_lock);
         motors_move_axis_ra_dps = 0.0f;
         motors_move_axis_dec_dps = 0.0f;
         motors_move_axis_version++;
+        portEXIT_CRITICAL(&motors_state_lock);
         return motors_stop();
     }
 
@@ -47,11 +50,6 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
     if (dec_speed > max_dps) dec_speed = max_dps;
     if (dec_speed < -max_dps) dec_speed = -max_dps;
 
-    /* Publish the newest rate first, then signal the change. */
-    motors_move_axis_ra_dps = ra_speed;
-    motors_move_axis_dec_dps = dec_speed;
-    motors_move_axis_version++;
-
     MotionCommand cmd = {
         .type = MOTION_CMD_MOVE_AXIS,
         .ra_target_deg = 0.0f, /* set by the task from limits */
@@ -61,7 +59,18 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
         .tracking_mode = TRACKING_NONE,
     };
     if (!motors_queue_put(&cmd)) {
+        /* A rejected order must not alter an in-flight move: publish the
+         * setpoint only after the enqueue is confirmed. */
         return MOTOR_ERR_BUSY;
     }
+
+    /* Publish both values and their version together, so the motion task never
+     * observes a half-written combination. */
+    portENTER_CRITICAL(&motors_state_lock);
+    motors_move_axis_ra_dps = ra_speed;
+    motors_move_axis_dec_dps = dec_speed;
+    motors_move_axis_version++;
+    portEXIT_CRITICAL(&motors_state_lock);
+
     return MOTOR_OK;
 }
