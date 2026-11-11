@@ -46,6 +46,8 @@ void proto_dispatch(const char *body) {
         proto_handle_control(body, id, out, sizeof(out));
     } else if (strcmp(type, "action") == 0) {
         proto_handle_action(body, id, out, sizeof(out));
+    } else if (strcmp(type, "query") == 0) {
+        proto_handle_query(body, id, out, sizeof(out));
     } else {
         const char *name = type[0] != '\0' ? type : "unknown";
         snprintf(out, sizeof(out),

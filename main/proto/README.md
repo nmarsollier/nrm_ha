@@ -77,13 +77,13 @@ Toda trama es un objeto JSON:
 { "type": "state", "id": 7, "ok": true, "error": "…", ...campos de la familia }
 ```
 
-- `type`: `capabilities | state | config | control | action`.
+- `type`: `capabilities | state | config | control | action | query`.
 - `id`: request_id del cliente, replicado en la respuesta.
 - `boot_id`: u32 aleatorio por arranque — identifica reinicios/reconexión.
 
 ---
 
-## 5. Las 5 familias de mensajes
+## 5. Las 6 familias de mensajes
 
 ### `capabilities` — descubrir qué dispositivo tenemos
 
@@ -205,7 +205,7 @@ respuesta es **aceptada/rechazada**; el desenlace se lee después en `state`.
 
 ```jsonc
 { "type": "action", "id": 7,  "action": "stop",  "scope": "all | manual" }
-{ "type": "action", "id": 8,  "action": "goto",  "ra": 1.2, "dec": -33.0, "speed": 3 }
+{ "type": "action", "id": 8,  "action": "goto",  "ra": 1.2, "dec": -33.0, "speed": 3, "side": "east" }   // "side" opcional
 { "type": "action", "id": 9,  "action": "guide", "direction": "north|south|east|west", "duration_ms": 500 }
 { "type": "action", "id": 10, "action": "home" }
 { "type": "action", "id": 11, "action": "park" }
@@ -217,12 +217,39 @@ respuesta es **aceptada/rechazada**; el desenlace se lee después en `state`.
 ```
 
 - `goto`: RA en `[0,24)`, DEC en `[-90,90]`; velocidad `1..4` (1/3/4.5/6 °/s).
+  `side` opcional (`"east"`|`"west"`) fuerza el lado de destino — es el flip de
+  meridiano explícito — y **rechaza** el goto si ese lado es inalcanzable; un
+  `side` presente pero inválido también rechaza. Sin `side`, la montura aplica la
+  política asimétrica: desde **WEST** cruza a EAST en cuanto el HA objetivo
+  alcanza 0° (sin histéresis); desde **EAST** conserva EAST hasta que deja de ser
+  mecánicamente alcanzable (entonces cae a WEST si es válido).
 - `guide`: el pulso se temporiza entero en el ESP.
 - `stop`: `all` = detiene todo (incluido tracking); `manual` = detiene el manual y
   restaura el tracking pausado.
 - `reset`: reinicia el ESP (responde `ok` y reinicia ~200 ms después).
 - `move`: mueve un eje una cantidad relativa de grados (`degrees`, positivo/negativo).
 - `limits`: fija home o un límite desde la posición actual, o resetea los límites.
+
+### `query` — consultas de solo lectura
+
+Predicciones sin efectos secundarios: no mueven motores, no encolan comandos y no
+modifican tracking, HOME ni `pier_side`.
+
+```jsonc
+{ "type": "query", "id": 9, "query": "destination_side_of_pier", "ra": 1.2, "dec": -33.0 }
+```
+
+Respuesta (alcanzable):
+
+```jsonc
+{ "type": "query", "id": 9, "ok": true, "side": "east" }
+```
+
+- `destination_side_of_pier`: predice qué lado (`"east"`|`"west"`) elegiría un GOTO
+  a (RA, DEC) **en este instante**, usando exactamente la misma selección que el
+  GOTO real (`equatorial_to_axis` con política AUTO). Solo lectura. Si no hay
+  solución mecánica alcanzable (o no hay hora válida), responde `ok: false` con
+  `error`.
 
 ---
 

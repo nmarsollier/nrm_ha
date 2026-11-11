@@ -23,6 +23,10 @@ void proto_state_snapshot(char *out, size_t cap, uint32_t id) {
     AxisCoordinates axis = { .ra_axis_deg = ra_axis, .dec_axis_deg = dec_axis };
     EquatorialCoordinates eq = axis_to_equatorial(axis);
 
+    /* `pier_side` is the *instantaneous* physical side (sign of dec_axis): it is
+     * degenerate at HOME (dec_axis=0 -> "east") and transient while a flip is
+     * still slewing.  Clients must gate a prediction on `state` (still moving?)
+     * and `position_uncertain` before trusting it as a settled side. */
     int pier = (dec_axis >= 0.0f) ? 0 : 1;
     bool at_home = (s.status == MOTORS_STATUS_READY)
                 && fabsf(ra_axis) < 1.0f

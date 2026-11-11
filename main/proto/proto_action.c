@@ -80,7 +80,30 @@ void proto_handle_action(const char *req, uint32_t id, char *out, size_t cap) {
                 r = proto_error("dec out of range [-90,90]");
             } else {
                 proto_json_get_int(req, "speed", &speed);
-                r = mount_slew_to_coordinates(ra, dec, speed);
+
+                /* Optional destination pier side: absent -> AUTO; "east"/"west"
+                 * force that side (an explicit meridian flip).  A `side` that is
+                 * present but not a valid value is rejected rather than silently
+                 * treated as AUTO — a flip request must not degrade into a
+                 * different operation. */
+                PierSideRequirement side = PIER_SIDE_AUTO;
+                bool side_ok = true;
+                if (proto_json_has_key(req, "side")) {
+                    char side_str[8];
+                    if (proto_json_get_string(req, "side", side_str, sizeof(side_str))) {
+                        if (strcmp(side_str, "east") == 0) {
+                            side = PIER_SIDE_EAST;
+                        } else if (strcmp(side_str, "west") == 0) {
+                            side = PIER_SIDE_WEST;
+                        } else {
+                            side_ok = false;
+                        }
+                    } else {
+                        side_ok = false;   /* present but not a string (e.g. side: 123) */
+                    }
+                }
+                r = side_ok ? mount_slew_to_coordinates(ra, dec, speed, side)
+                            : proto_error("side must be east or west");
             }
         } else {
             r = proto_error("goto requires ra and dec");

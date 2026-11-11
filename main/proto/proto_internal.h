@@ -65,6 +65,7 @@ void proto_handle_state(const char *req, uint32_t id, char *out, size_t cap);
 void proto_handle_config(const char *req, uint32_t id, char *out, size_t cap);
 void proto_handle_control(const char *req, uint32_t id, char *out, size_t cap);
 void proto_handle_action(const char *req, uint32_t id, char *out, size_t cap);
+void proto_handle_query(const char *req, uint32_t id, char *out, size_t cap);
 
 /* Builds the STATE response body (the coherent mount snapshot). */
 void proto_state_snapshot(char *out, size_t cap, uint32_t id);

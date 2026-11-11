@@ -69,6 +69,7 @@ class ForkTests(unittest.TestCase):
             str(ROOT / "main/mount/mount_get_lst.c"),
             str(ROOT / "main/mount/mount_pulse_guide.c"),
             str(ROOT / "main/mount/mount_slew_to_coordinates.c"),
+            str(ROOT / "main/mount/mount_destination_side_of_pier.c"),
             str(ROOT / "test/host/mount_stubs.c"), "-lm", "-o", str(lib),
         ], check=True)
         cls.lib = C.CDLL(str(lib))
@@ -84,10 +85,12 @@ class ForkTests(unittest.TestCase):
         cls.lib.host_slew.restype = C.c_bool
         cls.lib.axis_to_equatorial.argtypes = [Axis]
         cls.lib.axis_to_equatorial.restype = Eq
-        cls.lib.equatorial_to_axis.argtypes = [Eq, Axis, C.c_long, C.POINTER(Axis)]
+        cls.lib.equatorial_to_axis.argtypes = [Eq, Axis, C.c_long, C.c_int, C.POINTER(Axis)]
         cls.lib.equatorial_to_axis.restype = C.c_bool
         cls.lib.host_guide.argtypes = [C.c_int]
         cls.lib.host_guide.restype = C.c_bool
+        cls.lib.host_destination_side_of_pier.argtypes = [C.c_float, C.c_float]
+        cls.lib.host_destination_side_of_pier.restype = C.c_int
 
     def setUp(self):
         self.lib.host_reset(NOW)
@@ -113,10 +116,10 @@ class ForkTests(unittest.TestCase):
     def forward(self, ra_axis, dec_axis):
         return self.lib.axis_to_equatorial(Axis(ra_axis, dec_axis, 0))
 
-    def reverse(self, ra_hours, dec_deg, current):
+    def reverse(self, ra_hours, dec_deg, current, required=-1):
         out = Axis(999, 999, 99)
         ok = self.lib.equatorial_to_axis(Eq(ra_hours, dec_deg), current,
-                                         NOW, C.byref(out))
+                                         NOW, required, C.byref(out))
         return ok, out
 
     def ha_ra(self, ha_deg):
@@ -161,7 +164,7 @@ class ForkTests(unittest.TestCase):
                 self.assertAlmostEqual(a.dec_deg, b.dec_deg, delta=1e-3)
                 self.assertAlmostEqual(a.ra_hours, b.ra_hours, delta=1e-3)
 
-    # ── reverse (min-travel selection) ──────────────────────────────
+    # ── reverse (pier-side selection) ───────────────────────────────
     def test_round_trip_recovers_position(self):
         for ra in [-60, -30, 0, 30, 60]:
             for dec in [30, 90, 149]:
@@ -171,15 +174,228 @@ class ForkTests(unittest.TestCase):
                 self.assertAlmostEqual(out.ra_axis_deg, ra, delta=1e-2)
                 self.assertAlmostEqual(out.dec_axis_deg, dec, delta=1e-2)
 
-    def test_reverse_picks_min_travel_side(self):
-        # Target at HA=+150, DEC=-30.  From (0, 0):
-        #   pierEast: ra = +60,  dec = +60   (cost 120)
-        #   pierWest: ra = -120, dec = -60   (cost 180) -> pierEast wins.
+    def _cur(self, side):
+        """Representative axis position on the given pier side (0 east, 1 west)."""
+        return Axis(0.0, 60.0, 0) if side == 0 else Axis(0.0, -60.0, 1)
+
+    def test_reverse_east_keeps_east_far_west(self):
+        # From EAST, a far-west target (HA=+150°) stays EAST (the asymmetric
+        # "stick to EAST" policy): pierEast ra=+60, dec=+60.
         ok, out = self.reverse(self.ha_ra(150), -30, Axis(0, 0, 0))
         self.assertTrue(ok)
         self.assertAlmostEqual(out.ra_axis_deg, 60, delta=1e-2)
         self.assertAlmostEqual(out.dec_axis_deg, 60, delta=1e-2)
         self.assertEqual(out.pier_side, 0)
+
+    def test_meridian_flip_policy_matrix(self):
+        """Asymmetric AUTO policy keyed on the current side (WEST=1, EAST=0)."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        cases = [
+            # From WEST: flip to EAST exactly at HA=0.
+            (1, -1.0,   1),
+            (1, -0.01,  1),
+            (1,  0.0,   0),
+            (1,  0.01,  0),
+            (1,  1.0,   0),
+            # From EAST: stick to EAST regardless of small HA.
+            (0,  1.0,   0),
+            (0,  0.01,  0),
+            (0,  0.0,   0),
+            (0, -0.01,  0),
+            (0, -3.0,   0),
+            (0, -5.0,   0),
+        ]
+        for side, ha, want in cases:
+            ok, out = self.reverse(self.ha_ra(ha), -30.0, self._cur(side))
+            self.assertTrue(ok, f"side={side} HA={ha} must be solvable")
+            self.assertEqual(out.pier_side, want,
+                             f"side={side} HA={ha}: got {out.pier_side}, want {want}")
+
+    def test_meridian_flip_crosses_to_opposite_side(self):
+        """WEST -> EAST at HA=+1° (the flip)."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, out = self.reverse(self.ha_ra(1.0), -30.0, self._cur(1))
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 0)
+        self.assertAlmostEqual(out.ra_axis_deg, -89.0, delta=1e-2)
+        self.assertAlmostEqual(out.dec_axis_deg, 60.0, delta=1e-2)
+
+    def test_meridian_flip_stays_west_east_of_meridian(self):
+        """WEST stays WEST at HA=-1° (east of meridian)."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, out = self.reverse(self.ha_ra(-1.0), -30.0, self._cur(1))
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 1)
+        self.assertAlmostEqual(out.ra_axis_deg, 89.0, delta=1e-2)
+        self.assertAlmostEqual(out.dec_axis_deg, -60.0, delta=1e-2)
+
+    def test_meridian_flip_repeated_goto_stays_on_new_side(self):
+        """After the flip (EAST), a repeated goto does not revert to WEST."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, out = self.reverse(self.ha_ra(1.0), -30.0, self._cur(0))
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 0)
+        self.assertAlmostEqual(out.ra_axis_deg, -89.0, delta=1e-2)
+        self.assertAlmostEqual(out.dec_axis_deg, 60.0, delta=1e-2)
+
+    def test_meridian_flip_east_sticks_even_slightly_east(self):
+        """EAST at HA=-0.01° stays EAST (no snap back across the meridian)."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, out = self.reverse(self.ha_ra(-0.01), -30.0, self._cur(0))
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 0)
+        self.assertAlmostEqual(out.ra_axis_deg, -90.01, delta=1e-2)
+        self.assertAlmostEqual(out.dec_axis_deg, 60.0, delta=1e-2)
+
+    def test_meridian_flip_east_falls_back_when_east_out_of_limits(self):
+        """From EAST, go WEST only when EAST is out of the RA limit (HA=-20°)."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, out = self.reverse(self.ha_ra(-20.0), -30.0, self._cur(0))
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 1)   # EAST ra=-110 is out; WEST is reachable
+        self.assertAlmostEqual(out.ra_axis_deg, 70.0, delta=1e-2)
+        self.assertAlmostEqual(out.dec_axis_deg, -60.0, delta=1e-2)
+
+    def test_meridian_flip_west_rejects_when_flip_unreachable(self):
+        """From WEST with HA>=0, an unreachable EAST must reject (no fallback)."""
+        self.lib.host_limits(-50, 100, -150, 150)   # asymmetric: EAST ra=-90 is out
+        ok, _ = self.reverse(self.ha_ra(0.0), -30.0, self._cur(1))
+        self.assertFalse(ok)
+
+    def test_meridian_flip_west_ha_negative_falls_back_to_east(self):
+        """From WEST with HA<0, an unreachable WEST falls back to EAST.
+
+        The no-fallback rule applies only to the flip (HA>=0); a stay-WEST goto
+        whose WEST solution is out of limits may still use EAST.
+        """
+        self.lib.host_limits(-100, 100, -100, 150)   # DEC=+30 -> WEST dec=-120 out
+        ok, out = self.reverse(self.ha_ra(-1.0), 30.0, self._cur(1))
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 0)           # EAST
+        self.assertAlmostEqual(out.ra_axis_deg, -91.0, delta=1e-2)
+        self.assertAlmostEqual(out.dec_axis_deg, 120.0, delta=1e-2)
+
+    def test_reverse_invalid_required_rejected(self):
+        """A `required` value outside AUTO/EAST/WEST is rejected (no OOB index)."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, _ = self.reverse(self.ha_ra(0.0), -30.0, Axis(0, 0, 0), required=99)
+        self.assertFalse(ok)
+
+    def test_meridian_flip_sequence_west_east_centers(self):
+        """WEST -> flip EAST -> several center gotos stay EAST."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        cur = self._cur(1)                                  # WEST
+        ok, out = self.reverse(self.ha_ra(0.5), -30.0, cur)
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 0)                  # flipped EAST
+
+        cur = out
+        ok, out = self.reverse(self.ha_ra(-0.01), -30.0, cur)
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 0)                  # stays EAST
+
+        cur = out
+        ok, out = self.reverse(self.ha_ra(0.01), -30.0, cur)
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 0)                  # stays EAST
+
+        cur = out
+        ok, out = self.reverse(self.ha_ra(-3.0), -30.0, cur)
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 0)                  # stays EAST
+
+    def test_meridian_flip_normalizes_across_antimeridian(self):
+        """HA near ±12h normalises to the HA-correct side from WEST."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, out = self.reverse(self.ha_ra(179.0), -30.0, self._cur(1))
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 0)           # HA>=0 -> EAST
+        self.assertAlmostEqual(out.ra_axis_deg, 89.0, delta=1e-2)
+        self.assertAlmostEqual(out.dec_axis_deg, 60.0, delta=1e-2)
+
+        ok, out = self.reverse(self.ha_ra(-179.0), -30.0, self._cur(1))
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 1)           # HA<0 -> WEST
+        self.assertAlmostEqual(out.ra_axis_deg, -89.0, delta=1e-2)
+        self.assertAlmostEqual(out.dec_axis_deg, -60.0, delta=1e-2)
+
+    def test_meridian_flip_pole_target(self):
+        """DEC=-90 (the pole) has no DEC component; the side is degenerate."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, out = self.reverse(self.ha_ra(1.0), -90.0, Axis(0, 0, 0))
+        self.assertTrue(ok)
+        self.assertAlmostEqual(out.dec_axis_deg, 0.0, delta=1e-2)
+        got = self.forward(out.ra_axis_deg, out.dec_axis_deg)
+        self.assertAlmostEqual(got.dec_deg, -90.0, delta=1e-2)
+
+    def test_meridian_flip_explicit_side_forces_side(self):
+        """An explicit side overrides the hour-angle preference.
+
+        HA=+1° (west) would pick EAST; requesting WEST forces WEST.
+        """
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, out = self.reverse(self.ha_ra(1.0), -30.0, self._cur(1), required=1)
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 1)
+        self.assertAlmostEqual(out.ra_axis_deg, 91.0, delta=1e-2)
+        self.assertAlmostEqual(out.dec_axis_deg, -60.0, delta=1e-2)
+
+    def test_meridian_flip_explicit_east_overrides_auto(self):
+        """An explicit EAST request flips even at HA=+0.2° (no deadband)."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, out = self.reverse(self.ha_ra(0.2), -30.0, self._cur(1), required=0)
+        self.assertTrue(ok)
+        self.assertEqual(out.pier_side, 0)
+        self.assertAlmostEqual(out.ra_axis_deg, -89.8, delta=1e-2)
+        self.assertAlmostEqual(out.dec_axis_deg, 60.0, delta=1e-2)
+
+    def test_meridian_flip_explicit_side_unreachable_rejects(self):
+        """An explicit side that is out of limits must reject, never fall back.
+
+        HA=+11° leaves WEST (ra=+101) outside the ±100 RA limit.  Requesting
+        WEST must fail rather than silently stay on the reachable EAST side.
+        """
+        self.lib.host_limits(-100, 100, -150, 150)
+        ok, _ = self.reverse(self.ha_ra(11.0), -30.0, Axis(0, 0, 0), required=1)
+        self.assertFalse(ok)
+
+    def test_goto_locks_side_across_meridian_crossing(self):
+        """The destination side is decided once, at the request instant.
+
+        A long slew from WEST to a target at HA=-0.1° drifts HA past zero by the
+        arrival instant; the destination must stay WEST (dec_axis < 0) rather
+        than flip mid-slew.
+        """
+        self.lib.host_limits(-100, 100, -150, 150)
+        self.lib.host_ra(-90.0)   # WEST, far from the target's WEST solution
+        self.lib.host_dec(-60.0)
+        ok, _, _, dec = self._slew(self.ha_ra(-0.1), -30.0)
+        self.assertTrue(ok)
+        self.assertLess(dec, 0.0, "side must stay locked to WEST across the crossing")
+
+    # ── destination-side prediction (read-only) ─────────────────────
+    def test_destination_side_matches_goto_selection(self):
+        """The read-only prediction uses the same selection as a real goto."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        for ha in (-5.0, -0.01, 0.0, 0.01, 5.0):
+            for side in (0, 1):
+                cur = self._cur(side)
+                self.lib.host_ra(cur.ra_axis_deg)
+                self.lib.host_dec(cur.dec_axis_deg)
+                pred = self.lib.host_destination_side_of_pier(self.ha_ra(ha), -30.0)
+                ok, out = self.reverse(self.ha_ra(ha), -30.0, cur)
+                self.assertTrue(ok)
+                self.assertEqual(pred, out.pier_side,
+                                 f"HA={ha} side={side}: pred {pred} != goto {out.pier_side}")
+
+    def test_destination_side_is_read_only(self):
+        """The prediction enqueues nothing (slew_called stays 0)."""
+        self.lib.host_limits(-100, 100, -150, 150)
+        self.lib.host_ra(0.0)
+        self.lib.host_dec(-60.0)
+        self.lib.host_destination_side_of_pier(self.ha_ra(1.0), -30.0)
+        self.assertEqual(C.c_int.in_dll(self.lib, "slew_called").value, 0,
+                         "prediction must not enqueue a move")
 
     def test_reverse_falls_back_to_other_side(self):
         # The nearest side is out of DEC limits, so the other side must win.

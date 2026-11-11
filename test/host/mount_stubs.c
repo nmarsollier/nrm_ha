@@ -103,5 +103,12 @@ MotorResultCode motors_pulse_guide_start(int axis, float offset, uint32_t durati
 /* Simplify the ABI used by the Python tests. */
 bool host_guide(int direction) { return mount_pulse_guide(direction, 500).ok; }
 bool host_slew(float ra, float dec, int speed) {
-    return mount_slew_to_coordinates(ra, dec, speed).ok;
+    return mount_slew_to_coordinates(ra, dec, speed, PIER_SIDE_AUTO).ok;
+}
+/* Predict the pier side a goto would select (0 east, 1 west), or -1 when
+ * unreachable. */
+int host_destination_side_of_pier(float ra, float dec) {
+    int side = -1;
+    MountResult r = mount_destination_side_of_pier(ra, dec, &side);
+    return r.ok ? side : -1;
 }

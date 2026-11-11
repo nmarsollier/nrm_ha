@@ -16,6 +16,7 @@ if(CONFIG_TINYUSB_CDC_ENABLED)
         "proto/proto_config.c"
         "proto/proto_control.c"
         "proto/proto_action.c"
+        "proto/proto_query.c"
         )
 endif()
 
@@ -63,6 +64,7 @@ idf_component_register(
         "mount/mount_init.c"
         "mount/mount_coordinate_tools.c"
         "mount/mount_slew_to_coordinates.c"
+        "mount/mount_destination_side_of_pier.c"
         "mount/mount_get_lst.c"
         "mount/mount_home.c"
         "mount/mount_limits.c"

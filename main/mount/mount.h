@@ -42,6 +42,24 @@ typedef struct {
     int pier_side;      /* 0 = pierEast, 1 = pierWest — set by equatorial_to_axis */
 } AxisCoordinates;
 
+/* Destination pier side requested for a goto.
+ *
+ * PIER_SIDE_AUTO applies the asymmetric meridian policy: from WEST it flips to
+ * EAST as soon as the target crosses the meridian (HA >= 0), and from EAST it
+ * keeps EAST until EAST is mechanically unreachable (then falls back to WEST).
+ * A fallback also applies from WEST with HA < 0 when WEST is unreachable, but
+ * never on the flip itself (WEST + HA >= 0 -> EAST is mandatory or the goto
+ * rejects).
+ *
+ * PIER_SIDE_EAST / PIER_SIDE_WEST force that side and reject the goto when it
+ * is unreachable — this is how a client requests an explicit meridian flip and
+ * distinguishes it from an ordinary goto. */
+typedef enum {
+    PIER_SIDE_AUTO = -1,
+    PIER_SIDE_EAST = 0,
+    PIER_SIDE_WEST = 1,
+} PierSideRequirement;
+
 /* Formatted astronomical coordinate types. */
 typedef struct {
     int hours;
@@ -68,7 +86,8 @@ typedef struct {
 
 /* Conversion functions between equatorial and physical axis coordinates. */
 bool equatorial_to_axis(EquatorialCoordinates eq, AxisCoordinates current,
-                        time_t at_time, AxisCoordinates *out);
+                        time_t at_time, PierSideRequirement required,
+                        AxisCoordinates *out);
 
 EquatorialCoordinates axis_to_equatorial(AxisCoordinates axis);
 
@@ -114,9 +133,24 @@ MountResult mount_set_tracking(TrackingMode tracking);
  *  - `ra` (hours): right ascension in hours.
  *  - `dec` (degrees): declination in degrees.
  *  - `speed_rate` (1..4): requested speed profile (higher = faster).
+ *  - `required` (PierSideRequirement): AUTO applies the asymmetric meridian
+ *    policy (see PierSideRequirement); EAST/WEST force that side and reject if
+ *    unreachable.
  * Returns a MountResult describing acceptance or rejection.
  */
-MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate);
+MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate,
+                                     PierSideRequirement required);
+
+/*
+ * mount_destination_side_of_pier
+ * -------------------------------
+ * Predict, without moving, which pier side (0 = east, 1 = west) a goto to the
+ * given equatorial position would select at this instant.  Uses the same
+ * selection as mount_slew_to_coordinates, so the prediction matches what a real
+ * goto would do.  Returns a MountResult; on success *side is set, on failure
+ * (time not synced, target unreachable) the result carries the reason.
+ */
+MountResult mount_destination_side_of_pier(float ra, float dec, int *side);
 
 /*
  * mount_stop

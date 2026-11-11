@@ -10,7 +10,8 @@
 
 #include "motors.h"
 
-MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate) {
+MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate,
+                                     PierSideRequirement required) {
     if (mount_is_error()) {
         return mount_result_error_state();
     }
@@ -35,10 +36,16 @@ MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate) {
      * hour angle that advances during the move (≈ 15 arcsec/s). */
     time_t now = time(NULL);
 
+    /* Decide the destination side ONCE, at the request instant, and lock it for
+     * the whole move.  The arrival-time conversion below only re-solves the axis
+     * coordinates for the (slightly later) hour angle on that same side — it
+     * must never flip the side mid-slew when HA crosses zero. */
     AxisCoordinates axis_now;
-    if (!equatorial_to_axis(eq, current, now, &axis_now)) {
+    if (!equatorial_to_axis(eq, current, now, required, &axis_now)) {
         return mount_result_error("Target unreachable — no valid axis solution");
     }
+    PierSideRequirement locked = (axis_now.pier_side == PIER_SIDE_EAST)
+                                 ? PIER_SIDE_EAST : PIER_SIDE_WEST;
 
     float speed = motors_get_slewing_speed(speed_rate);
     float ra_dist  = fabsf(axis_now.ra_axis_deg  - current.ra_axis_deg);
@@ -54,7 +61,7 @@ MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate) {
     time_t arrive_at = now + (time_t) duration_s;
 
     AxisCoordinates axis;
-    if (!equatorial_to_axis(eq, current, arrive_at, &axis)) {
+    if (!equatorial_to_axis(eq, current, arrive_at, locked, &axis)) {
         return mount_result_error("Target unreachable — no valid axis solution");
     }
 
