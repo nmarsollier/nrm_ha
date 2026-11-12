@@ -3578,13 +3578,6 @@ CONFIG_WL_SECTOR_SIZE=4096
 # end of Wear Levelling
 
 #
-# NRM-HA Mount
-#
-# default:
-# CONFIG_NRM_TEST_BUILD is not set
-# end of NRM-HA Mount
-
-#
 # TinyUSB Stack
 #
 # default:

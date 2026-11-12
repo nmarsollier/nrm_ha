@@ -130,6 +130,7 @@ aparentemente válidos).
   "ra": 1.2345, "dec": -33.4, "lst": 3.1415,    // horas / grados / horas
   "pier_side": "east | west",
   "ra_speed_dps": 0.0, "dec_speed_dps": 0.0,
+  "microsteps": 64,                            // resolución activa (64 tracking, 8 en slews grandes)
   "guiding": false, "at_home": false, "at_park": false,
   "position_uncertain": false,                 // true tras un STOP que interrumpe un movimiento a mitad de un batch RMT
   "power": true, "time_valid": true,

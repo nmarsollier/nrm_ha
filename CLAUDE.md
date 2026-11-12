@@ -19,8 +19,8 @@ consumo o consultar cómo se implementa el lado Alpaca/UI, mirar ahí.
 - Montura NRM-HA con harmonic drives de reduccion 100:1 y poleas GT2 9mm 3:1 (20T→60T)
 - Reduccion total: 300:1 en ambos ejes
 - Utiliza una placa ESP32-S3 44 pines
-- Utiliza 2 motores Nema 17 Closed Loop con driver integrado, configurados a 64 microsteps
-- Los motores se alimentan directo de fuente 12V, la placa ESP32-S3 via LM2596 (12V→5.5V)
+- Utiliza 2 motores Nema 17 controlados por drivers TMC2209 (microsteps variables: 64 en tracking, 8 en slew)
+- Los motores se alimentan directo de fuente 12V (VM de los TMC2209), la placa ESP32-S3 via LM2596 (12V→5.5V)
 - Estructura metalica en hierro 1/8, dos cuerpos (RA y DEC)
 - La montura posee 2 botones fisicos, Stop y Home
 - Posee una pantalla minimalista OLED de 0.98 inch, se muestra verticalmente
@@ -33,13 +33,22 @@ consumo o consultar cómo se implementa el lado Alpaca/UI, mirar ahí.
 - El cuerpo DEC se enrosca a la estructura RA a traves de la salida del Harmonic
 - Los cables que controlan el eje DEC se pasan por dentro del Harmonic
 
-### Motores Nema 17 Closed Loop
+### Motores Nema 17 con TMC2209
 
-- Motores Nema 17 Closed Loop con driver integrado ISS42 (especificaciones en MOTOR.txt)
-- https://www.amazon.com/dp/B0FHHWT8Q8
-- Configurados a 64 microsteps via DIP switches (12800 pasos/rev)
-- Torque: 0.44 Nm
-- Resolucion por DIP switches SW3-SW6: 64 microsteps = SW3 OFF, SW4 ON, SW5 OFF, SW6 ON
+- Motores Nema 17 de 1.8° controlados por drivers TMC2209 (StealthChop/SpreadCycle)
+- Los drivers se configuran por UART single-wire (TX por resistor 1kΩ, RX directo a PDN_UART)
+- Microsteps variables via CHOPCONF.MRES: 64 en tracking/guiding, 8 en slews grandes
+- Reduccion total 300:1 (3:1 poleas × 100:1 harmonico)
+- Configuracion de referencia del TMC2209: ver `TMC.md` del repo bft_firmware (datasheet rev 1.09)
+- Corrientes IRUN/IHOLD provisionales en `config.h` (a afinar para el Nema 17 final de 2.0A)
+
+### Drivers TMC2209
+
+- Driver inteligente por eje, alimentado por VM (12V), logica VCC_IO 3.3V (sin level shifting)
+- STEP/DIR directos desde GPIO (3.3V CMOS, flanco ascendente en STEP)
+- Sin pin ENABLE (habilitado por defecto) ni ALARM conectados
+- UART single-wire por eje: TX (GPIO) → 1kΩ → PDN_UART; RX (GPIO) directo a PDN_UART
+- Deteccion de energia: los drivers quedan mudos sin VM → `tmc2209_probe()` (lee DRV_STATUS)
 
 ## Placa ESP32-S3
 
@@ -69,50 +78,37 @@ consumo o consultar cómo se implementa el lado Alpaca/UI, mirar ahí.
 
 | GPIO | Funcion           | Notas                                              |
 |------|-------------------|----------------------------------------------------|
-| 1    | PWR-SENSE         | Deteccion de energia externa 12V (ADC1_CH0, divisor 10k/10k sobre 5.5V) |
-| 14   | STEP- RA          | Pulso STEP eje ascension recta (via UMC2003)         |
-| 10   | DIR- RA           | Direccion eje ascension recta (via UMC2003)           |
-| 12   | STEP- DEC         | Pulso STEP eje declinacion (via UMC2003)              |
-| 9    | DIR- DEC          | Direccion eje declinacion (via UMC2003)               |
-| 42   | LED externo       | LEDC PWM, indicador de estado (directo a GPIO)                      |
+| 10   | STEP- RA          | Pulso STEP eje ascension recta (directo al TMC2209)  |
+| 9    | DIR- RA           | Direccion eje ascension recta (directo al TMC2209)    |
+| 15   | STEP- DEC         | Pulso STEP eje declinacion (directo al TMC2209)       |
+| 7    | DIR- DEC          | Direccion eje declinacion (directo al TMC2209)        |
+| 12   | TMC RA TX         | UART1 TX → 1kΩ → PDN_UART del TMC de RA              |
+| 13   | TMC RA RX         | UART1 RX directo a PDN_UART del TMC de RA             |
+| 17   | TMC DEC TX        | UART2 TX → 1kΩ → PDN_UART del TMC de DEC             |
+| 18   | TMC DEC RX        | UART2 RX directo a PDN_UART del TMC de DEC            |
+| 42   | LED externo       | LEDC PWM, indicador de estado (directo a GPIO)        |
 | 41   | BUZZER            | Buzzer pasivo 2 kHz (directo a GPIO)                  |
 
-**Level shifting (UMC2003, array Darlington):**
-Los drivers integrados usan optoacopladores en STEP/DIR que requieren
-5 V / ~10 mA. La ESP32-S3 tiene logica de 3.3 V y no tolera 5 V. Las salidas
-STEP y DIR de ambos ejes pasan por un UMC2003, un array
-Darlington de 7 canales con salidas de colector abierto (sinking).
-
-Cada GPIO va directo a una entrada del UMC2003 (resistencia de base interna,
-no requiere resistor externo). La salida hunde corriente hacia GND:
-
-```
-GPIO (3.3V) → INx UMC2003        OUTx → carga → +V
-
-  GPIO HIGH → OUTx a GND (carga activa)
-  GPIO LOW  → OUTx en alta impedancia
-```
-
-Las salidas son "negativas" (active-low): la carga (opto del driver) se
-conecta entre +V y la salida. El pin COM (anodo comun
-de los diodos de proteccion) se ata al +V. No hay cargas inductivas en esta
-revision (los drivers se controlan por optoacopladores, que son LED), asi
-que los diodos no son estrictamente necesarios.
-
-EN+ / EN- van **sin conectar** (habilitado por defecto). El ISS42 invierte la
-logica: EN+ a +V y EN- a GND lo *deshabilita*.
-Los pines ALARM no se conectan en esta revision.
+**Conexion TMC2209 (sin level shifting):**
+Los drivers TMC2209 aceptan logica 3.3V en STEP/DIR, asi que van
+directos a los GPIO (no hace falta el UMC2003). Cada TMC se configura
+por un UART single-wire dedicado: TX (con resistor serie de 1kΩ) y RX
+(directo) sobre el pin PDN_UART. El pin de habilitacion (EN) no se
+conecta (habilitado por defecto) y los pines de diagnostico (DIAG/INDEX)
+no se usan en esta revision.
 
 **Alimentacion:**
 | Pin  | Funcion           |
 |------|-------------------|
-| 12V  | Alimentacion de potencia (DC+) y entradas de control (PU+/DR+). El ISS42 acepta 5-24 V en control |
-| GND  | Tierra comun (placa, UMC2003 y drivers comparten la misma tierra) |
+| 12V  | Alimentacion de potencia (VM de los TMC2209) y logica VCC_IO (3.3V de la placa) |
+| GND  | Tierra comun (placa y drivers comparten la misma tierra) |
 
 **Uso futuro:**
 | GPIO | Funcion     | Notas                              |
 |------|-------------|------------------------------------|
-| 6    | I2C SCL (2do bus) | Display / sensor adicional        |
+| 6    | I2C SCL (2do bus) | Display / sensor adicional  |
+| 1    | Libre       | (ex PWR-SENSE, ya no se usa ADC)   |
+| 14   | Libre       | (ex STEP- RA)                      |
 
 ### Pines con restricciones (NO USAR)
 
@@ -137,10 +133,10 @@ App de escritorio Go (Alpaca/UI) → USB CDC-ACM → Proto → Mount (orquestaci
 - **proto** (`main/proto/`) — Protocolo serial: framing, dispatch, handlers por familia, sesion.
 - **Mount** (`main/mount/`) — Orquestacion logica del montaje: estado, coordenadas, sincronizacion.
 - **Runtime** (`main/runtime/`) — Inicializacion y ciclo de vida del sistema.
-- **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP.
+- **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP, microsteps variables y gating de energia.
+- **TMC** (`main/tmc/`) — Driver TMC2209 por UART single-wire: init, probe, reinit y cambio de microsteps con verificacion.
 - **LED** (`main/led/`) — Control PWM del LED externo en GPIO 42. Estados: tenue (normal), brillante (slewing), respiracion (error).
 - **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 41 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
-- **Power** (`main/power/`) — Sensor de energia externa (ADC en GPIO 1). Bloquea el movimiento cuando la montura esta solo con USB (12V apagado).
 - **Utils** (`main/utils/`) — Utilidades transversales (parser, validacion).
 
 ## Reglas generales
@@ -177,4 +173,5 @@ App de escritorio Go (Alpaca/UI) → USB CDC-ACM → Proto → Mount (orquestaci
 
 - usb_cdc depende de TinyUSB (componente gestionado `espressif/esp_tinyusb`)
 - proto depende de usb_cdc (transporte) y de mount/motors (estado y comandos)
-- Motors es autocontenido: controla GPIOs DIR y RMT para STEP
+- Motors depende de tmc (microsteps y probe de energia) y controla GPIOs DIR y RMT para STEP
+- tmc depende de config (pines/registros) y del driver UART de ESP-IDF

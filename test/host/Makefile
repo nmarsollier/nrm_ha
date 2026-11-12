@@ -11,7 +11,7 @@ ROOT    := $(HOSTDIR)../..
 
 STUB_INC := -I$(HOSTDIR)stubs -I$(HOSTDIR)
 PROD_INC := -I$(ROOT)/main -I$(ROOT)/main/config -I$(ROOT)/main/mount \
-            -I$(ROOT)/main/motors -I$(ROOT)/main/utils
+            -I$(ROOT)/main/motors -I$(ROOT)/main/tmc -I$(ROOT)/main/utils
 
 CFLAGS := -shared -fPIC -std=c11 -O2 -Wall -Wextra $(STUB_INC) $(PROD_INC)
 
@@ -20,7 +20,7 @@ MOTOR_SRCS := \
   motors_get_move_axis_speed.c motors_move_axis_speed.c motors_start_tracking.c \
   motors_stop.c motors_tools.c motors_hw.c motors_rmt.c motors_command_queue.c \
   motors_motion_task.c motors_pulse_guide.c motors_is_pulse_guiding.c \
-  motors_power.c motors_slew_duration.c
+  motors_microsteps.c motors_power.c motors_slew_duration.c
 
 MOUNT_SRCS := \
   mount_tools.c mount_pulse_guide.c mount_set_move_axis_speed.c \
@@ -31,7 +31,7 @@ PROD_SRCS := $(addprefix $(ROOT)/main/motors/,$(MOTOR_SRCS)) \
              $(ROOT)/main/utils/string_utils.c
 
 HOST_SRCS := $(HOSTDIR)host_main.c $(HOSTDIR)host_rtos.c $(HOSTDIR)host_rmt.c \
-             $(HOSTDIR)host_gpio.c $(HOSTDIR)host_time.c
+             $(HOSTDIR)host_gpio.c $(HOSTDIR)host_time.c $(HOSTDIR)tmc_stubs.c
 
 LIB := $(HOSTDIR)libnrm_host.so
 

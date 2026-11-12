@@ -20,6 +20,8 @@ typedef int gpio_num_t;
 #define GPIO_NUM_14 14
 #define GPIO_NUM_15 15
 #define GPIO_NUM_16 16
+#define GPIO_NUM_17 17
+#define GPIO_NUM_18 18
 #define GPIO_NUM_41 41
 #define GPIO_NUM_42 42
 #define GPIO_NUM_43 43

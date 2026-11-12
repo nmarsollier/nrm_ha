@@ -187,8 +187,11 @@ static uint32_t step_period_ticks(float velocity_dps) {
     if (fabsf(velocity_dps) < 1e-9f)
         return MAX_STEP_PERIOD_TICKS;
 
-    float deg_per_step = motors_get_deg_per_microstep();
-    float period_s = deg_per_step / fabsf(velocity_dps);
+    /* Period of one STEP pulse: canonical degrees per step × the pulse
+     * multiplier of the active microstep resolution. */
+    float deg_per_pulse = motors_get_deg_per_microstep()
+                        * (float) motors_steps_per_pulse();
+    float period_s = deg_per_pulse / fabsf(velocity_dps);
     uint32_t ticks = (uint32_t) (period_s * (float) RMT_RESOLUTION_HZ);
     if (ticks < STEP_MIN_PERIOD_TICKS)
         ticks = STEP_MIN_PERIOD_TICKS;
@@ -273,7 +276,10 @@ static uint32_t clamp_ra_batch(int64_t current, int sign, uint32_t batch) {
     int64_t limit = (sign > 0) ? motors_deg_to_steps(motors_state.limits.ra_max)
                                : motors_deg_to_steps(motors_state.limits.ra_min);
     int64_t headroom = (sign > 0) ? (limit - current) : (current - limit);
-    uint32_t max_steps = (headroom > 0) ? (uint32_t) headroom : 0;
+    /* `current`/limit are canonical steps; `batch` is STEP pulses. */
+    uint32_t max_steps = (headroom > 0)
+                             ? (uint32_t)(headroom / (int64_t) motors_steps_per_pulse())
+                             : 0;
     return (batch > max_steps) ? max_steps : batch;
 }
 
@@ -281,7 +287,9 @@ static uint32_t clamp_dec_batch(int64_t current, int sign, uint32_t batch) {
     int64_t limit = (sign > 0) ? motors_deg_to_steps(motors_state.limits.dec_max)
                                : motors_deg_to_steps(motors_state.limits.dec_min);
     int64_t headroom = (sign > 0) ? (limit - current) : (current - limit);
-    uint32_t max_steps = (headroom > 0) ? (uint32_t) headroom : 0;
+    uint32_t max_steps = (headroom > 0)
+                             ? (uint32_t)(headroom / (int64_t) motors_steps_per_pulse())
+                             : 0;
     return (batch > max_steps) ? max_steps : batch;
 }
 
@@ -687,6 +695,61 @@ static uint32_t encode_axis_batch(rmt_symbol_word_t *buf, uint32_t max_sym,
 }
 
 /*
+ * Correct the coarse-microstep residual after a slew: at MOTORS_MICROSTEPS_SLEW one
+ * STEP pulse advances `spp` canonical steps, so up to spp-1 canonical steps may
+ * remain short of the target.  Switch back to fine resolution and emit one
+ * pulse per remaining canonical step.  Returns false only on abort/error.
+ */
+static bool slew_residual_correction(int64_t ra_dist, int64_t dec_dist,
+                                     uint32_t total_ra_steps, uint32_t total_dec_steps,
+                                     int ra_sign, int dec_sign, uint32_t spp)
+{
+    int ra_residual = (int)(ra_dist - (int64_t)total_ra_steps * (int64_t)spp);
+    int dec_residual = (int)(dec_dist - (int64_t)total_dec_steps * (int64_t)spp);
+
+    if (ra_residual == 0 && dec_residual == 0) {
+        return true;   /* already exact */
+    }
+
+    /* Fine resolution: one STEP pulse == one canonical step. */
+    if (!motors_microsteps_prepare(MOTION_CMD_TRACK, 0, 0)) {
+        return false;   /* mount is in ERROR */
+    }
+
+    rmt_symbol_word_t sym;
+
+    for (int i = 0; i < ra_residual; i++) {
+        if (!s_motion.active) return false;
+        int64_t next = motors_state.ra_steps + (int64_t)ra_sign;
+        if (!motors_is_valid_ra_steps(next)) break;   /* limit — accept the residual */
+
+        motors_rmt_encode_pulse(&sym);
+        if (motors_rmt_transmit_ra(&sym, 1) != ESP_OK
+            || motors_rmt_wait_ra(pdMS_TO_TICKS(2000)) != ESP_OK) {
+            abort_rmt_hardware_fault();
+            return false;
+        }
+        motors_state.ra_steps = next;
+    }
+
+    for (int i = 0; i < dec_residual; i++) {
+        if (!s_motion.active) return false;
+        int64_t next = motors_state.dec_steps + (int64_t)dec_sign;
+        if (!motors_is_valid_dec_steps(next)) break;   /* limit — accept the residual */
+
+        motors_rmt_encode_pulse(&sym);
+        if (motors_rmt_transmit_dec(&sym, 1) != ESP_OK
+            || motors_rmt_wait_dec(pdMS_TO_TICKS(2000)) != ESP_OK) {
+            abort_rmt_hardware_fault();
+            return false;
+        }
+        motors_state.dec_steps = next;
+    }
+
+    return true;
+}
+
+/*
  * Double-buffered slewing / move-axis motion loop.
  *
  * Per-axis ping-pong strategy:
@@ -708,8 +771,14 @@ static void slewing_loop_rmt(void) {
     int64_t dec_dist = s_motion.dec_target - s_motion.dec_start;
     if (ra_dist < 0) ra_dist = -ra_dist;
     if (dec_dist < 0) dec_dist = -dec_dist;
-    uint32_t total_ra_steps = (uint32_t) ra_dist;
-    uint32_t total_dec_steps = (uint32_t) dec_dist;
+
+    /* The RMT loop schedules STEP pulses.  At the coarse microstep resolution
+     * one pulse advances the axis by `spp` canonical steps, so total/remaining/
+     * done are all kept in PULSES here; only the motors_state counter and the
+     * limit headroom (in clamp_*_batch) use canonical units. */
+    uint32_t spp = motors_steps_per_pulse();
+    uint32_t total_ra_steps = (uint32_t) (ra_dist / (int64_t) spp);
+    uint32_t total_dec_steps = (uint32_t) (dec_dist / (int64_t) spp);
     uint32_t ra_steps_done = 0;
     uint32_t dec_steps_done = 0;
 
@@ -756,7 +825,7 @@ static void slewing_loop_rmt(void) {
     /* ── Compute + encode + submit first batch (buf[0]) ── */
 
     compute_slew_periods(is_move_axis, 0, 0,
-                         ra_dist, dec_dist,
+                         (int64_t) total_ra_steps, (int64_t) total_dec_steps,
                          distance_ra_cds, distance_dec_cds,
                          &ra_period, &dec_period);
     last_ramp_recalc_us = esp_timer_get_time();
@@ -770,19 +839,19 @@ static void slewing_loop_rmt(void) {
 
     /* Encode first batch. */
     int64_t ra_trav_base = (int64_t)ra_sign
-                           * (motors_state.ra_steps - s_motion.ra_start);
+                           * (motors_state.ra_steps - s_motion.ra_start) / (int64_t)spp;
     int64_t dec_trav_base = (int64_t)dec_sign
-                            * (motors_state.dec_steps - s_motion.dec_start);
+                            * (motors_state.dec_steps - s_motion.dec_start) / (int64_t)spp;
 
     ra_num[0] = encode_axis_batch(ra_buf[0], RMT_BUFFER_SYMBOLS,
                                    ra_batch[0], ra_period,
                                    motors_state.ra_speed,
-                                   ra_trav_base, ra_dist, distance_ra_cds,
+                                   ra_trav_base, (int64_t) total_ra_steps, distance_ra_cds,
                                    is_move_axis);
     dec_num[0] = encode_axis_batch(dec_buf[0], RMT_BUFFER_SYMBOLS,
                                     dec_batch[0], dec_period,
                                     motors_state.dec_speed,
-                                    dec_trav_base, dec_dist, distance_dec_cds,
+                                    dec_trav_base, (int64_t) total_dec_steps, distance_dec_cds,
                                     is_move_axis);
 
     /* Check stop before touching hardware. */
@@ -808,29 +877,29 @@ static void slewing_loop_rmt(void) {
     {
         int64_t ra_proj = (int64_t)ra_sign
             * (motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[0]
-               - s_motion.ra_start);
+               - s_motion.ra_start) / (int64_t)spp;
         int64_t dec_proj = (int64_t)dec_sign
             * (motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[0]
-               - s_motion.dec_start);
+               - s_motion.dec_start) / (int64_t)spp;
 
         ra_rem = total_ra_steps - ra_steps_done - ra_batch[0];
         dec_rem = total_dec_steps - dec_steps_done - dec_batch[0];
         ra_batch[1] = compute_batch_size(ra_period, ra_rem);
         dec_batch[1] = compute_batch_size(dec_period, dec_rem);
-        ra_batch[1] = clamp_ra_batch(motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[0],
+        ra_batch[1] = clamp_ra_batch(motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[0] * (int64_t)spp,
                                      ra_sign, ra_batch[1]);
-        dec_batch[1] = clamp_dec_batch(motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[0],
+        dec_batch[1] = clamp_dec_batch(motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[0] * (int64_t)spp,
                                        dec_sign, dec_batch[1]);
 
         ra_num[1] = encode_axis_batch(ra_buf[1], RMT_BUFFER_SYMBOLS,
                                        ra_batch[1], ra_period,
                                        motors_state.ra_speed,
-                                       ra_proj, ra_dist, distance_ra_cds,
+                                       ra_proj, (int64_t) total_ra_steps, distance_ra_cds,
                                        is_move_axis);
         dec_num[1] = encode_axis_batch(dec_buf[1], RMT_BUFFER_SYMBOLS,
                                         dec_batch[1], dec_period,
                                         motors_state.dec_speed,
-                                        dec_proj, dec_dist, distance_dec_cds,
+                                        dec_proj, (int64_t) total_dec_steps, distance_dec_cds,
                                         is_move_axis);
 
         /* Submit buf[1] while buf[0] is still transmitting — ZERO GAP */
@@ -883,13 +952,13 @@ static void slewing_loop_rmt(void) {
         if (now - last_ramp_recalc_us > 5000) {
             int64_t ra_proj_trav = (int64_t)ra_sign
                 * (motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[ra_pong]
-                   - s_motion.ra_start);
+                   - s_motion.ra_start) / (int64_t)spp;
             int64_t dec_proj_trav = (int64_t)dec_sign
                 * (motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[dec_pong]
-                   - s_motion.dec_start);
+                   - s_motion.dec_start) / (int64_t)spp;
             compute_slew_periods(is_move_axis,
                                  ra_proj_trav, dec_proj_trav,
-                                 ra_dist, dec_dist,
+                                 (int64_t) total_ra_steps, (int64_t) total_dec_steps,
                                  distance_ra_cds, distance_dec_cds,
                                  &ra_period, &dec_period);
             last_ramp_recalc_us = now;
@@ -900,20 +969,20 @@ static void slewing_loop_rmt(void) {
             && ra_batch[ra_ping] > 0
             && motors_rmt_try_wait_ra()) {
             if (!s_motion.active) break;
-            motors_state.ra_steps += (int64_t)ra_sign * (int64_t)ra_batch[ra_ping];
+            motors_state.ra_steps += (int64_t)ra_sign * (int64_t)ra_batch[ra_ping] * (int64_t)spp;
             ra_steps_done += ra_batch[ra_ping];
 
             int64_t ra_proj_trav = (int64_t)ra_sign
                 * (motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[ra_pong]
-                   - s_motion.ra_start);
+                   - s_motion.ra_start) / (int64_t)spp;
             ra_rem = total_ra_steps - ra_steps_done - ra_batch[ra_pong];
             ra_batch[ra_ping] = compute_batch_size(ra_period, ra_rem);
-            ra_batch[ra_ping] = clamp_ra_batch(motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[ra_pong],
+            ra_batch[ra_ping] = clamp_ra_batch(motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[ra_pong] * (int64_t)spp,
                                                ra_sign, ra_batch[ra_ping]);
             ra_num[ra_ping] = encode_axis_batch(ra_buf[ra_ping], RMT_BUFFER_SYMBOLS,
                                                  ra_batch[ra_ping], ra_period,
                                                  motors_state.ra_speed,
-                                                 ra_proj_trav, ra_dist, distance_ra_cds,
+                                                 ra_proj_trav, (int64_t) total_ra_steps, distance_ra_cds,
                                                  is_move_axis);
             if (ra_batch[ra_ping] > 0) {
                 tx_err = motors_rmt_transmit_no_drain_ra(ra_buf[ra_ping], ra_num[ra_ping]);
@@ -931,20 +1000,20 @@ static void slewing_loop_rmt(void) {
             && dec_batch[dec_ping] > 0
             && motors_rmt_try_wait_dec()) {
             if (!s_motion.active) break;
-            motors_state.dec_steps += (int64_t)dec_sign * (int64_t)dec_batch[dec_ping];
+            motors_state.dec_steps += (int64_t)dec_sign * (int64_t)dec_batch[dec_ping] * (int64_t)spp;
             dec_steps_done += dec_batch[dec_ping];
 
             int64_t dec_proj_trav = (int64_t)dec_sign
                 * (motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[dec_pong]
-                   - s_motion.dec_start);
+                   - s_motion.dec_start) / (int64_t)spp;
             dec_rem = total_dec_steps - dec_steps_done - dec_batch[dec_pong];
             dec_batch[dec_ping] = compute_batch_size(dec_period, dec_rem);
-            dec_batch[dec_ping] = clamp_dec_batch(motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[dec_pong],
+            dec_batch[dec_ping] = clamp_dec_batch(motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[dec_pong] * (int64_t)spp,
                                                   dec_sign, dec_batch[dec_ping]);
             dec_num[dec_ping] = encode_axis_batch(dec_buf[dec_ping], RMT_BUFFER_SYMBOLS,
                                                    dec_batch[dec_ping], dec_period,
                                                    motors_state.dec_speed,
-                                                   dec_proj_trav, dec_dist, distance_dec_cds,
+                                                   dec_proj_trav, (int64_t) total_dec_steps, distance_dec_cds,
                                                    is_move_axis);
             if (dec_batch[dec_ping] > 0) {
                 tx_err = motors_rmt_transmit_no_drain_dec(dec_buf[dec_ping], dec_num[dec_ping]);
@@ -963,7 +1032,10 @@ static void slewing_loop_rmt(void) {
 
         /* Target reached on both axes? */
         if (ra_steps_done >= total_ra_steps && dec_steps_done >= total_dec_steps) {
-            finish_motion();
+            if (slew_residual_correction(ra_dist, dec_dist, total_ra_steps, total_dec_steps,
+                                         ra_sign, dec_sign, spp)) {
+                finish_motion();
+            }
             break;
         }
 
@@ -1274,6 +1346,20 @@ static void motion_loop(void) {
         return;
     }
 
+    /* Select the microstep resolution for this motion BEFORE any STEP pulse is
+     * emitted.  The microstep module owns the policy (coarse for large ramped
+     * slews, fine otherwise).  A failed switch stops the mount and puts it into
+     * ERROR — abort here. */
+    int64_t ra_dist = 0;
+    int64_t dec_dist = 0;
+    if (s_motion.active_cmd_type == MOTION_CMD_SLEW) {
+        ra_dist = s_motion.ra_target - s_motion.ra_start;
+        dec_dist = s_motion.dec_target - s_motion.dec_start;
+    }
+    if (!motors_microsteps_prepare(s_motion.active_cmd_type, ra_dist, dec_dist)) {
+        return;
+    }
+
     s_motion.aborted = false;
 
     /* Standalone guide pulse (no tracking) — use the tracking loop
@@ -1294,6 +1380,13 @@ static void motion_loop(void) {
         if (!s_motion.aborted && s_motion.resume_tracking != TRACKING_NONE) {
             TrackingMode resume = s_motion.resume_tracking;
             s_motion.resume_tracking = TRACKING_NONE;
+
+            /* A coarse slew left the drivers at MOTORS_MICROSTEPS_SLEW; tracking
+             * runs at fine resolution, so restore it before the tracking loop. */
+            if (!motors_microsteps_prepare(MOTION_CMD_TRACK, 0, 0)) {
+                return;   /* mount is in ERROR */
+            }
+
             begin_tracking(resume);
             tracking_loop_rmt();
         }

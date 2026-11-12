@@ -14,6 +14,7 @@
 #include "driver/rmt_tx.h"
 #include "esp_timer.h"
 #include "host_internal.h"
+#include "config.h"
 
 int host_rmt_tx_error_axis = -1;
 int host_rmt_absent_completion = -1;
@@ -60,7 +61,9 @@ void host_step_clear(void) {
 }
 
 static int axis_for_gpio(int gpio) {
-    return (gpio == 14) ? 0 : 1;   /* RA_STEP_GPIO=14, DEC_STEP_GPIO=12 */
+    if (gpio == RA_STEP_GPIO) return 0;
+    if (gpio == DEC_STEP_GPIO) return 1;
+    return -1;
 }
 
 static void record_step(int axis, rmt_symbol_word_t sym) {

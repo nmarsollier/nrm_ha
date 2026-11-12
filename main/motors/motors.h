@@ -117,11 +117,22 @@ esp_err_t motors_init(void);
 void motors_enter_error_state(void);
 
 /*
- * Update the mount's view of the external-power rail.  When power is lost
- * the motors enter ERROR and reject all motion; when power returns they
+ * Update the mount's view of the TMC2209 drivers being alive (from the UART
+ * probe).  When the drivers go silent the motors enter ERROR and reject all
+ * motion; when they answer again the drivers are re-initialised and the motors
  * recover to READY (only if the error was caused by the power loss).
  */
 void motors_update_power(bool power_ok);
+
+/* True when both TMC2209 drivers answered the last probe (cached). */
+bool motors_has_power(void);
+
+/*
+ * True when the mount is slewing (high-speed motion).  The runtime power probe
+ * skips its UART read while slewing — the UART activity would disturb the RMT
+ * step stream — but reads during tracking (slow) and idle.
+ */
+bool motors_is_slewing(void);
 
 /*
  * Return a snapshot copy of the current `MotorsState`.
@@ -140,6 +151,13 @@ float motors_get_dec_deg(void);
  * layer can derive degrees from a single coherent MotorsState snapshot rather
  * than re-reading each axis separately. */
 float motors_steps_to_deg(int64_t steps);
+
+/*
+ * Current active microstep resolution on both drivers (MOTORS_MICROSTEPS_TRACKING or the
+ * coarse MOTORS_MICROSTEPS_SLEW during a large slew).  Public so the protocol
+ * layer can report it in the state snapshot.
+ */
+uint16_t motors_microsteps_active(void);
 
 /*
  * Stop both axes and return to READY.

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "driver/gpio.h"
-#include "hal/adc_types.h"
+#include "driver/uart.h"
 
 /*
  * Mount hardware configuration.
@@ -22,19 +22,24 @@
 #define MOUNT_FIRMWARE_VERSION "0.1.0" /* TODO: bump to the real version */
 
 /* =========================================================================
- * Pin assignments — NRM-HA (ESP32-S3 44-pin board).
+ * Pin assignments — NRM-HA (ESP32-S3 44-pin board, TMC2209 revision).
  * ========================================================================= */
 
-/* Step / direction pins (contiguous GPIO 14→9 for clean PCB routing):
- *   GPIO 14: STEP- RA
- *   GPIO 10: DIR- RA
- *   GPIO 12: STEP- DEC
- *   GPIO 9:  DIR- DEC
- */
-#define RA_STEP_GPIO   GPIO_NUM_14
-#define RA_DIR_GPIO    GPIO_NUM_10
-#define DEC_STEP_GPIO  GPIO_NUM_12
-#define DEC_DIR_GPIO   GPIO_NUM_9
+/* Step / direction pins — direct to the TMC2209 STEP/DIR inputs (3.3 V logic,
+ * no level shifting). */
+#define RA_STEP_GPIO   GPIO_NUM_10
+#define RA_DIR_GPIO    GPIO_NUM_9
+#define DEC_STEP_GPIO  GPIO_NUM_15
+#define DEC_DIR_GPIO   GPIO_NUM_7
+
+/* TMC2209 drivers — one single-wire UART per axis (TX through a 1 kΩ series
+ * resistor, RX direct to the PDN_UART line). */
+#define TMC_RA_UART_NUM   UART_NUM_1
+#define TMC_RA_TX_GPIO    GPIO_NUM_12
+#define TMC_RA_RX_GPIO    GPIO_NUM_13
+#define TMC_DEC_UART_NUM  UART_NUM_2
+#define TMC_DEC_TX_GPIO   GPIO_NUM_17
+#define TMC_DEC_RX_GPIO   GPIO_NUM_18
 
 /* Status LED — direct GPIO, LEDC PWM. */
 #define LED_GPIO        GPIO_NUM_42
@@ -42,18 +47,39 @@
 /* Passive buzzer — direct GPIO, LEDC PWM (2 kHz). */
 #define BUZZER_GPIO     GPIO_NUM_41
 
-/* External 5v5 rail detection — GPIO 1 (ADC1_CH0), 10k/10k divider on the
- * LM2596 5.5V output. */
-#define POWER_SENSE_ADC_UNIT    ADC_UNIT_1
-#define POWER_SENSE_ADC_CHANNEL ADC_CHANNEL_0
-
 /* =========================================================================
  * Motor resolution & mechanics.
  * ========================================================================= */
 
-/* Microstep resolution — closed-loop driver DIP-switch setting.
- * NRM-HA: 64 microsteps = 12800 steps/revolution. */
-#define MOTORS_MICROSTEPS 64
+/* Microstep resolution — TMC2209 CHOPCONF.MRES (MRES=2).  NRM-HA: 64 microsteps.
+ * This is the canonical (finest) resolution: the STEP counters are always in
+ * these units, and every non-slew motion (tracking, guiding, move-axis) runs
+ * at this resolution. */
+#define MOTORS_MICROSTEPS_TRACKING 64
+
+/* Coarse microstep resolution for large ramped slews (CHOPCONF.MRES=5).
+ * 8 µsteps cuts the STEP pulse count 8× versus 64, relaxing the RMT timing at
+ * high slew speeds; with INTPOL the driver still interpolates to 256 µsteps,
+ * so mechanical smoothness is unchanged. */
+#define MOTORS_MICROSTEPS_SLEW 8
+
+/* Gentle-slew boundary (degrees): a slew whose larger axis travel stays below
+ * this is treated gently — fine microsteps (MOTORS_MICROSTEPS_TRACKING) and a
+ * capped speed; above it the slew runs coarse (MOTORS_MICROSTEPS_SLEW) at full
+ * speed.  Single source for both the microstep switch and the ramp speed cap. */
+#define MOTORS_SLEW_GENTLE_DEG 8.0f
+
+/* TMC2209 coil current (0–31 fields, IRUN/IHOLD).  Provisional values —
+ * tune on the bench for the NEMA 17.  The final 2.0 A iMetrx motor needs a
+ * notably higher IRUN (~24+). */
+#define TMC_IRUN  14
+#define TMC_IHOLD 10
+
+/* TMC2209 StealthChop → SpreadCycle transition threshold (TPWMTHRS, 0–1048575).
+ * Below the threshold the motors run silent StealthChop (covers tracking and
+ * guiding); above it they switch to SpreadCycle, which keeps torque and stays
+ * smoother at high speed (slewing).  0 = always StealthChop. */
+#define TMC_TPWMTHRS 64
 
 /* Total gear reduction: 3:1 belt (20T→60T GT2 9mm) × 100:1 harmonic drive.
  * motor shaft turns : axis turns. */

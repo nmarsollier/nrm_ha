@@ -12,12 +12,10 @@ SERIAL ?=
 
 .PHONY: flash test-cdc test-host
 
-# Flash the test firmware.  Uses a separate build directory and sdkconfig so the
-# 12V power gate is bypassed (NRM_TEST_BUILD): the suite drives the mount over
-# USB without the 12V rail.  The production build/ and sdkconfig are untouched.
+# Flash the firmware.
 flash:
 	@test -n "$(PORT)" || { echo "No NRM-HA USB-Serial/JTAG port found — is the board connected and in boot mode? (override with PORT=/dev/cu.usbserial-XXXX)"; exit 1; }
-	cd .. && source ~/.espressif/v6.0.1/esp-idf/export.sh && idf.py -B build.test -DSDKCONFIG=sdkconfig.test -p $(PORT) flash
+	cd .. && source ~/.espressif/v6.0.1/esp-idf/export.sh && idf.py -p $(PORT) flash
 
 # Serial protocol suite.
 test-cdc:

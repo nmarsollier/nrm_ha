@@ -14,7 +14,7 @@ from harness import (Harness, STATUS_READY, STATUS_TRACKING, STATUS_ERROR,
                      SIDEREAL_DPS, GUIDE_DPS, DEG_PER_STEP)
 
 # DIR GPIO level recorded for each DEC direction by motors_hw_set_direction_dec:
-# POSITIVE → GPIO 9 = 1, NEGATIVE → GPIO 9 = 0.
+# POSITIVE → DEC_DIR_GPIO = 1, NEGATIVE → DEC_DIR_GPIO = 0.
 DEC_POS = 1
 DEC_NEG = 0
 

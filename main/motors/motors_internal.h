@@ -100,13 +100,32 @@ bool motors_is_valid_dec_steps(int64_t steps);
  * Angular displacement per microstep at the mount axis.
  *
  *   1.8° = NEMA 17 full-step angle
- *   MOTORS_MICROSTEPS        = 64 (DIP-switch on integrated closed-loop driver)
- *   TOTAL_GEAR_REDUCTION     = 300:1 (3:1 belts × 100:1 harmonic drive)
+ *   MOTORS_MICROSTEPS_TRACKING = 64 (TMC2209 CHOPCONF.MRES)
+ *   TOTAL_GEAR_REDUCTION       = 300:1 (3:1 belts × 100:1 harmonic drive)
  */
 static inline float motors_get_deg_per_microstep(void) {
-    return 1.8f / ((float) MOTORS_MICROSTEPS *
+    return 1.8f / ((float) MOTORS_MICROSTEPS_TRACKING *
                     TOTAL_GEAR_REDUCTION);
 }
+
+/* =========================================================================
+ * Runtime microstep resolution (motors_microsteps.c)
+ *
+ * The STEP counters stay in canonical MOTORS_MICROSTEPS_TRACKING units regardless of
+ * the active driver resolution.  A large ramped slew switches both drivers to
+ * MOTORS_MICROSTEPS_SLEW and emits one STEP pulse per `motors_steps_per_pulse()`
+ * canonical steps; every other motion runs at MOTORS_MICROSTEPS_TRACKING (factor 1).
+ * ========================================================================= */
+
+/* Canonical counter steps advanced by a single STEP pulse at the active resolution. */
+uint32_t motors_steps_per_pulse(void);
+
+/* Select the resolution for a motion command: a ramped SLEW uses the coarse
+ * resolution when either axis travels more than MOTORS_SLEW_GENTLE_DEG; every
+ * other command type uses fine.  `ra_dist`/`dec_dist` are the canonical axis
+ * distances (meaningful only for SLEW).  Returns false (and puts the mount into
+ * ERROR) when the driver switch could not be verified. */
+bool motors_microsteps_prepare(MotionCommandType type, int64_t ra_dist, int64_t dec_dist);
 
 /* =========================================================================
  * Slew ramp profile — shared by the motion task (ramp_velocity) and the
@@ -130,7 +149,8 @@ static inline float motors_get_deg_per_microstep(void) {
  * Hardware layer — DIR GPIO control (motors_hw.c).
  *
  * STEP pulse generation is handled by the RMT peripheral (motors_rmt.c).
- * ENABLE is hardwired (no GPIO control).  ALARM pins are not connected.
+ * The TMC2209 drivers are always enabled (no EN pin connected), so there is
+ * no enable GPIO to manage.  ALARM pins are not connected.
  * ========================================================================= */
 
 typedef enum {
@@ -158,13 +178,12 @@ void motors_hw_set_direction_dec(MotorDirection direction);
 
 /* STEP pulse timing in RMT ticks (2 MHz reference).
  *
- * Driver manual (ISS42): STEP active on rising edge, pulse width > 2.5 µs.
- * With UMC2003 (sinking output) our GPIO HIGH → driver sees LOW (the
- * active pulse).  The Darlington needs ~1 us to switch, so we drive 6 µs
- * HIGH (12 ticks) to leave the driver a clean > 2.5 µs pulse. */
-#define STEP_PULSE_TICKS     12U   /* 6 us — margin for the UMC2003 Darlington */
-#define STEP_MIN_LOW_TICKS   4U    /* 2 us LOW floor — Darlington turn-off margin */
-#define STEP_MIN_PERIOD_TICKS (STEP_PULSE_TICKS + STEP_MIN_LOW_TICKS)  /* 16 ticks = 8 us */
+ * Driver (TMC2209): one microstep per accepted STEP pulse (rising edge).
+ * The STEP input is 3.3 V CMOS, driven directly (no level shifting), so a
+ * 2 µs HIGH pulse is ample margin. */
+#define STEP_PULSE_TICKS     4U    /* 2 us HIGH — TMC2209 direct drive */
+#define STEP_MIN_LOW_TICKS   4U    /* 2 us LOW floor */
+#define STEP_MIN_PERIOD_TICKS (STEP_PULSE_TICKS + STEP_MIN_LOW_TICKS)  /* 8 ticks = 4 us */
 
 /* =========================================================================
  * Position representation — int64_t absolute microstep counters.
@@ -237,6 +256,10 @@ void motors_enter_hardware_fault(void);
 bool motors_has_hardware_fault(void);
 /* Test-only: clear the latched fault (production clears it only on reboot). */
 void motors_reset_hardware_fault(void);
+
+/* Mark the current ERROR as a recoverable power fault so a later power-on
+ * re-initialises the drivers (motors_power.c). */
+void motors_mark_power_fault(void);
 
 float motors_get_tracking_speed(TrackingMode mode);
 

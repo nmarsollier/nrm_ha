@@ -56,7 +56,6 @@ dkms.conf
 
 
 build/
-build.test/
 
 sdkconfig.old
 

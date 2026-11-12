@@ -40,8 +40,9 @@ EquatorialCoordinates axis_to_equatorial(AxisCoordinates axis) {
 }
 
 bool equatorial_to_axis(EquatorialCoordinates eq, AxisCoordinates current,
-                        time_t at_time, AxisCoordinates *out) {
-    (void) eq; (void) current; (void) at_time; (void) out;
+                        time_t at_time, PierSideRequirement required,
+                        AxisCoordinates *out) {
+    (void) eq; (void) current; (void) at_time; (void) required; (void) out;
     return false;
 }
 
