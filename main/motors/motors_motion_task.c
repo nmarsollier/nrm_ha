@@ -1346,6 +1346,11 @@ static void motion_loop(void) {
         return;
     }
 
+    /* Start a fresh motion: clear any prior abort up front so a STOP that
+     * lands during the microstep switch below still marks this motion as
+     * aborted (the flag is never reset after the switch). */
+    s_motion.aborted = false;
+
     /* Select the microstep resolution for this motion BEFORE any STEP pulse is
      * emitted.  The microstep module owns the policy (coarse for large ramped
      * slews, fine otherwise).  A failed switch stops the mount and puts it into
@@ -1359,8 +1364,6 @@ static void motion_loop(void) {
     if (!motors_microsteps_prepare(s_motion.active_cmd_type, ra_dist, dec_dist)) {
         return;
     }
-
-    s_motion.aborted = false;
 
     /* Standalone guide pulse (no tracking) — use the tracking loop
      * with zero base rate.  It handles DEC-only and RA-only guiding. */

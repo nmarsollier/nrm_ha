@@ -157,8 +157,13 @@ esp_err_t tmc_read_register(const TmcAxis *axis, uint8_t reg, uint32_t *value)
         gpio_set_pull_mode(axis->tx_gpio, GPIO_PULLUP_ONLY);
 
         /* Collect the remaining bytes of the combined (echo + reply)
-         * stream. Up to 32 bytes are buffered to tolerate a few extra
-         * framing / noise bytes. */
+         * stream. The reply is a fixed 8-byte datagram, so stop as soon as
+         * it is complete instead of waiting out the whole deadline: burning
+         * the extra ~45 ms per read makes every microstep switch (a read +
+         * write + read-back per axis) slow enough to delay motion state
+         * changes.  The buffer stays 32 bytes to tolerate a little framing
+         * noise; a short read that misses the frame is handled by the retry
+         * loop above. */
         uint8_t response[32];
         int len = 0;
         TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(50);
@@ -167,6 +172,7 @@ esp_err_t tmc_read_register(const TmcAxis *axis, uint8_t reg, uint32_t *value)
             int n = uart_read_bytes(axis->uart_num, response + len,
                                     sizeof(response) - len, pdMS_TO_TICKS(5));
             if (n > 0) len += n;
+            if (len >= 8) break;   /* full reply frame received */
         }
 
         /* Restore TX — drive HIGH before re-enabling the output so the

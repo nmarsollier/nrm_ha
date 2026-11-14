@@ -57,7 +57,7 @@ consumo o consultar cómo se implementa el lado Alpaca/UI, mirar ahí.
 - **Modelo**: ESP32-S3 44 pines
 - https://www.amazon.com/dp/B0F5QCK6X5
 - **SoC**: ESP32-S3 (Xtensa 32-bit LX7, doble nucleo)
-- **Chip USB-Serial**: Integrado en el SoC (USB Serial/JTAG nativo)
+- **Chip USB-Serial**: Bridge QinHeng CH343 (VID 0x1A86) cableado a UART0 — flasheo + monitor; el protocolo CDC-ACM va por el USB nativo del SoC (VID 0x303A, /dev/cu.usbmodem*)
 - **Flash**: 16 MB
 - **PSRAM**: 8 MB (octal)
 
@@ -65,7 +65,7 @@ consumo o consultar cómo se implementa el lado Alpaca/UI, mirar ahí.
 
 - **CPU**: Tensilica Xtensa 32-bit LX7, doble nucleo, hasta 240 MHz
 - **Alimentacion**: 5.5V via LM2596
-- **Logica I/O**: 3.3V (no tolera 5V, LED y buzzer directos a GPIO 42 y 41)
+- **Logica I/O**: 3.3V (no tolera 5V, LED y buzzer directos a GPIO 5 y 4)
 - **GPIO digitales**: 45 (configurables)
 - **ADC**: 2 conversores SAR ADC de 12 bits, hasta 20 canales
 - **UART**: 3 controladores UART
@@ -86,8 +86,8 @@ consumo o consultar cómo se implementa el lado Alpaca/UI, mirar ahí.
 | 13   | TMC RA RX         | UART1 RX directo a PDN_UART del TMC de RA             |
 | 17   | TMC DEC TX        | UART2 TX → 1kΩ → PDN_UART del TMC de DEC             |
 | 18   | TMC DEC RX        | UART2 RX directo a PDN_UART del TMC de DEC            |
-| 42   | LED externo       | LEDC PWM, indicador de estado (directo a GPIO)        |
-| 41   | BUZZER            | Buzzer pasivo 2 kHz (directo a GPIO)                  |
+| 5    | LED externo       | LEDC PWM, indicador de estado (directo a GPIO)        |
+| 4    | BUZZER            | Buzzer activo (directo a GPIO, HIGH=beep)             |
 
 **Conexion TMC2209 (sin level shifting):**
 Los drivers TMC2209 aceptan logica 3.3V en STEP/DIR, asi que van
@@ -109,6 +109,8 @@ no se usan en esta revision.
 | 6    | I2C SCL (2do bus) | Display / sensor adicional  |
 | 1    | Libre       | (ex PWR-SENSE, ya no se usa ADC)   |
 | 14   | Libre       | (ex STEP- RA)                      |
+| 42   | Libre       | (ex LED externo)                   |
+| 41   | Libre       | (ex BUZZER)                        |
 
 ### Pines con restricciones (NO USAR)
 
@@ -135,8 +137,8 @@ App de escritorio Go (Alpaca/UI) → USB CDC-ACM → Proto → Mount (orquestaci
 - **Runtime** (`main/runtime/`) — Inicializacion y ciclo de vida del sistema.
 - **Motors** (`main/motors/`) — Control de motores de alto nivel y ejecucion hardware: GPIO DIR, RMT para STEP, microsteps variables y gating de energia.
 - **TMC** (`main/tmc/`) — Driver TMC2209 por UART single-wire: init, probe, reinit y cambio de microsteps con verificacion.
-- **LED** (`main/led/`) — Control PWM del LED externo en GPIO 42. Estados: tenue (normal), brillante (slewing), respiracion (error).
-- **Buzzer** (`main/buzzer/`) — Buzzer pasivo de eventos en GPIO 41 (2 kHz via LEDC). Beeps de arranque, inicio y fin de goto/move axis.
+- **LED** (`main/led/`) — Control PWM del LED externo en GPIO 5. Estados: tenue (normal), brillante (slewing), respiracion (error).
+- **Buzzer** (`main/buzzer/`) — Buzzer activo de eventos en GPIO 4 (directo a GPIO, HIGH=beep). Beeps de arranque, inicio y fin de goto/move axis.
 - **Utils** (`main/utils/`) — Utilidades transversales (parser, validacion).
 
 ## Reglas generales
