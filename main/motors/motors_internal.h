@@ -120,11 +120,12 @@ static inline float motors_get_deg_per_microstep(void) {
 /* Canonical counter steps advanced by a single STEP pulse at the active resolution. */
 uint32_t motors_steps_per_pulse(void);
 
-/* Select the resolution for a motion command: a ramped SLEW uses the coarse
- * resolution when either axis travels more than MOTORS_SLEW_GENTLE_DEG; every
- * other command type uses fine.  `ra_dist`/`dec_dist` are the canonical axis
- * distances (meaningful only for SLEW).  Returns false (and puts the mount into
- * ERROR) when the driver switch could not be verified. */
+/* Select the resolution and chopper mode for a motion command: a ramped SLEW
+ * uses the coarse resolution + SpreadCycle when either axis travels more than
+ * MOTORS_SLEW_GENTLE_DEG; every other command type uses fine + StealthChop.
+ * `ra_dist`/`dec_dist` are the canonical axis distances (meaningful only for
+ * SLEW).  Returns false (and puts the mount into ERROR) when a driver switch
+ * could not be verified. */
 bool motors_microsteps_prepare(MotionCommandType type, int64_t ra_dist, int64_t dec_dist);
 
 /* =========================================================================

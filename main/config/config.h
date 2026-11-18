@@ -77,11 +77,10 @@
 #define TMC_IRUN  14
 #define TMC_IHOLD 10
 
-/* TMC2209 StealthChop → SpreadCycle transition threshold (TPWMTHRS, 0–1048575).
- * Below the threshold the motors run silent StealthChop (covers tracking and
- * guiding); above it they switch to SpreadCycle, which keeps torque and stays
- * smoother at high speed (slewing).  0 = always StealthChop. */
-#define TMC_TPWMTHRS 64
+/* Chopper mode follows the microstep strategy: StealthChop for tracking and
+ * gentle slews, SpreadCycle for coarse slews.  It is forced via GCONF.en_SpreadCycle
+ * (see motors_microsteps.c / tmc_set_chop_mode.c); TPWMTHRS is left at reset (0)
+ * so no automatic speed-based transition occurs mid-motion. */
 
 /* Total gear reduction: 3:1 belt (20T→60T GT2 9mm) × 100:1 harmonic drive.
  * motor shaft turns : axis turns. */
