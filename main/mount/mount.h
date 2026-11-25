@@ -5,6 +5,8 @@
 #include <time.h>
 #include "motors/motors.h"
 
+#include "geometry/mount_geometry.h"
+
 /* MotorAxis is defined in rest/rest.h */
 
 typedef struct {
@@ -30,35 +32,8 @@ typedef enum {
     GUIDE_DIRECTION_WEST = 3,
 } GuideDirection;
 
-/* Coordinate types. */
-typedef struct {
-    float ra_hours;
-    float dec_deg;
-} EquatorialCoordinates;
-
-typedef struct {
-    float ra_axis_deg;
-    float dec_axis_deg;
-    int pier_side;      /* 0 = pierEast, 1 = pierWest — set by equatorial_to_axis */
-} AxisCoordinates;
-
-/* Destination pier side requested for a goto.
- *
- * PIER_SIDE_AUTO applies the asymmetric meridian policy: from WEST it flips to
- * EAST as soon as the target crosses the meridian (HA >= 0), and from EAST it
- * keeps EAST until EAST is mechanically unreachable (then falls back to WEST).
- * A fallback also applies from WEST with HA < 0 when WEST is unreachable, but
- * never on the flip itself (WEST + HA >= 0 -> EAST is mandatory or the goto
- * rejects).
- *
- * PIER_SIDE_EAST / PIER_SIDE_WEST force that side and reject the goto when it
- * is unreachable — this is how a client requests an explicit meridian flip and
- * distinguishes it from an ordinary goto. */
-typedef enum {
-    PIER_SIDE_AUTO = -1,
-    PIER_SIDE_EAST = 0,
-    PIER_SIDE_WEST = 1,
-} PierSideRequirement;
+/* Coordinate types (EquatorialCoordinates, AxisCoordinates,
+ * PierSideRequirement) live in geometry/mount_geometry.h. */
 
 /* Formatted astronomical coordinate types. */
 typedef struct {
@@ -86,8 +61,8 @@ typedef struct {
 
 /* Conversion functions between equatorial and physical axis coordinates. */
 bool equatorial_to_axis(EquatorialCoordinates eq, AxisCoordinates current,
-                        time_t at_time, PierSideRequirement required,
-                        AxisCoordinates *out);
+                        double unix_seconds, PierSideRequirement required,
+                        float speed_dps, AxisCoordinates *out);
 
 EquatorialCoordinates axis_to_equatorial(AxisCoordinates axis);
 

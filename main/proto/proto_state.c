@@ -10,15 +10,17 @@
 
 #include "esp_timer.h"
 #include "motors.h"
+#include "mount_profile.h"
 
 static const char *pier_side_name(int pier_side) {
+    if (pier_side < 0) return "unknown";
     return pier_side == 0 ? "east" : "west";
 }
 
 void proto_state_snapshot(char *out, size_t cap, uint32_t id) {
     MotorsState s = motors_current_state();
-    float ra_axis = motors_steps_to_deg(s.ra_steps);
-    float dec_axis = motors_steps_to_deg(s.dec_steps);
+    float ra_axis = motors_steps_to_deg(AXIS_RA, s.ra_steps);
+    float dec_axis = motors_steps_to_deg(AXIS_DEC, s.dec_steps);
 
     AxisCoordinates axis = { .ra_axis_deg = ra_axis, .dec_axis_deg = dec_axis };
     EquatorialCoordinates eq = axis_to_equatorial(axis);
@@ -26,8 +28,10 @@ void proto_state_snapshot(char *out, size_t cap, uint32_t id) {
     /* `pier_side` is the *instantaneous* physical side (sign of dec_axis): it is
      * degenerate at HOME (dec_axis=0 -> "east") and transient while a flip is
      * still slewing.  Clients must gate a prediction on `state` (still moving?)
-     * and `position_uncertain` before trusting it as a settled side. */
-    int pier = (dec_axis >= 0.0f) ? 0 : 1;
+     * and `position_uncertain` before trusting it as a settled side.  The fork
+     * has no pier side and always reports "unknown". */
+    int pier = (mount_profile.geometry == GEOMETRY_FORK)
+               ? -1 : ((dec_axis >= 0.0f) ? 0 : 1);
     bool at_home = (s.status == MOTORS_STATUS_READY)
                 && fabsf(ra_axis) < 1.0f
                 && fabsf(dec_axis) < 1.0f;

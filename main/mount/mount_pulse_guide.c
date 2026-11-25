@@ -14,6 +14,7 @@
 #include "mount_internal.h"
 
 #include "motors.h"
+#include "mount_profile.h"
 
 #include <math.h>
 
@@ -67,15 +68,47 @@ MountResult mount_pulse_guide(GuideDirection direction, uint32_t duration_ms) {
             ESP_LOGW(TAG, "Rejected: DEC guide rate is zero (guiding disabled)");
             return mount_result_error("DEC guide rate is zero — guiding disabled");
         }
-        /* North (increasing celestial DEC) maps to +mechanical DEC on the
-         * east side of the pier (dec_axis >= 0) and to -mechanical DEC on the
-         * west side (dec_axis < 0).  The pier side is encoded in the sign of
-         * the DEC axis — see axis_to_equatorial(). */
+
         float dec_axis_deg = motors_get_dec_deg();
-        float north_sign = (dec_axis_deg >= 0.0f) ? 1.0f : -1.0f;
+        float north_sign;
+        if (mount_profile.geometry == GEOMETRY_FORK) {
+            /* Fork: the mechanical DEC sign is the derivative dδ/dD at the
+             * current position = -p·sign(sin D), p = +1 north / -1 south. */
+            float p = (mount_internal_state.lat > 0.0f) ? 1.0f : -1.0f;
+            float sD = sinf(dec_axis_deg * (float) M_PI / 180.0f);
+            north_sign = (sD >= 0.0f ? 1.0f : -1.0f) * (-p);
+        } else {
+            /* German: North (increasing celestial DEC) maps to +mechanical DEC
+             * on the east side of the pier (dec_axis >= 0) and to -mechanical
+             * DEC on the west side (dec_axis < 0). */
+            north_sign = (dec_axis_deg >= 0.0f) ? 1.0f : -1.0f;
+        }
         float offset = (direction == GUIDE_DIRECTION_NORTH)
                        ?  dec_rate * north_sign
                        : -dec_rate * north_sign;
+
+        if (mount_profile.geometry == GEOMETRY_FORK) {
+            /* Reject a pulse whose signed DEC excursion reaches or crosses a
+             * celestial pole (D = 180°·n), or would exceed the mechanical
+             * limit — a truncated move must be a clear rejection. */
+            float arc_deg = offset * (duration_ms / 1000.0f);
+            float pole_eps = motors_steps_to_deg(AXIS_DEC, 1);   /* one microstep */
+            float d_start = dec_axis_deg;
+            float d_end = dec_axis_deg + arc_deg;
+            float a = fminf(d_start, d_end) - pole_eps;
+            float b = fmaxf(d_start, d_end) + pole_eps;
+            int n_lo = (int) ceilf(a / 180.0f);
+            int n_hi = (int) floorf(b / 180.0f);
+            if (n_lo <= n_hi) {
+                ESP_LOGW(TAG, "Rejected: DEC pulse crosses the celestial pole");
+                return mount_result_error("Guide would cross the pole");
+            }
+            if (d_end > state.limits.dec_max || d_end < state.limits.dec_min) {
+                ESP_LOGW(TAG, "Rejected: DEC guide would exceed the limit");
+                return mount_result_error("Guide would exceed the DEC limit");
+            }
+        }
+
         rc = motors_pulse_guide_start(1, offset, duration_ms);
         break;
     }

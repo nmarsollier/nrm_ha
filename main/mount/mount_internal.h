@@ -24,6 +24,9 @@ void mount_settings_save(const MountSettings *settings);
 
 MountResult motors_result_code_error_result(MotorResultCode rc);
 
+/* Fractional unix instant (sub-second precision) for coherent snapshots. */
+double mount_unix_now(void);
+
 /*
  * Check whether the mount is in the unrecoverable ERROR state (motor fault).
  * All mount command functions gate on this

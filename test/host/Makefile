@@ -15,7 +15,7 @@ PROFILE ?= nrm_ha
 STUB_INC := -I$(HOSTDIR)stubs -I$(HOSTDIR)
 PROD_INC := -I$(ROOT)/main -I$(ROOT)/main/config -I$(ROOT)/main/mount \
             -I$(ROOT)/main/motors -I$(ROOT)/main/tmc -I$(ROOT)/main/utils \
-            -I$(ROOT)/main/profiles -I$(ROOT)/main/board
+            -I$(ROOT)/main/profiles -I$(ROOT)/main/board -I$(ROOT)/main/geometry -I$(ROOT)/main/motion
 
 CFLAGS := -shared -fPIC -std=c11 -O2 -Wall -Wextra $(STUB_INC) $(PROD_INC)
 
@@ -24,7 +24,7 @@ MOTOR_SRCS := \
   motors_get_move_axis_speed.c motors_move_axis_speed.c motors_start_tracking.c \
   motors_stop.c motors_tools.c motors_hw.c motors_rmt.c motors_command_queue.c \
   motors_motion_task.c motors_pulse_guide.c motors_is_pulse_guiding.c \
-  motors_microsteps.c motors_power.c motors_slew_duration.c
+  motors_microsteps.c motors_power.c
 
 MOUNT_SRCS := \
   mount_tools.c mount_pulse_guide.c mount_set_move_axis_speed.c \
@@ -33,6 +33,9 @@ MOUNT_SRCS := \
 PROD_SRCS := $(addprefix $(ROOT)/main/motors/,$(MOTOR_SRCS)) \
              $(addprefix $(ROOT)/main/mount/,$(MOUNT_SRCS)) \
              $(ROOT)/main/utils/string_utils.c \
+             $(ROOT)/main/motion/axis_units.c \
+             $(ROOT)/main/motion/slew_ramp.c \
+             $(ROOT)/main/geometry/geometry_common.c \
              $(ROOT)/main/profiles/profile_$(PROFILE).c \
              $(ROOT)/main/profiles/mount_profile_validate.c
 
@@ -53,7 +56,7 @@ test: build
 ifeq ($(PROFILE),nrm_ha)
 	NRM_TEST_PROFILE=$(PROFILE) PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest discover -s $(HOSTDIR) -v
 else
-	NRM_TEST_PROFILE=$(PROFILE) PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest test_profile_validate test_profile_contract -v
+	NRM_TEST_PROFILE=$(PROFILE) PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest test_profile_validate test_profile_contract test_fork_bft test_fork_mount_bft -v
 endif
 
 # Run both profiles.  Each runs its current contract: NRM the full motion suite,

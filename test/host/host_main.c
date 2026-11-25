@@ -13,6 +13,7 @@
 #include "mount.h"
 #include "motors.h"
 #include "motors_internal.h"
+#include "motion/slew_ramp.h"
 #include "host_internal.h"
 
 /* ── Module globals normally defined by motors_init.c / mount_init.c ── */
@@ -40,9 +41,10 @@ EquatorialCoordinates axis_to_equatorial(AxisCoordinates axis) {
 }
 
 bool equatorial_to_axis(EquatorialCoordinates eq, AxisCoordinates current,
-                        time_t at_time, PierSideRequirement required,
-                        AxisCoordinates *out) {
-    (void) eq; (void) current; (void) at_time; (void) required; (void) out;
+                        double unix_seconds, PierSideRequirement required,
+                        float speed_dps, AxisCoordinates *out) {
+    (void) eq; (void) current; (void) unix_seconds; (void) required;
+    (void) speed_dps; (void) out;
     return false;
 }
 
@@ -155,13 +157,13 @@ float host_get_guide_rate_dec(void) { return mount_get_guide_rate_dec(); }
 
 /* Pure slew-duration estimator — exposed to validate against the oracle. */
 float host_slew_duration(float distance_deg, float speed_dps) {
-    return motors_slew_duration_seconds(distance_deg, speed_dps);
+    return slew_ramp_duration(&mount_profile.slew, distance_deg, speed_dps);
 }
 
 /* Mechanical scale — read from the compiled profile so the contract test can
  * check it against the declared reduction (rather than trusting it blindly). */
 float host_deg_per_step(void) {
-    return motors_get_deg_per_microstep();
+    return motors_get_deg_per_microstep(AXIS_RA);
 }
 
 /* DIR polarity for an axis (1 = positive rotation is HIGH), from the profile. */
@@ -185,13 +187,13 @@ int64_t host_dec_steps(void) { return motors_current_state().dec_steps; }
 
 void host_set_ra_deg(float deg) {
     portENTER_CRITICAL(&motors_state_lock);
-    motors_state.ra_steps = motors_deg_to_steps(deg);
+    motors_state.ra_steps = motors_deg_to_steps(AXIS_RA, deg);
     portEXIT_CRITICAL(&motors_state_lock);
 }
 
 void host_set_dec_deg(float deg) {
     portENTER_CRITICAL(&motors_state_lock);
-    motors_state.dec_steps = motors_deg_to_steps(deg);
+    motors_state.dec_steps = motors_deg_to_steps(AXIS_DEC, deg);
     portEXIT_CRITICAL(&motors_state_lock);
 }
 

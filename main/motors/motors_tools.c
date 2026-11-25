@@ -111,9 +111,9 @@ bool motors_is_valid_dec(float value) {
 }
 
 bool motors_is_valid_ra_steps(int64_t steps) {
-    return motors_is_valid_ra(motors_steps_to_deg(steps));
+    return motors_is_valid_ra(motors_steps_to_deg(AXIS_RA, steps));
 }
 
 bool motors_is_valid_dec_steps(int64_t steps) {
-    return motors_is_valid_dec(motors_steps_to_deg(steps));
+    return motors_is_valid_dec(motors_steps_to_deg(AXIS_DEC, steps));
 }

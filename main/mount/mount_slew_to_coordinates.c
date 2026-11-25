@@ -5,10 +5,8 @@
 #include "mount.h"
 #include "mount_internal.h"
 
-#include <math.h>
-#include <time.h>
-
 #include "motors.h"
+#include "mount_profile.h"
 
 MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate,
                                      PierSideRequirement required) {
@@ -22,51 +20,44 @@ MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate,
         return mount_result_error("Time not synchronized — set the UTC date first");
     }
 
-    EquatorialCoordinates eq = {
-        .ra_hours = ra,
-        .dec_deg = dec
-    };
+    /* An explicit meridian flip (side request) does not apply to a fork. */
+    if (mount_profile.geometry == GEOMETRY_FORK && required != PIER_SIDE_AUTO) {
+        return mount_result_error("Meridian flip not supported on this mount");
+    }
 
+    EquatorialCoordinates eq = { .ra_hours = ra, .dec_deg = dec };
     AxisCoordinates current = { .ra_axis_deg = motors_get_ra_deg(),
                                 .dec_axis_deg = motors_get_dec_deg() };
-
-    /* The sky keeps rotating during the slew: converting the destination once
-     * at the request time would point at where the target *was*.  Convert at
-     * the predicted arrival time instead — a first-order compensation for the
-     * hour angle that advances during the move (≈ 15 arcsec/s). */
-    time_t now = time(NULL);
-
-    /* Decide the destination side ONCE, at the request instant, and lock it for
-     * the whole move.  The arrival-time conversion below only re-solves the axis
-     * coordinates for the (slightly later) hour angle on that same side — it
-     * must never flip the side mid-slew when HA crosses zero. */
-    AxisCoordinates axis_now;
-    if (!equatorial_to_axis(eq, current, now, required, &axis_now)) {
-        return mount_result_error("Target unreachable — no valid axis solution");
-    }
-    PierSideRequirement locked = (axis_now.pier_side == PIER_SIDE_EAST)
-                                 ? PIER_SIDE_EAST : PIER_SIDE_WEST;
-
     float speed = motors_get_slewing_speed(speed_rate);
-    float ra_dist  = fabsf(axis_now.ra_axis_deg  - current.ra_axis_deg);
-    float dec_dist = fabsf(axis_now.dec_axis_deg - current.dec_axis_deg);
-    /* Two-axis slew: the slower axis (larger per-axis duration) wins.  Use the
-     * real ramp profile rather than distance/speed, which under- or over-
-     * estimates short/gentle moves and skews the arrival-time compensation. */
-    float duration_s = motors_slew_duration_seconds(ra_dist, speed);
-    float dec_duration_s = motors_slew_duration_seconds(dec_dist, speed);
-    if (dec_duration_s > duration_s) {
-        duration_s = dec_duration_s;
-    }
-    time_t arrive_at = now + (time_t) duration_s;
 
-    AxisCoordinates axis;
-    if (!equatorial_to_axis(eq, current, arrive_at, locked, &axis)) {
+    /* A single geometry context: one snapshot of site, limits and instant.  The
+     * geometry derives the arrival instant internally (same site/limits). */
+    MotorsState ms = motors_current_state();
+    GeometryContext ctx = {
+        .lat_deg = mount_internal_state.lat,
+        .lon_deg = mount_internal_state.lon,
+        .unix_seconds = mount_unix_now(),
+        .limits = { ms.limits.ra_min, ms.limits.ra_max,
+                    ms.limits.dec_min, ms.limits.dec_max },
+    };
+
+    GotoPlan plan;
+    if (!geometry_plan_goto(&ctx, eq, current, required, speed, &plan)) {
         return mount_result_error("Target unreachable — no valid axis solution");
     }
 
-    MotorResultCode rc1 = motors_slew_to_angle(axis.ra_axis_deg, axis.dec_axis_deg, speed_rate);
+    /* Geometric horizon (fork only): reject a goto whose monotonic RA/DEC
+     * trajectory dips below the horizon, even when the mechanical limits admit
+     * it. */
+    if (mount_profile.geometry == GEOMETRY_FORK
+        && !geometry_path_above_horizon(current.ra_axis_deg, current.dec_axis_deg,
+                                        plan.target.ra_axis_deg, plan.target.dec_axis_deg,
+                                        mount_internal_state.lat)) {
+        return mount_result_error("Target below horizon — path crosses the horizon");
+    }
 
+    MotorResultCode rc1 = motors_slew_to_angle(plan.target.ra_axis_deg,
+                                               plan.target.dec_axis_deg, speed_rate);
     if (rc1 != MOTOR_OK) {
         /* Propagate the specific code (queue full, parked, out of range) so a
          * rejected goto never reads as a generic success and clients get the

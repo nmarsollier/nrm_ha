@@ -10,6 +10,7 @@
  * arrival compensation are deterministic for a fixed instant.
  */
 #include "mount/mount_internal.h"
+#include "mount_profile.h"
 #include <sys/time.h>
 #include <time.h>
 
@@ -39,6 +40,8 @@ void host_reset(time_t now) {
     dec_position = 0;
     ra_position = 0;
     guide_axis = -1;
+    guide_offset = 0.0f;
+    guide_duration = 0;
     slew_called = 0;
 }
 void host_lat(float lat) { mount_internal_state.lat = lat; }
@@ -66,6 +69,12 @@ time_t host_time(time_t *t) {
 MotorsState motors_current_state(void) { return state; }
 float motors_get_dec_deg(void) { return dec_position; }
 float motors_get_ra_deg(void) { return ra_position; }
+float motors_steps_to_deg(AxisId axis, int64_t steps) {
+    const AxisProfile *a = &mount_profile.axes[axis];
+    float deg_per_step = a->full_step_deg
+                         / ((float) a->canonical_microsteps * a->gear_ratio);
+    return (float) steps * deg_per_step;
+}
 float motors_get_slewing_speed(int speed_rate) {
     switch (speed_rate) {
         case 1: return 0.5f;
@@ -73,13 +82,6 @@ float motors_get_slewing_speed(int speed_rate) {
         case 3: return 2.5f;
         default: return 4.0f;
     }
-}
-/* Test-only approximation — the real ramp model lives in the firmware
- * (motors_slew_duration.c), which this fork harness does not compile. */
-float motors_slew_duration_seconds(float distance_deg, float speed_dps) {
-    return (distance_deg > 0.0f && speed_dps > 0.0f)
-           ? distance_deg / speed_dps + 2.0f
-           : 0.0f;
 }
 bool motors_status_is_error(MotorsStatus s) { return s == MOTORS_STATUS_ERROR; }
 const char *motors_status_to_string(MotorsStatus s) { (void) s; return "ready"; }
@@ -105,6 +107,9 @@ bool host_guide(int direction) { return mount_pulse_guide(direction, 500).ok; }
 bool host_slew(float ra, float dec, int speed) {
     return mount_slew_to_coordinates(ra, dec, speed, PIER_SIDE_AUTO).ok;
 }
+bool host_slew_side(float ra, float dec, int speed, int side) {
+    return mount_slew_to_coordinates(ra, dec, speed, (PierSideRequirement) side).ok;
+}
 /* Predict the pier side a goto would select (0 east, 1 west), or -1 when
  * unreachable. */
 int host_destination_side_of_pier(float ra, float dec) {
@@ -112,3 +117,10 @@ int host_destination_side_of_pier(float ra, float dec) {
     MountResult r = mount_destination_side_of_pier(ra, dec, &side);
     return r.ok ? side : -1;
 }
+
+/* Observed effects of the last guide / slew, for integration assertions. */
+float host_guide_offset(void) { return guide_offset; }
+int host_guide_axis(void) { return guide_axis; }
+int host_slew_called(void) { return slew_called; }
+float host_slew_ra(void) { return slew_ra; }
+float host_slew_dec(void) { return slew_dec; }

@@ -64,7 +64,13 @@ class ForkTests(unittest.TestCase):
             "-Dgettimeofday=host_gettimeofday",
             "-Dtime=host_time",
             "-I" + str(ROOT / "test/host/stubs"), "-I" + str(ROOT / "main"),
-            "-I" + str(ROOT / "main/motors"),
+            "-I" + str(ROOT / "main/motors"), "-I" + str(ROOT / "main/profiles"), "-I" + str(ROOT / "main/motion"),
+            str(ROOT / "main/motion/axis_units.c"),
+            str(ROOT / "main/motion/slew_ramp.c"),
+            str(ROOT / "main/geometry/geometry_common.c"),
+            str(ROOT / "main/geometry/geometry_german.c"),
+            str(ROOT / "main/geometry/geometry_fork_horizon.c"),
+            str(ROOT / "main/profiles/profile_nrm_ha.c"),
             str(ROOT / "main/mount/mount_coordinate_tools.c"),
             str(ROOT / "main/mount/mount_get_lst.c"),
             str(ROOT / "main/mount/mount_pulse_guide.c"),
@@ -85,7 +91,8 @@ class ForkTests(unittest.TestCase):
         cls.lib.host_slew.restype = C.c_bool
         cls.lib.axis_to_equatorial.argtypes = [Axis]
         cls.lib.axis_to_equatorial.restype = Eq
-        cls.lib.equatorial_to_axis.argtypes = [Eq, Axis, C.c_long, C.c_int, C.POINTER(Axis)]
+        cls.lib.equatorial_to_axis.argtypes = [Eq, Axis, C.c_double, C.c_int,
+                                               C.c_float, C.POINTER(Axis)]
         cls.lib.equatorial_to_axis.restype = C.c_bool
         cls.lib.host_guide.argtypes = [C.c_int]
         cls.lib.host_guide.restype = C.c_bool
@@ -119,7 +126,7 @@ class ForkTests(unittest.TestCase):
     def reverse(self, ra_hours, dec_deg, current, required=-1):
         out = Axis(999, 999, 99)
         ok = self.lib.equatorial_to_axis(Eq(ra_hours, dec_deg), current,
-                                         NOW, required, C.byref(out))
+                                         NOW, required, 0.0, C.byref(out))
         return ok, out
 
     def ha_ra(self, ha_deg):

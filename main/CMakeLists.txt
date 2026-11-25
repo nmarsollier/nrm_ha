@@ -54,7 +54,6 @@ idf_component_register(
         "motors/motors_get_slewing_speed.c"
         "motors/motors_get_move_axis_speed.c"
         "motors/motors_get_tracking_speed.c"
-        "motors/motors_slew_duration.c"
         "motors/motors_home.c"
         "motors/motors_init.c"
         "motors/motors_move_axis_speed.c"
@@ -103,6 +102,12 @@ idf_component_register(
         "utils/number_utils.c"
         "utils/string_utils.c"
 
+        "motion/axis_units.c"
+        "motion/slew_ramp.c"
+        "geometry/geometry_common.c"
+        "geometry/geometry_fork_horizon.c"
+        ${MOUNT_GEOMETRY_SRC}
+
         ${PROTO_CDC_SRCS}
 
         "profiles/mount_profile_validate.c"
@@ -113,6 +118,8 @@ idf_component_register(
         "board"
         "buzzer"
         "config"
+        "geometry"
+        "motion"
         "led"
         "mount"
         "motors"

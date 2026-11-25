@@ -3,6 +3,8 @@
 #include "motors.h"
 #include "config.h"
 
+#include "motion/axis_units.h"
+
 #include "driver/rmt_tx.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -97,18 +99,17 @@ bool motors_is_valid_dec_steps(int64_t steps);
 #define MOTORS_MAX_MOVE_AXIS_SPEED_DPS 1.0f
 
 /*
- * Angular displacement per microstep at the mount axis.
+ * Angular displacement per microstep for one mount axis.
  *
- *   full_step_deg       = NEMA 17 full-step angle (1.8°)
+ *   full_step_deg        = NEMA 17 full-step angle (1.8°)
  *   canonical_microsteps = 64 (TMC2209 CHOPCONF.MRES)
- *   gear_ratio          = total reduction (motor shaft : axis)
+ *   gear_ratio           = total reduction (motor shaft : axis)
  *
- * Both axes share the same reduction and resolution in every current profile;
- * the per-axis conversion API lands in PR4.
+ * Each axis reads its own AxisProfile so RA and DEC can have independent
+ * reductions.
  */
-static inline float motors_get_deg_per_microstep(void) {
-    const AxisProfile *ra = &mount_profile.axes[AXIS_RA];
-    return ra->full_step_deg / ((float) ra->canonical_microsteps * ra->gear_ratio);
+static inline float motors_get_deg_per_microstep(AxisId axis) {
+    return (float) axis_deg_per_step(axis);
 }
 
 /* =========================================================================
@@ -132,22 +133,10 @@ uint32_t motors_steps_per_pulse(void);
 bool motors_microsteps_prepare(MotionCommandType type, int64_t ra_dist, int64_t dec_dist);
 
 /* =========================================================================
- * Slew ramp profile — shared by the motion task (ramp_velocity) and the
- * arrival-time estimator (motors_slew_duration.c), so the predicted goto
- * duration matches the real velocity profile.  Centidegrees.
+ * Slew ramp profile — the parameters live in the mount profile
+ * (mount_profile.slew), so the motion task's ramp_velocity() and the
+ * arrival-time estimator (slew_ramp_duration) share the same definition.
  * ========================================================================= */
-
-/* Minimum slew velocity — floor for ramp curves. */
-#define MIN_SLEW_CDS     80
-
-/* Distance thresholds for ramp-profile selection. */
-#define SHORT_SLEW_CDS   200   /* constant slow speed below this */
-#define GENTLE_SLEW_CDS  800   /* cap target speed below this    */
-
-/* Accel/decel ramp window — fixed angular distance regardless of total
- * travel (5 degrees). */
-#define ACCEL_DIST_CDS   500
-#define DECEL_DIST_CDS   500
 
 /* =========================================================================
  * Hardware layer — DIR GPIO control (motors_hw.c).
@@ -199,11 +188,10 @@ void motors_hw_set_direction_dec(MotorDirection direction);
 
 /* Convert between steps and degrees using the active microstep resolution.
  * Defined in motors_current_state.c; declared public in motors.h. */
-float motors_steps_to_deg(int64_t steps);
+float motors_steps_to_deg(AxisId axis, int64_t steps);
 
-static inline int64_t motors_deg_to_steps(float degrees) {
-    float deg_per_step = motors_get_deg_per_microstep();
-    return (int64_t)(degrees / deg_per_step + (degrees >= 0.0f ? 0.5f : -0.5f));
+static inline int64_t motors_deg_to_steps(AxisId axis, float degrees) {
+    return axis_deg_to_steps(axis, (double) degrees);
 }
 
 esp_err_t motors_rmt_init(void);

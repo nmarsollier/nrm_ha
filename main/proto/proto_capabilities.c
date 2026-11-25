@@ -39,6 +39,7 @@ void proto_handle_capabilities(const char *req, uint32_t id, char *out, size_t c
         "],\"tracking_modes\":[\"none\",\"sidereal\",\"lunar\",\"solar\"],"
         "\"caps\":{\"guide\":true,\"home\":true,\"park\":true,\"unpark\":true,"
         "\"move_axis\":true,\"slew\":true,\"tracking\":true,\"sync\":false,"
-        "\"meridian_flip\":true}"
-        "}}");
+        "\"meridian_flip\":%s}"
+        "}}",
+        (mount_profile.geometry == GEOMETRY_GERMAN) ? "true" : "false");
 }

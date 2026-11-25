@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+#include "mount_profile.h"
+
 /*
  * High-level state of the motors subsystem used as the authoritative
  * source of truth for mount activity.
@@ -151,7 +153,7 @@ float motors_get_dec_deg(void);
 /* Convert an absolute microstep counter to degrees.  Public so the protocol
  * layer can derive degrees from a single coherent MotorsState snapshot rather
  * than re-reading each axis separately. */
-float motors_steps_to_deg(int64_t steps);
+float motors_steps_to_deg(AxisId axis, int64_t steps);
 
 /*
  * Current active microstep resolution on both drivers (MOTORS_MICROSTEPS_TRACKING or the
@@ -201,17 +203,6 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed);
  * Return the slewing angular speed (deg/s) for a given speed_rate profile.
  */
 float motors_get_slewing_speed(int speed_rate);
-
-/*
- * Estimate the single-axis slew duration (seconds) for `distance_deg` at the
- * commanded `speed_dps`, under the same ramp profile the motion task applies
- * (constant slow speed below the short-slew threshold, capped speed below the
- * gentle-slew threshold, then a trapezoidal/triangular accel-decel).  The mount
- * layer uses it to predict a goto's arrival time and compensate for the sky
- * rotation during the move, so it must mirror the real velocity profile rather
- * than assume a constant `speed_dps`.
- */
-float motors_slew_duration_seconds(float distance_deg, float speed_dps);
 
 /*
  * Return the manual move-axis angular speed (deg/s) for a given speed_rate
