@@ -19,6 +19,10 @@ volatile float motors_move_axis_dec_dps = 0.0f;
 volatile uint32_t motors_move_axis_version = 0;
 
 MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
+    if (!mount_profile.motion_ready) {
+        return MOTOR_ERR_MOTION_DISABLED;
+    }
+
     if (motors_status_is_error(motors_state.status)) {
         return MOTOR_ERR_HARDWARE_ERROR;
     }

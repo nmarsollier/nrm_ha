@@ -20,6 +20,9 @@ if(CONFIG_TINYUSB_CDC_ENABLED)
         )
 endif()
 
+# Mount profile source is resolved and validated in the top-level CMakeLists.txt
+# (MOUNT_PROFILE_SRC cache variable).  The link selects a single mount_profile.
+
 idf_component_register(
         SRCS
         "main.c"
@@ -102,13 +105,18 @@ idf_component_register(
 
         ${PROTO_CDC_SRCS}
 
+        "profiles/mount_profile_validate.c"
+        ${MOUNT_PROFILE_SRC}
+
         INCLUDE_DIRS
         "."
+        "board"
         "buzzer"
         "config"
         "led"
         "mount"
         "motors"
+        "profiles"
         "runtime"
         "tmc"
         "utils"

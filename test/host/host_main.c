@@ -158,6 +158,20 @@ float host_slew_duration(float distance_deg, float speed_dps) {
     return motors_slew_duration_seconds(distance_deg, speed_dps);
 }
 
+/* Mechanical scale — read from the compiled profile so the contract test can
+ * check it against the declared reduction (rather than trusting it blindly). */
+float host_deg_per_step(void) {
+    return motors_get_deg_per_microstep();
+}
+
+/* DIR polarity for an axis (1 = positive rotation is HIGH), from the profile. */
+int host_dir_positive_level(int axis) {
+    if (axis != AXIS_RA && axis != AXIS_DEC) {
+        return -1;
+    }
+    return mount_profile.axes[axis].dir_positive_level ? 1 : 0;
+}
+
 /* State accessors. */
 int host_status(void) { return (int) motors_current_state().status; }
 int host_tracking(void) { return (int) motors_current_state().tracking; }

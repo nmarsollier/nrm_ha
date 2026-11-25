@@ -4,6 +4,8 @@
  */
 #include "runtime.h"
 
+#include <stdlib.h>
+
 #include "esp_err.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -12,6 +14,7 @@
 #include "led.h"
 #include "motors.h"
 #include "mount.h"
+#include "mount_profile.h"
 #include "tmc.h"
 #if CONFIG_TINYUSB_CDC_ENABLED
 #include "usb_cdc.h"
@@ -30,6 +33,17 @@ static const char *TAG = "RUNTIME_SETUP";
  * motor status on its first tick.
  */
 void setup_init(void) {
+    /* Validate the selected mount profile before touching any hardware: a bad
+     * profile would silently break the step/limit math. */
+    if (!mount_profile_validate(&mount_profile)) {
+        ESP_LOGE(TAG, "Invalid mount profile — configuration error, halting");
+        abort();
+    }
+    ESP_LOGI(TAG, "Mount profile: %s (%s) revision %lu, geometry %s",
+             mount_profile.name, mount_profile.id,
+             (unsigned long) mount_profile.profile_revision,
+             mount_profile.geometry == GEOMETRY_GERMAN ? "german" : "fork");
+
     esp_err_t nvs_result = nvs_flash_init();
     if (nvs_result == ESP_ERR_NVS_NO_FREE_PAGES || nvs_result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());

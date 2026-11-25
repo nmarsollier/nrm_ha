@@ -99,13 +99,16 @@ bool motors_is_valid_dec_steps(int64_t steps);
 /*
  * Angular displacement per microstep at the mount axis.
  *
- *   1.8° = NEMA 17 full-step angle
- *   MOTORS_MICROSTEPS_TRACKING = 64 (TMC2209 CHOPCONF.MRES)
- *   TOTAL_GEAR_REDUCTION       = 300:1 (3:1 belts × 100:1 harmonic drive)
+ *   full_step_deg       = NEMA 17 full-step angle (1.8°)
+ *   canonical_microsteps = 64 (TMC2209 CHOPCONF.MRES)
+ *   gear_ratio          = total reduction (motor shaft : axis)
+ *
+ * Both axes share the same reduction and resolution in every current profile;
+ * the per-axis conversion API lands in PR4.
  */
 static inline float motors_get_deg_per_microstep(void) {
-    return 1.8f / ((float) MOTORS_MICROSTEPS_TRACKING *
-                    TOTAL_GEAR_REDUCTION);
+    const AxisProfile *ra = &mount_profile.axes[AXIS_RA];
+    return ra->full_step_deg / ((float) ra->canonical_microsteps * ra->gear_ratio);
 }
 
 /* =========================================================================

@@ -11,6 +11,10 @@
 #include "freertos/task.h"
 
 MotorResultCode motors_pulse_guide_start(int axis, float offset_dps, uint32_t duration_ms) {
+    if (!mount_profile.motion_ready) {
+        return MOTOR_ERR_MOTION_DISABLED;
+    }
+
     if (motors_status_is_error(motors_state.status)) {
         return MOTOR_ERR_HARDWARE_ERROR;
     }

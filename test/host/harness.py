@@ -5,10 +5,12 @@ loop, RMT encoding) with RTOS/RMT/time mocked, so the tests below exercise the
 real firmware code rather than a stub that fakes movement.
 """
 import ctypes as C
+import os
 from pathlib import Path
 import time
 
-LIB = Path(__file__).resolve().parent / "libnrm_host.so"
+PROFILE = os.environ.get("NRM_TEST_PROFILE", "nrm_ha")
+LIB = Path(__file__).resolve().parent / f"libhost_{PROFILE}.so"
 
 # motors.h enums
 STATUS_READY = 0
@@ -28,10 +30,15 @@ SOUTH = 1
 EAST = 2
 WEST = 3
 
-# Geometry (NRM-HA: 64 microsteps, 300:1 reduction)
+# Guide rates are mount-agnostic.  The step scale is an INDEPENDENT expected
+# value per profile (not read from the firmware): a wrong reduction must not
+# shift the test expectations.  test_profile_contract.py separately checks the
+# firmware's own conversion against this declared reduction.
 SIDEREAL_DPS = 0.004178074
 GUIDE_DPS = SIDEREAL_DPS * 0.5            # 0.002089037 — NOT 0.5 deg/s
-DEG_PER_STEP = 1.8 / (64 * 300)           # 0.00009375 deg
+
+_GEAR_RATIO = {"nrm_ha": 300, "bft": 500}[PROFILE]
+DEG_PER_STEP = 1.8 / (64 * _GEAR_RATIO)
 
 
 class HostStep(C.Structure):

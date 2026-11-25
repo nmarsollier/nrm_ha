@@ -22,7 +22,7 @@ void proto_handle_capabilities(const char *req, uint32_t id, char *out, size_t c
         "\"name\":\"%s\",\"firmware_version\":\"%s\","
         "\"capabilities\":{\"axes\":[\"ra\",\"dec\"],\"slew_speeds_dps\":[",
         (unsigned long) id, (unsigned long) proto_boot_id(),
-        MOUNT_DEVICE_ID, MOUNT_NAME, MOUNT_FIRMWARE_VERSION);
+        mount_profile.id, mount_profile.name, MOUNT_FIRMWARE_VERSION);
 
     for (int rate = 1; rate <= 4; rate++) {
         proto_buf_append(out, cap, &len, "%s%.1f",

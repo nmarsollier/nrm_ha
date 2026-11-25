@@ -168,12 +168,54 @@ export PYTHON="$IDF_PYTHON_ENV_PATH/bin/python"
 alias idf.py="$PYTHON $IDF_PATH/tools/idf.py"
 ```
 
-### Build
+### Build (per profile)
+
+A single codebase builds two mount profiles — `nrm_ha` (German equatorial) and
+`bft` (fork) — selected by the mandatory `MOUNT_PROFILE` variable. Both profiles
+share one board config (`main/board/`); they differ only in mechanical/geometry
+data (`main/profiles/`). Only one firmware runs on a board at a time: flashing
+one profile overwrites the other.
 
 ```sh
-idf.py set-target esp32s3
-idf.py build flash monitor
+# once per shell (if the alias from "macOS install" above isn't active):
+# source ~/.espressif/v6.0.1/esp-idf/export.sh
+
+# Build — NRM-HA
+idf.py -B build/nrm_ha -D MOUNT_PROFILE=nrm_ha build
+
+# Build — BFT
+idf.py -B build/bft -D MOUNT_PROFILE=bft build
 ```
+
+`MOUNT_PROFILE` is mandatory: a missing or unknown value fails at configure time
+(`nrm_ha`/`bft` are the only accepted values). Each profile has its own build
+directory (`build/nrm_ha`, `build/bft`), so switching profiles never reuses the
+other's cache.
+
+### Flash (per profile)
+
+```sh
+# Flash NRM-HA (replace PORT with the board's flash port)
+idf.py -B build/nrm_ha -D MOUNT_PROFILE=nrm_ha flash
+
+# Flash BFT — overwrites NRM-HA
+idf.py -B build/bft -D MOUNT_PROFILE=bft flash
+```
+
+The flash port is the board's USB-Serial-JTAG (a `/dev/cu.usbmodem*` device with
+an Espressif MAC-derived name) or the CH343 bridge (`/dev/cu.usbserial*` /
+`/dev/cu.wchusbserial*`). Find it with `ls /dev/cu.*`; the CDC-ACM protocol port
+is a separate `usbmodem` device and is **not** the flash port. Flashing does not
+need the 12 V rail — only motion does.
+
+To watch the boot log (it prints the selected profile at startup):
+
+```sh
+idf.py -B build/nrm_ha -p PORT monitor   # Ctrl+] to exit
+```
+
+Both profiles currently flash at 8 MB (the NRM baseline); the flash size is
+pending physical verification against the common board.
 
 ## Project conventions
 

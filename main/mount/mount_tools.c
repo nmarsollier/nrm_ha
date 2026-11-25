@@ -58,6 +58,8 @@ MountResult motors_result_code_error_result(MotorResultCode rc) {
             return mount_result_error("Mount is parked");
         case MOTOR_ERR_BUSY:
             return mount_result_error("Command queue full — try again");
+        case MOTOR_ERR_MOTION_DISABLED:
+            return mount_result_error("Motion disabled — profile not integrated");
         default:
             return mount_result_error("Motor error");
     }

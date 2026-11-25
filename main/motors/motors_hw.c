@@ -55,9 +55,11 @@ esp_err_t motors_hw_init(void) {
 }
 
 void motors_hw_set_direction_ra(MotorDirection direction) {
-    /* Direct drive — positive rotation maps to DIR HIGH.  Verify on the
-     * bench: if RA slews the wrong way, invert this mapping. */
-    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
+    /* The DIR level that yields positive rotation is a per-profile mechanical
+     * sign (dir_positive_level). */
+    bool dir_high = (direction == MOTOR_DIRECTION_POSITIVE)
+                    == mount_profile.axes[AXIS_RA].dir_positive_level;
+    int dir = dir_high ? 1 : 0;
     if (last_dir_ra != dir) {
         last_dir_ra = dir;
         gpio_set_level(RA_DIR_GPIO, dir);
@@ -66,9 +68,9 @@ void motors_hw_set_direction_ra(MotorDirection direction) {
 }
 
 void motors_hw_set_direction_dec(MotorDirection direction) {
-    /* Direct drive — positive rotation maps to DIR HIGH.  Verify on the
-     * bench: if DEC slews the wrong way, invert this mapping. */
-    int dir = direction == MOTOR_DIRECTION_POSITIVE ? 1 : 0;
+    bool dir_high = (direction == MOTOR_DIRECTION_POSITIVE)
+                    == mount_profile.axes[AXIS_DEC].dir_positive_level;
+    int dir = dir_high ? 1 : 0;
     if (last_dir_dec != dir) {
         last_dir_dec = dir;
         gpio_set_level(DEC_DIR_GPIO, dir);

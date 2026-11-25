@@ -36,6 +36,14 @@ esp_err_t motors_queue_init(void) {
  * callers reset the queue before sending so they always run immediately.
  * -------------------------------------------------------------------------- */
 bool motors_queue_put(MotionCommand *cmd) {
+    /* Default-deny: refuse every motion command while the profile's geometry,
+     * limits and speeds are not yet wired into the executor (e.g. the BFT
+     * profile until its integration completes). */
+    if (!mount_profile.motion_ready) {
+        ESP_LOGW(TAG, "Motion disabled — profile %s not fully integrated", mount_profile.name);
+        return false;
+    }
+
     if (motion_cmd_queue == NULL) {
         ESP_LOGE(TAG, "Motion command queue not initialized");
         return false;

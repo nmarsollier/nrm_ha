@@ -99,7 +99,8 @@ typedef enum {
     MOTOR_ERR_NOT_READY = 3,
     MOTOR_ERR_HARDWARE_ERROR = 4,
     MOTOR_ERR_PARKED = 5,
-    MOTOR_ERR_BUSY = 6
+    MOTOR_ERR_BUSY = 6,
+    MOTOR_ERR_MOTION_DISABLED = 7
 } MotorResultCode;
 
 /*
