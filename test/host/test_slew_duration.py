@@ -23,13 +23,17 @@ class SlewDurationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.h = Harness()
+        # The oracle's ramp window must match the compiled profile (5°/5° NRM,
+        # 10°/10° BFT), read from the firmware rather than hardcoded.
+        cls.accel = cls.h.lib.host_slew_accel_deg()
+        cls.decel = cls.h.lib.host_slew_decel_deg()
 
     def test_matches_oracle_single_axis(self):
         h = self.h
         for speed in (1.0, 3.0, 4.5, 6.0):
             for dist in (0.0, 0.5, 1.0, 1.9, 2.0, 3.0, 5.0, 7.9, 8.0,
                          10.0, 20.0, 50.0, 100.0):
-                want = slew_time(dist, speed)
+                want = slew_time(dist, speed, self.accel, self.decel)
                 got = h.lib.host_slew_duration(dist, speed)
                 self.assertAlmostEqual(
                     got, want, delta=1e-3,
@@ -40,7 +44,7 @@ class SlewDurationTests(unittest.TestCase):
         # The goto duration is max(ra, dec); spot-check a few pairs.
         for ra, dec, speed in ((60.0, 3.0, 6.0), (1.0, 40.0, 4.5),
                                (8.0, 8.0, 3.0), (0.5, 0.5, 6.0)):
-            want = goto_time(ra, dec, speed)
+            want = goto_time(ra, dec, speed, self.accel, self.decel)
             got = max(h.lib.host_slew_duration(ra, speed),
                       h.lib.host_slew_duration(dec, speed))
             self.assertAlmostEqual(

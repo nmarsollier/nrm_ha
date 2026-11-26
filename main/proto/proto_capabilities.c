@@ -7,7 +7,12 @@
  */
 #include "proto_internal.h"
 
-#include "config.h"
+#include "mount_profile.h"
+
+/* Firmware version reported in the CAPABILITIES handshake.  Kept separate from
+ * the board electronics config (board_config.h): it describes the firmware
+ * build, not the board. */
+#define MOUNT_FIRMWARE_VERSION "0.1.0" /* TODO: bump to the real version */
 
 void proto_handle_capabilities(const char *req, uint32_t id, char *out, size_t cap) {
     (void) req;

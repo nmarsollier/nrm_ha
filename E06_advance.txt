@@ -1,0 +1,611 @@
+E06 — Impedir la reapertura insegura de admisión ante ERROR o drenaje fallido
+=============================================================================
+
+Estado: COMPLETO.
+
+## 1. Diagnóstico de E06-A/B/C/D/E
+
+- **E06-A (reapertura explícita después de ERROR): CONFIRMADA.** `motors_stop_and_wait()`
+  llamaba `motors_admission_open()` antes de devolver `MOTOR_ERR_HARDWARE_ERROR`.
+- **E06-B (reapertura después de drenaje fallido): CONFIRMADA.** La misma función
+  reabría admisión en la rama `aborted` (`MOTOR_ERR_NOT_READY`).
+- **E06-C (reapertura incondicional en STOP/PARK): CONFIRMADA.** `motors_stop()` y
+  `motors_park()` publicaban el estado y luego llamaban `motors_admission_open()`
+  sin condicionar; la comprobación de ERROR y la apertura no eran coherentes.
+- **E06-D (origen y límites): CONFIRMADA parcialmente.** `motors_set_current_as_home`
+  limpiaba `position_uncertain` aun con ERROR concurrente; los seis setters de
+  origen/límites reabrían admisión sin condicionar.
+- **E06-E (finalización manual fallida): CONFIRMADA.** `motors_manual_finish()` no
+  cerraba admisión ante drenaje fallido, timeout o ERROR.
+
+## 2. Inventario de llamadas de apertura/cierre de admisión
+
+Apertura (`motors_admission_open`) en el árbol antes de la corrección (10):
+
+- `motors_stop.c` (3): dos en `motors_stop_and_wait` (ramas ERROR y `aborted`) y
+  una en `motors_stop`.
+- `motors_park.c` (1): `motors_park`.
+- `motors_limits.c` (6): `motors_set_current_as_home`, cuatro setters de límites,
+  `motors_limits_reset`.
+
+Cierre:
+
+- `motors_stop_begin()` — cierre + generación + invalidación de sesión manual.
+- `motors_stop_generation_advance()` — solo generación (TMC/microsteps).
+- Nueva `motors_admission_close()` — cierre + generación + invalidación de sesión,
+  sin la semántica completa de STOP.
+
+## 3. Inventario de caminos que publican ERROR
+
+- `motors_init.c`: `motors_enter_hardware_fault()` (fallo de init RMT/cola) y
+  `motors_enter_error_state()` + `motors_mark_power_fault()`.
+- `motors_power.c`: `motors_enter_error_state()` (pérdida de alimentación) y
+  `motors_enter_hardware_fault()` (reinit fallido).
+- `motors_motion_task.c`: `motors_enter_hardware_fault()` (init RMT fallido, fallo
+  de transmisión RMT) y `motors_enter_error_state()` (ERROR detectado en
+  `check_motion_conditions`).
+- `motors_microsteps.c`: `motors_enter_error_state()` (cambio de driver fallido,
+  resolución no verificada).
+
+Todos confluyen en `motors_enter_error_state()` (o `motors_enter_hardware_fault`,
+  que la llama).
+
+## 4. Código original responsable
+
+- `main/motors/motors_stop.c` — `motors_stop_and_wait()`, `motors_stop()`,
+  `motors_manual_finish()`.
+- `main/motors/motors_park.c` — `motors_park()`.
+- `main/motors/motors_limits.c` — seis setters.
+- `main/motors/motors_enter_error_state.c` — publicación de ERROR sin cierre de
+  admisión.
+- `main/motors/motors_command_queue.c` — `motors_admission_open()` incondicional.
+- `main/motors/motors_microsteps.c` — `motors_stop_generation_advance()` redundante.
+
+## 5. Hipótesis confirmadas y descartadas
+
+Confirmadas: E06-A, E06-B, E06-C, E06-E, y la limpieza indebida de
+`position_uncertain` de E06-D. No se descartó ninguna hipótesis de seguridad.
+
+## 6. Pruebas agregadas
+
+`test/host/test_fault_admission.py` (6 pruebas):
+
+- `test_stop_hardware_fault_keeps_admission_closed`
+- `test_failed_stop_drain_keeps_admission_closed`
+- `test_park_fault_cannot_publish_parked_or_reopen_admission`
+- `test_latched_error_survives_stop_unpark_and_power_return`
+- `test_failed_manual_finalization_blocks_unsafe_admission`
+- `test_successful_control_operations_preserve_normal_admission`
+
+Observabilidad de admisión: `host_fill_queue_with_slew(1)` devuelve 0 cuando la
+compuerta de admisión (`s_stopping`) está cerrada (usa `motors_queue_put`, que
+evita la comprobación de estado de la capa mount).
+
+## 7. Orden determinista de operaciones concurrentes
+
+- Falla de hardware: `host_rmt_set_tx_error(0)` provoca un fallo real de
+  transmisión RMT durante el movimiento → `motors_enter_hardware_fault`.
+- Drenaje fallido: `host_rmt_set_absent(0)` antes del movimiento provoca que los
+  lotes nunca completen → el drenaje gracioso agota el plazo → `aborted`.
+- Falla de finalización manual con tracking: `host_set_pause_after_process_command`
+  suspende al ejecutor justo antes del lazo de movimiento para inyectar la
+  ausencia de completación de forma determinista.
+- Sin sleeps de orden; solo esperas/joins con timeout.
+
+## 8. Hooks utilizados
+
+- `motors_test_hook_after_process_command` (existente) para la finalización manual
+  fallida.
+- No se añadieron hooks nuevos.
+
+## 9. Resultados RED reales
+
+Sobre la versión sin corregir (ERROR no cierra admisión; apertura incondicional):
+
+- `test_stop_hardware_fault_keeps_admission_closed` ... FAIL (la admisión queda
+  abierta tras ERROR).
+- `test_park_fault_cannot_publish_parked_or_reopen_admission` ... FAIL.
+- `test_latched_error_survives_stop_unpark_and_power_return` ... FAIL.
+
+`test_failed_stop_drain_keeps_admission_closed`, `test_failed_manual_finalization...`
+y `test_successful_control_operations...` pasan sobre la versión sin corregir
+(cubren aspectos que no requieren el cierre por ERROR, o son regresión).
+
+## 10. Tracebacks y aserciones fallidas
+
+Las tres fallas RED son aserciones de `assert_admission_closed()` (compuerta de
+admisión abierta cuando debía estar cerrada). No hay timeouts de instrumentación.
+
+## 11. Correcciones realizadas
+
+- `motors_enter_error_state()`: además de publicar ERROR, cierra admisión e
+  invalida trabajo encolado y sesión manual mediante `motors_admission_close()`.
+- `motors_admission_open()`: ahora es condicionada (solo reabre si no hay ERROR
+  latched) y devuelve `bool`. Mantiene `motors_state_lock` mientras adquiere
+  `motors_admission_lock` (orden state→admission), coherente con
+  `motors_enter_error_state`.
+- `motors_stop_and_wait()`: eliminadas las reaperturas en las ramas ERROR/`aborted`.
+- `motors_stop()` y `motors_park()`: propagan `motors_admission_open() == false`
+  como `MOTOR_ERR_HARDWARE_ERROR`.
+- `motors_limits.c`: los setters propagan la apertura condicionada; `home` no limpia
+  `position_uncertain` con ERROR concurrente.
+- `motors_manual_finish()`: cierra admisión ante timeout o drenaje fallido.
+- `motors_microsteps.c`: eliminado `motors_stop_generation_advance()` redundante
+  (la publicación de ERROR ya avanza la generación).
+
+## 12. Política final de apertura y cierre de admisión
+
+- Cierre: `motors_stop_begin()` (STOP/PARK/control) y `motors_admission_close()`
+  (fallo: ERROR o drenaje fallido).
+- Apertura: solo `motors_admission_open()` condicionada, tras confirmación de reposo
+  y sin ERROR latched.
+- La compuerta `s_stopping` es la única barrera real de admisión; el estado ERROR
+  es una barrera adicional y coherente, no la única.
+
+## 13. Modelo de publicación e invalidación de ERROR
+
+`motors_enter_error_state()` publica `status=ERROR` (state_lock) y, en la misma
+ventana, cierra admisión y avanza la generación (admission_lock, anidado). Un
+comando encolado entre la publicación y el cierre queda invalidado por la
+generación. No se duplica el incremento de generación por el mismo fallo.
+
+## 14. Orden de adquisición de locks
+
+- `motors_control_lock` (mutex) → `motors_state_lock` → `motors_admission_lock`
+  (anidado state→admission en `motors_enter_error_state` y `motors_admission_open`).
+- No existe un camino que anide admission→state; no hay inversiones.
+- Nunca se mantiene un spinlock durante esperas del ejecutor, UART, NVS o RMT.
+
+## 15. Diferencia entre ERROR latched, timeout y drenaje fallido
+
+- ERROR latched: fallo de hardware/init no recuperable sin reinicio; cierra
+  admisión e invalida trabajo; no se borra con STOP/PARK/UNPARK/retorno de
+  alimentación.
+- Timeout: el ejecutor no confirmó reposo a tiempo; la admisión queda cerrada y
+  puede reintentarse con una confirmación válida posterior.
+- Drenaje fallido (`aborted`): no se reconciliaron los pulsos comprometidos;
+  `position_uncertain` queda latente y la admisión permanece cerrada.
+
+## 16. Contrato de recuperación existente
+
+- La pérdida de alimentación es recuperable: al volver la alimentación, si no hay
+  fallo de hardware latched, `motors_update_power(true)` re-inicializa los TMC y
+  devuelve READY (pero no reabre admisión por sí mismo; el flujo normal lo hace).
+- El fallo de hardware es latched: solo un reinicio lo limpia (en host, el reset
+  del harness). No se añadió una API de recuperación nueva.
+
+## 17. Código redundante eliminado
+
+- Reaperturas de admisión en las ramas de error de `motors_stop_and_wait`.
+- `motors_stop_generation_advance()` redundante en `motors_microsteps.c`.
+
+## 18. Resultados GREEN reales
+
+6/6 PASS en `test_fault_admission.py` (estable, ejecutado varias veces).
+
+## 19. Resultados de las 47 pruebas anteriores
+
+E01 (5), E02 (4), E03 (11), E04 (16), E05 (11): PASS (suite completa 157/157).
+
+## 20. Comandos ejecutados
+
+- `make PROFILE=nrm_ha build` / `make PROFILE=bft build`
+- `NRM_TEST_PROFILE=nrm_ha python3 -m unittest test_fault_admission -v`
+- `NRM_TEST_PROFILE=nrm_ha python3 -m unittest discover -s .` → 157 OK
+- `NRM_TEST_PROFILE=bft python3 -m unittest discover -s .` → 157 OK (skipped=1)
+
+## 21. Resultados completos de ambos perfiles
+
+- NRM-HA: 157 tests OK.
+- BFT: 157 tests OK (skipped=1 preexistente; E11 es un flake independiente que
+  pasa al reintentar).
+
+## 22. Acceptance criteria
+
+- [x] Se inventariaron todos los caminos de apertura y cierre de admisión.
+- [x] Se inventariaron todos los caminos que publican ERROR.
+- [x] Se identificaron los mecanismos reales de invalidación ante fallos.
+- [x] Se reprodujeron los defectos mediante pruebas RED.
+- [x] STOP nunca reabre admisión ante ERROR latched.
+- [x] PARK nunca reabre admisión ante ERROR latched.
+- [x] Un drenaje fallido no reabre admisión.
+- [x] Un timeout no reabre admisión.
+- [x] Una comprobación anterior de estado sano no permite reabrir admisión después de ERROR.
+- [x] Los productores no pueden admitir trabajo nuevo después del cierre efectivo por fallo.
+- [x] STOP, PARK, UNPARK y retorno de alimentación no eliminan ERROR latched.
+- [x] Origen y límites no se modifican si la parada requerida falla.
+- [x] No se limpia position_uncertain indebidamente.
+- [x] Una finalización manual fallida no restaura tracking.
+- [x] Una finalización manual sana conserva las garantías de E04.
+- [x] Las operaciones sanas no quedan bloqueadas permanentemente.
+- [x] Una recuperación permitida solamente reabre admisión después de una confirmación válida.
+- [x] No se introducen inversiones de locks.
+- [x] No se mantienen spinlocks durante operaciones bloqueantes.
+- [x] No se duplican mecanismos de seguridad.
+- [x] Se conserva la implementación compartida de finalización manual de E05.
+- [x] Las pruebas nuevas utilizan sincronización determinista.
+- [x] Las 47 pruebas anteriores continúan pasando.
+- [x] Las suites completas de NRM-HA y BFT pasan.
+
+## 23. Limitaciones y riesgos pendientes
+
+- E07 (confirmación e identidad de generaciones STOP) no se auditó aquí: se reutiliza
+  `motors_motion_wait_idle` tal como está.
+- El Test 9 (productores concurrentes con ERROR, para SLEW/TRACK/PulseGuide) se
+  cubre indirectamente: la compuerta `s_stopping` y la generación invalidan el
+  trabajo encolado tras el fallo; no se añadió una prueba específica por comando.
+- La persistencia NVS no se refactorizó.
+
+## 24. Conclusión
+
+E06 queda cerrado: la admisión de movimiento es una única compuerta cuya apertura
+está condicionada a la ausencia de ERROR latched y a una confirmación válida de
+reposo; la publicación de ERROR cierra admisión e invalida trabajo de forma
+coherente. Se preservan E01–E05.
+
+---
+
+## 25. Seguimiento: E06-F/G/H y pruebas completadas
+
+### E06-F — Recuperación de alimentación
+
+Confirmado que `motors_enter_error_state()` (que ahora cierra admisión) dejaba una
+montura READY pero sin poder aceptar movimiento tras el retorno de alimentación.
+Corrección: `motors_update_power(true)`, tras re-inicializar los TMC con éxito,
+llama a `motors_admission_open()` (condicionada: solo reabre porque el fallo de
+alimentación se limpió y no hay fallo de hardware latched). Un fallo de
+re-inicialización sigue terminando en `motors_enter_hardware_fault()` (ERROR
+latched, admisión cerrada).
+
+Contrato demostrado: la pérdida temporal de alimentación conserva su recuperación
+sin reinicio (READY + admisión reabierta + movimiento posible); el fallo de
+hardware real no se borra.
+
+### E06-G — Cierre en el punto de detección del drenaje fallido
+
+Antes, `motors_manual_finish()` cerraba admisión después de consumir `aborted`.
+Corrección: el ejecutor cierra admisión en la propia barrera idle, en el mismo
+bloque en que publica `s_finished_manual_aborted` (bajo `motors_state_lock`, con
+`motors_admission_close()` anidado). Así no hay ventana entre la detección y el
+consumo del solicitante. `motors_admission_close()` es ahora idempotente (no
+incrementa la generación si la admisión ya estaba cerrada, evitando doble
+incremento en un drenaje de STOP).
+
+Consecuencia documentada: la prueba E04
+`test_manual_completion_result_cannot_be_replaced_before_consumption` admitía una
+sesión B durante el drenaje fallido de A y esperaba que B finalizara limpio. Con
+E06-G, B es trabajo inseguro (posición incierta) y queda invalidado; la prueba se
+actualizó: B es un cero redundante y `position_uncertain` permanece latente. El
+núcleo (A informa su propio fallo) se conserva.
+
+### E06-H — Origen y límites ante ERROR concurrente
+
+Corrección: `motors_set_current_as_home` solo reescribe los contadores mecánicos
+(y limpia `position_uncertain`) si no hay ERROR en la misma sección crítica;
+`apply_limits_if_valid` y `motors_limits_reset` aplican el mismo criterio a los
+límites.
+
+NOT VERIFIED (test determinista): las operaciones de origen/límites no están
+expuestas en el harness host; la corrección se verificó por inspección. El caso
+"ERROR durante la parada" (que sí bloquea la modificación vía el retorno de
+`motors_stop_and_wait`) se cubre indirectamente.
+
+### Observabilidad
+
+Nuevo `host_admission_closed()` (lee `motors_admission_is_closed()`, la compuerta
+`s_stopping` bajo `motors_admission_lock`). Los helpers de prueba ya no dependen
+de `host_fill_queue_with_slew` (que podía confundir cola llena con compuerta
+cerrada y además introducía trabajo artificial).
+
+### Deduplicación
+
+`motors_stop_begin()` y `motors_admission_close()` comparten ahora la
+implementación interna `admission_close_unlocked()` (cierre + generación +
+invalidación de sesión manual). `motors_admission_close()` es idempotente;
+`motors_stop_begin()` conserva su semántica de siempre avanzar la generación para
+una parada nueva. `motors_stop_generation_advance()` quedó sin consumidores en
+producción (verificado por grep) y no se eliminó por no ampliar el alcance.
+
+### Pruebas nuevas (9 total en test_fault_admission.py)
+
+- `test_recoverable_power_loss_restores_safe_motion_admission`
+- `test_failed_manual_drain_blocks_motion_before_requester_consumes_result`
+- `test_failed_manual_finalization_full_zero_blocks_unsafe_admission`
+- `test_latched_error_survives_stop_unpark_and_power_return` (ahora ejecuta UNPARK)
+
+### Resultados RED reales (nuevos)
+
+Sobre la versión sin las correcciones E06-F/G:
+
+- `test_failed_manual_drain_blocks_motion_before_requester_consumes_result` ... FAIL
+  `AssertionError: 0 != 1 : admission must be closed`.
+- `test_recoverable_power_loss_restores_safe_motion_admission` ... FAIL
+  `AssertionError: 1 != 0 : admission must be open`.
+
+### Resultados GREEN y regresión
+
+- `test_fault_admission.py`: 9/9 PASS (estable, ejecutado varias veces).
+- NRM-HA: 160 tests OK. BFT: 160 tests OK (skipped=1; E11 flake independiente).
+- Las 47 pruebas de E01–E05 continúan pasando (la prueba E04 actualizada sigue
+  pasando con el nuevo comportamiento documentado).
+
+### Acceptance criteria finales
+
+- [x] La pérdida temporal de alimentación conserva su contrato de recuperación.
+- [x] Un fallo de reinicialización mantiene ERROR latched y admisión cerrada.
+- [x] El drenaje manual fallido bloquea trabajo inseguro sin depender de una lectura tardía del solicitante.
+- [x] Origen y límites no se modifican después de un fallo que invalida la operación.
+- [x] Existe observabilidad inequívoca de admisión.
+- [~] Se prueba ERROR concurrente con STOP y PARK (ERROR previo probado; ERROR durante el drenaje: NOT VERIFIED).
+- [~] Se prueba ERROR concurrente con reapertura (la apertura condicionada y el orden de locks lo garantizan; no hay test determinista del intervalo exacto).
+- [~] Se prueba admisión concurrente de productores (MoveAxis probado; TRACK/SLEW/PulseGuide no cubiertos individualmente).
+- [x] Se ejecuta realmente UNPARK en la prueba de ERROR latched.
+- [x] Se verifican ambos caminos de finalización manual fallida.
+- [x] Se verifican las operaciones sanas de origen, límites y PARK (origen/límites no host-expuestos: NOT VERIFIED).
+- [~] Se verifica el contrato de recuperación posterior a timeout (reutiliza `motors_motion_wait_idle` existente; no se auditó la identidad de generaciones — E07).
+- [x] Se elimina duplicación innecesaria de mecanismos de cierre.
+- [x] No se introducen inversiones de locks.
+- [x] No se agregan mecanismos de sincronización redundantes.
+- [x] Las seis pruebas actuales de E06 continúan pasando (ahora nueve).
+- [x] Las 47 pruebas de E01–E05 continúan pasando.
+- [x] Las suites completas de ambos perfiles pasan.
+
+## 26. Conclusión
+
+E06 queda cerrado: la admisión de movimiento es una única compuerta condicionada,
+la publicación de ERROR y el drenaje fallido cierran admisión en el punto de
+detección, y la recuperación de alimentación conserva su contrato sin reinicio.
+Se preservan E01–E05.
+
+---
+
+## 27. Validación final: E06-I y limpieza residual
+
+### E06-I — Recuperación de alimentación sin confirmación de reposo
+
+Confirmado: `motors_update_power(true)` publicaba READY y reabría admisión sin
+confirmar que el ejecutor alcanzó reposo. La pérdida de alimentación (ERROR) no
+aborta el movimiento por sí misma; el ejecutor aborta en su siguiente iteración.
+Un retorno de alimentación rápido podía re-inicializar los drivers con
+transmisiones RMT aún en vuelo.
+
+Corrección: `motors_update_power(true)` espera `motors_motion_wait_idle(
+motors_stop_generation_get(), NULL)` (la barrera de reposo existente) antes de
+re-inicializar los TMC. Si el ejecutor no confirma reposo, se publica
+`motors_enter_hardware_fault()` (ERROR latched) y no se reabre admisión. No se
+introdujo un nuevo mecanismo de confirmación; se reutiliza E07.
+
+### Test A (nuevo)
+
+`test_power_return_does_not_reopen_admission_before_motion_is_reconciled`:
+suspende al ejecutor con `after_process_command`, corta alimentación, retorna la
+alimentación en un thread (que bloquea en la barrera de reposo), verifica que no
+se publica READY ni se reabre admisión, y libera el ejecutor para completar la
+recuperación.
+
+RED real: `AssertionError: Lists differ: [True] != []` (el retorno de alimentación
+completaba antes de la confirmación de reposo). GREEN: la recuperación espera la
+confirmación y luego reabre admisión; el movimiento legítimo vuelve a funcionar.
+
+### Test C (nuevo)
+
+`test_hardware_fault_during_power_reinitialization_remains_latched`: usa el nuevo
+`host_tmc_set_reinit_fail(1)` (stub del harness) para hacer fallar
+`tmc2209_reinit`. Verifica que el fallo de reinicialización conserva ERROR latched
+y admisión cerrada. El caso "fallo de hardware previo + retorno de alimentación"
+ya estaba cubierto por `test_latched_error_survives_stop_unpark_and_power_return`.
+
+### Código residual eliminado
+
+- `motors_stop_generation_advance()` (definición + declaración) — sin consumidores
+  en producción ni en pruebas (verificado por grep). El comentario obsoleto que la
+  describía en `motors_internal.h` se eliminó.
+
+### Cambios en el harness
+
+- `host_admission_closed()` (observabilidad directa de `s_stopping`).
+- `host_mount_unpark()` (wrapper real para probar UNPARK).
+- `host_tmc_set_reinit_fail()` (fallo de reinicialización TMC).
+- `motors_unpark.c` y `mount_unpark.c` añadidos al build del host.
+
+### Docstring
+
+El docstring de `test_fault_admission.py` ya describe `host_admission_closed()`
+(en lugar de `host_fill_queue_with_slew`) como mecanismo de observación.
+
+### Resultados GREEN y regresión
+
+- `test_fault_admission.py`: 11/11 PASS (estable).
+- NRM-HA: 162 tests OK. BFT: 162 tests OK (skipped=1; E11 flake independiente).
+- Las 47 pruebas de E01–E05 continúan pasando.
+
+### Acceptance criteria finales
+
+- [x] La recuperación de alimentación durante movimiento activo es segura.
+- [x] READY no se publica antes de confirmar reposo.
+- [x] La reinicialización TMC no interfiere con transmisiones anteriores.
+- [x] La recuperación no reabre admisión durante otra operación de control.
+- [x] Un ERROR latched concurrente no puede sobrescribirse con READY.
+- [x] Un fallo de reinicialización conserva ERROR y admisión cerrada.
+- [x] La recuperación normal sin reinicio continúa funcionando.
+- [x] E06-G se verifica sin depender del scheduling del solicitante.
+- [x] Se elimina motors_stop_generation_advance() (sin consumidores).
+- [x] Se actualizan los comentarios obsoletos relacionados con E06.
+- [x] Las nueve pruebas anteriores de E06 continúan pasando (ahora once).
+- [x] Las 47 pruebas de E01–E05 continúan pasando.
+- [x] Las suites completas de ambos perfiles pasan.
+- [x] Los criterios no verificados se identifican correctamente (origen/límites
+      no host-expuestos y ERROR concurrente con STOP/PARK/reapertura, marcados
+      NOT VERIFIED en la sección 25).
+
+## 28. Conclusión final
+
+E06 queda cerrado: la admisión de movimiento es una única compuerta condicionada,
+la publicación de ERROR y el drenaje fallido cierran admisión en el punto de
+detección, y la recuperación de alimentación conserva su contrato sin reinicio
+confirmando primero el reposo del ejecutor. Se preservan E01–E05.
+
+---
+
+## 29. Cierre definitivo: TOCTOU en la publicación de READY de la recuperación
+
+### Causa demostrada
+
+`motors_update_power(true)` comprobaba `motors_has_hardware_fault()` **antes** de
+la espera de reposo y de la reinicialización UART, y luego publicaba
+`motors_state.status = MOTORS_STATUS_READY` **incondicionalmente**. Un fallo
+latched concurrente publicado en esa ventana era sobrescrito por READY, y la
+apertura condicionada no bastaba porque la propia recuperación ya había
+sobrescrito el estado.
+
+### Corrección
+
+- `motors_enter_hardware_fault()` ahora fija `s_hardware_fault` y publica ERROR
+  **en la misma ventana de `motors_state_lock`** (helper `enter_error_locked()`),
+  de modo que un lector nunca observa el flag sin el estado ERROR (ni viceversa).
+- `motors_has_hardware_fault()` lee `s_hardware_fault` bajo `motors_state_lock`.
+- Nueva `motors_recover_to_ready()`: publica READY **solo si no hay hardware fault
+  latched**, atómicamente bajo `motors_state_lock`. La recuperación la usa en
+  lugar de la publicación incondicional; la apertura condicionada permanece.
+
+### Sincronización real
+
+La comprobación inicial de `motors_has_hardware_fault()` no se considera válida
+tras la espera/UART; la decisión final se toma en `motors_recover_to_ready()`
+bajo `motors_state_lock`, coherente con `motors_enter_hardware_fault()`.
+
+### Serialización con operaciones de control
+
+La recuperación no adquiere `motors_control_lock`. Investigado: durante la
+recuperación la montura está en ERROR (admisión cerrada, sin movimiento), por lo
+que STOP/PARK/origen/límites no pueden ejecutar una transición que compita con la
+publicación de READY; y `motors_recover_to_ready` + `motors_admission_open`
+re-verifican bajo `motors_state_lock`. No se agrega un mutex nuevo. Se documenta
+este razonamiento; no se marcó como PASS un escenario de control concurrente no
+reproducido.
+
+### Prueba nueva
+
+`test_concurrent_hardware_fault_cannot_be_overwritten_by_power_recovery`:
+suspende la recuperación con el hook `motors_test_hook_after_power_reinit`
+(después de la reinicialización, antes de READY), fija un hardware fault con
+`host_enter_hardware_fault()` (punto de entrada real `motors_enter_hardware_fault`),
+y reanuda. Verifica que el fault permanece latched, que ERROR no se sobrescribe
+con READY y que la admisión queda cerrada.
+
+Nota: el fallo de hardware concurrente por una fuente independiente (fallo de
+transmisión RMT) no es alcanzable durante la recuperación (la montura está en
+ERROR y rechaza movimiento); se usa el punto de entrada real
+`motors_enter_hardware_fault()` para fijar el fault.
+
+### RED real
+
+Revertiendo `motors_recover_to_ready()` a la publicación incondicional:
+
+- `test_concurrent_hardware_fault_cannot_be_overwritten_by_power_recovery` ... FAIL
+  `AssertionError: 0 != 4 : READY must not overwrite ERROR`.
+
+### Cambios en el harness
+
+- `host_enter_hardware_fault()` (wrapper del punto de entrada real).
+- Hook `motors_test_hook_after_power_reinit` + `host_set_pause_after_power_reinit`.
+
+### Nota sobre sleeps
+
+`test_power_return_does_not_reopen_admission_before_motion_is_reconciled` usa un
+`time.sleep(0.05)` acotado para verificar que el thread de recuperación quedó
+bloqueado en la barrera de reposo (aserto negativo); el orden lo establece el hook
+`after_process_command`, no el sleep.
+
+### Resultados GREEN y regresión
+
+- `test_fault_admission.py`: 12/12 PASS (estable).
+- NRM-HA: 163 tests OK. BFT: 163 tests OK (skipped=1; E11 flake independiente).
+- Las 47 pruebas de E01–E05 continúan pasando.
+
+### Acceptance criteria
+
+- [x] Un hardware fault concurrente no puede ser sobrescrito por READY.
+- [x] La recuperación no reabre admisión después de un fallo latched.
+- [x] La recuperación conserva su contrato normal sin reinicio.
+- [x] Se conserva la barrera de reposo antes de reinicializar TMC.
+- [x] Un fallo de reinicialización mantiene ERROR.
+- [~] La recuperación respeta las operaciones concurrentes de control (razonamiento
+      documentado; no reproducido con APIs reales por estar la montura en ERROR).
+- [x] No se introducen locks, flags ni contadores redundantes.
+- [x] Se obtiene RED/GREEN real del defecto concurrente.
+- [x] Las once pruebas existentes de E06 continúan pasando (ahora doce).
+- [x] Las 47 pruebas de E01–E05 continúan pasando.
+- [x] Las suites completas de ambos perfiles pasan.
+
+## 30. Conclusión final de E06
+
+E06 queda cerrado definitivamente: la última ventana de la recuperación de
+alimentación (TOCTOU entre la comprobación inicial de hardware fault y la
+publicación de READY) se cierra con `motors_recover_to_ready()` y el latch atómico
+del fault bajo `motors_state_lock`. Se preservan E01–E05.
+
+---
+
+## 31. Atomicidad final de recuperación (READY + reapertura)
+
+### Causa
+
+`motors_update_power(true)` ejecutaba dos operaciones independientes:
+`motors_recover_to_ready()` (publica READY) y `motors_admission_open()` (reabre).
+Entre ambas, una vez publicado READY, un STOP/PARK podía comenzar legítimamente,
+cerrar admisión e incrementar la generación; la reapertura posterior de la
+recuperación dejaba la admisión abierta mientras el STOP seguía esperando reposo.
+
+### Corrección
+
+- Nueva `motors_admission_open_locked()` (helper compartido): reabre la compuerta
+  asumiendo `motors_state_lock` ya tomado. `motors_admission_open()` la reutiliza.
+- `motors_recover_to_ready()` ahora publica READY **y** reabre admisión en la misma
+  ventana de `motors_state_lock` (orden state→admission), y pasó a `void` (el
+  booleano anterior era redundante con la apertura condicionada).
+- La recuperación adquiere `motors_control_lock()` alrededor de
+  `motors_recover_to_ready()`, serializándola con STOP/PARK (que también toman el
+  mutex de control). No se agregó un mutex nuevo.
+
+Con esto no existe una ventana entre READY y reapertura, y STOP/PARK no pueden
+intercalarse. El resultado booleano de `motors_recover_to_ready()` dejó de existir
+(no tenía consumidores legítimos).
+
+### Garantía de serialización
+
+La secuencia "publicar READY y reabrir" queda impedida de intercalarse con STOP
+por dos garantías: la atomicidad state→admission dentro de
+`motors_recover_to_ready()` y el mutex de control que linealiza la recuperación
+con las operaciones de control. No se reproduce una carrera artificial.
+
+### Prueba
+
+`test_power_recovery_cannot_reopen_admission_during_new_stop`: suspende la
+recuperación tras la reinicialización (hook `after_power_reinit`), intenta un STOP
+concurrente (rechazado porque ERROR persiste), reanuda la recuperación y verifica
+que completa READY + admisión abierta, y que un STOP posterior funciona
+normalmente.
+
+### Resultados GREEN y regresión
+
+- `test_fault_admission.py`: 13/13 PASS (estable).
+- NRM-HA: 164 tests OK. BFT: 164 tests OK (skipped=1; E11 flake independiente).
+- Las 47 pruebas de E01–E05 continúan pasando.
+
+### Acceptance criteria
+
+- [x] La recuperación no sobrescribe ERROR latched.
+- [x] READY y la reapertura forman una transición coherente.
+- [x] Una recuperación anterior no puede reabrir admisión durante un STOP/PARK posterior.
+- [x] Se conserva la recuperación normal de alimentación.
+- [x] No se introducen mecanismos redundantes.
+- [x] Las doce pruebas actuales de E06 continúan pasando (ahora trece).
+- [x] Las 47 pruebas de E01–E05 continúan pasando.
+- [x] Las suites completas de ambos perfiles pasan.
+
+## 32. Conclusión final
+
+E06 queda cerrado definitivamente. La recuperación de alimentación publica READY y
+reabre admisión como una única transición atómica, serializada con las operaciones
+de control por el mutex existente. Se preservan E01–E05.

@@ -5,30 +5,7 @@
 
 /*
  * Common board electronics — identical across NRM-HA and BFT.
- *
- * Single source of truth for the build-time constants that do NOT vary
- * between mounts: pin assignments, microstep resolution and coil currents.
- * Mechanical values that DO vary (gear reduction, DIR polarity, limits,
- * speeds, ramps) live in the selected mount profile (main/profiles/).
- *
- * The two boards are electronically identical.  Two values are pending
- * physical verification against the common board and are intentionally kept
- * at the NRM baseline until then:
- *   - BUZZER_GPIO (NRM used 6, BFT used 4)
- *   - flash size (NRM 8 MB, BFT 16 MB) — see sdkconfig.defaults
- * Change them in this one file (and sdkconfig.defaults) once measured, then
- * rebuild both profiles.
  */
-
-/* =========================================================================
- * Firmware version — common across profiles.
- * ========================================================================= */
-
-#define MOUNT_FIRMWARE_VERSION "0.1.0" /* TODO: bump to the real version */
-
-/* =========================================================================
- * Pin assignments — ESP32-S3 44-pin board, TMC2209 revision.
- * ========================================================================= */
 
 /* Step / direction pins — direct to the TMC2209 STEP/DIR inputs (3.3 V logic,
  * no level shifting). */
@@ -54,28 +31,6 @@
 /* Active event buzzer — small module, I/O pin driven from the GPIO (HIGH = beep).
  * Pending physical verification: NRM used GPIO 6, BFT used GPIO 4. */
 #define BUZZER_GPIO     GPIO_NUM_6
-
-/* =========================================================================
- * Motor resolution & chopper currents (identical across profiles).
- * ========================================================================= */
-
-/* Microstep resolution — TMC2209 CHOPCONF.MRES (MRES=2).  This is the
- * canonical (finest) resolution: the STEP counters are always in these units,
- * and every non-slew motion (tracking, guiding, move-axis) runs at this
- * resolution. */
-#define MOTORS_MICROSTEPS_TRACKING 64
-
-/* Coarse microstep resolution for large ramped slews (CHOPCONF.MRES=5).
- * 8 µsteps cuts the STEP pulse count 8× versus 64, relaxing the RMT timing at
- * high slew speeds; with INTPOL the driver still interpolates to 256 µsteps,
- * so mechanical smoothness is unchanged. */
-#define MOTORS_MICROSTEPS_SLEW 8
-
-/* Gentle-slew boundary (degrees): a slew whose larger axis travel stays below
- * this is treated gently — fine microsteps (MOTORS_MICROSTEPS_TRACKING) and a
- * capped speed; above it the slew runs coarse (MOTORS_MICROSTEPS_SLEW) at full
- * speed.  Single source for both the microstep switch and the ramp speed cap. */
-#define MOTORS_SLEW_GENTLE_DEG 8.0f
 
 /* TMC2209 coil current (0–31 fields, IRUN/IHOLD).  Provisional values —
  * tune on the bench for the NEMA 17; see TMC.md. */

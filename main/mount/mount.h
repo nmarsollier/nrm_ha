@@ -201,9 +201,6 @@ MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed);
  * other axis's current rate. */
 MountResult mount_set_move_axis_rate(int axis, float rate);
 
-/* Discard saved tracking state when MoveAxis is aborted externally. */
-void mount_move_axis_reset(void);
-
 /* Convert RA from HMS struct to decimal hours. */
 float mount_get_ra_hours(void);
 

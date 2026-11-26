@@ -52,7 +52,7 @@ MountResult mount_slew_to_coordinates(float ra, float dec, int speed_rate,
     if (mount_profile.geometry == GEOMETRY_FORK
         && !geometry_path_above_horizon(current.ra_axis_deg, current.dec_axis_deg,
                                         plan.target.ra_axis_deg, plan.target.dec_axis_deg,
-                                        mount_internal_state.lat)) {
+                                        ctx.lat_deg)) {
         return mount_result_error("Target below horizon — path crosses the horizon");
     }
 

@@ -31,6 +31,31 @@
 
 static const char *TAG = "MOTORS_MOTION_TASK";
 
+/* Test hook — a weak no-op overridden by the host harness to pause the motion
+ * task after a command is dequeued and validated but before its motion loop
+ * activates, so a STOP can land deterministically in that window. */
+void __attribute__((weak)) motors_test_hook_after_process_command(void) {}
+void __attribute__((weak)) motors_test_hook_before_move_axis_saved_tracking_publish(void) {}
+/* Test hook — pause the executor at the idle barrier, before it publishes the
+ * stop confirmation.  Lets a test hold the confirmation so a STOP's bounded wait
+ * times out, then release it to publish the (late) result deterministically. */
+void __attribute__((weak)) motors_test_hook_before_idle_publish(void) {}
+/* Test hook — pause the executor inside drain_axis_batches()'s wait branch (no
+ * completion available), so a test can deterministically land a hardware fault
+ * while the executor is draining and verify the drain is interrupted by the
+ * fault rather than by the deadline. */
+void __attribute__((weak)) motors_test_hook_drain_wait(void) {}
+/* Test hook — pause the executor at the top of the slewing main loop, before it
+ * reads the session or consumes any completion.  Lets a test park the executor,
+ * then publish a completion + partial emission + fault so the next loop iteration
+ * handles them deterministically. */
+void __attribute__((weak)) motors_test_hook_loop_top(void) {}
+/* Test hook — pause the executor at the end of motion_loop(), right after the
+ * drain result is final and its identity (drain_generation) has been captured,
+ * but before the idle barrier publishes it.  Lets a test exercise a preemption
+ * window between drain finalisation and barrier publication. */
+void __attribute__((weak)) motors_test_hook_after_motion_loop(void) {}
+
 /*
  * Task stack size — sized to accommodate batch encoding loops,
  * condition checks, and FreeRTOS queue operations.
@@ -63,28 +88,105 @@ static const char *TAG = "MOTORS_MOTION_TASK";
 #define RMT_BUFFER_SYMBOLS  256U
 #define RMT_BATCH_MAX_STEPS  100U
 
+/*
+ * Stop/drain timeouts — derived from the maximum committed RMT transmission.
+ *
+ * The worst in-flight work is two batches (ping + pong) per axis, each at most
+ * RMT_BATCH_MAX_STEPS pulses.  At the slowest coarse slew (min speed 0.8 °/s,
+ * coarse 8 µsteps) one pulse is ~0.94 ms on the NRM 300:1 scale, so 2 × 100
+ * pulses ≈ 190 ms.  500 ms is a ~2.6× margin over that bound.
+ */
+#define MOTION_DRAIN_TIMEOUT_US  500000
+
+/*
+ * The idle confirmation must outlast the drain deadline plus the loop-exit
+ * teardown (RMT reset on abort) and the ≤ MOTION_IDLE_QUEUE_POLL_MS idle
+ * re-publish latency.  1 s covers the 500 ms drain with the same margin again.
+ */
+#define MOTION_IDLE_TIMEOUT_US  1000000
+
+/*
+ * Idle queue poll period: the task blocks on the command queue for at most this
+ * long, so a STOP that lands while the task is already idle re-publishes the
+ * idle generation (confirming rest at the new generation) on the next wake
+ * instead of sleeping past it.
+ */
+#define MOTION_IDLE_QUEUE_POLL_MS 100
+
 TaskHandle_t motors_motion_task_handle = NULL;
 
-/* Stop epoch — bumped on every stop so commands enqueued before the stop
- * can be discarded by the motion task. */
+/* Stop epoch — bumped on every stop (atomically with admission, see
+ * motors_stop_begin) so commands enqueued before the stop are discarded by the
+ * motion task. */
 volatile uint32_t motors_stop_generation = 0;
 
 /* Idle flag: true while the motion task is blocked on the command queue (not
- * processing a command), false while it runs a motion loop.  Read by
- * motors_motion_wait_idle() from other tasks — polled, never consumed, so
- * repeated waits while already idle stay cheap and idempotent. */
+ * processing a command), false while it runs a motion loop. */
 static volatile bool s_motion_idle = true;
+
+/* Completion record published by the motion task (under motors_state_lock) as
+ * it goes idle: the stop generation at which it is now at rest, and whether the
+ * motion it just left ended in an abort.  motors_motion_wait_idle() reads this
+ * coherently, so a stop can confirm rest at its own generation and read the
+ * abort outcome without relying on a per-motion flag left over from an earlier
+ * move.
+ *
+ * Two distinct identities live here:
+ *   s_idle_generation          — the generation at which the executor is now at
+ *                                rest (re-published every barrier so a STOP that
+ *                                lands while already idle is confirmed on the
+ *                                next poll).  Monotonic.
+ *   s_idle_aborted_generation  — the generation the drain result below belongs
+ *                                to, published only when a motion actually ends
+ *                                (s_motion.ran).  A confirmation once published
+ *                                stays tied to its own generation: an idle
+ *                                re-poll never erases or reassigns it.
+ */
+static volatile uint32_t s_idle_generation = 0;
+static volatile bool s_idle_aborted = false;
+static volatile uint32_t s_idle_aborted_generation = 0;
+
+/* Explicit manual-session completion, published by the executor (single writer).
+ * When a MoveAxis motion drains gracefully, or a MoveAxis command is discarded,
+ * its session identity is recorded here together with the drain outcome.  The
+ * manual finalization waits on `s_finished_manual_session >= session`, so an
+ * unrelated idle barrier or a setpoint-version preemption can never confirm it. */
+static volatile uint32_t s_finished_manual_session = 0;
+static volatile bool s_finished_manual_aborted = false;
 
 /* --------------------------------------------------------------------------
  * Motion state — active command being executed by the task.
  *
- * All fields are single-writer (motion task only) except `active`, which
- * is set false by motors_motion_stop() from any task to signal abort.
+ * `active` and `graceful` are written by motors_motion_stop() from any task
+ * (and read by the motion task); every other field is single-writer (motion
+ * task only).
  * -------------------------------------------------------------------------- */
 static struct {
-    volatile bool active;      /* false → abort at next iteration */
-    volatile bool aborted;     /* true → loop exited via STOP/preempt, not completion */
-    MotionCommandType active_cmd_type;
+    volatile bool active;      /* false → abort at next iteration (written by any task) */
+    bool aborted;              /* true → loop exited via fault/preempt, not completion */
+    volatile bool graceful;    /* true → STOP requested; drain in-flight batches (any task) */
+    bool completed;            /* true → a motion ended and READY must be published at the idle barrier */
+    bool ran;                  /* true → a motion actually ran this iteration (for the abort capture) */
+    /* Stop generation captured at the moment this motion's drain finalised (at
+     * the end of motion_loop, not at the idle barrier).  This is the well-defined
+     * association point between the drain result and its identity: the result is
+     * tagged with the generation current when the motion actually ended, so a
+     * later preemption before the barrier, or a later STOP advancing the
+     * generation, can never re-tag it.  Single-writer (motion task only). */
+    uint32_t drain_generation;
+    /* The finalisation motive, captured alongside drain_generation at the end of
+     * motion_loop.  `graceful` is writable from any task (motors_motion_stop) and
+     * `aborted` reflects the exit path; a STOP that lands *after* the motion ended
+     * but before the barrier must not change the published reason, so both are
+     * frozen here at the true finalisation point and read back at the barrier. */
+    bool drain_graceful;
+    bool drain_aborted;
+    /* True when the current MoveAxis motion was preempted by a newer setpoint
+     * within the same session.  Unlike a STOP (graceful), a preemption drains the
+     * committed batches WITHOUT finalising the session: the drain is reused but the
+     * manual-session completion is not published.  Single-writer (motion task only). */
+    bool preempted;
+    volatile MotionCommandType active_cmd_type;  /* volatile: also read by the manual-drain wait */
     int64_t ra_target;         /* steps */
     int64_t dec_target;        /* steps */
     int64_t ra_start;          /* steps — captured at motion start (for ramps) */
@@ -94,6 +196,9 @@ static struct {
     /* MoveAxis setpoint version captured when the current move started — a
      * version bump means the client published a newer rate. */
     uint32_t move_axis_version;
+    /* Manual-session identity of the active MoveAxis motion — lets the task
+     * detect that its session was finalised/replaced and drain gracefully. */
+    uint32_t move_axis_session;
 
     /* PulseGuide state — single-writer (motion task only). */
     int64_t ra_guide_deadline_us;
@@ -126,17 +231,19 @@ static float slew_velocity_dps(float speed_dps, int64_t travelled_steps,
 
 /*
  * Convert an angular speed (deg/s) to a step period in RMT ticks.
- * Uses the runtime microstep resolution from the motor configuration.
- * Returns MAX_STEP_PERIOD_TICKS when velocity is effectively zero.
+ * `spp` is the canonical-steps-per-pulse factor captured once at motion start,
+ * so the period is derived from the resolution the motion is actually emitted
+ * at — never re-read from the mutable TMC state, which a concurrent resolution
+ * change could alter mid-motion.  Returns MAX_STEP_PERIOD_TICKS when velocity is
+ * effectively zero.
  */
-static uint32_t step_period_ticks(AxisId axis, float velocity_dps) {
+static uint32_t step_period_ticks(AxisId axis, float velocity_dps, uint32_t spp) {
     if (fabsf(velocity_dps) < 1e-9f)
         return MAX_STEP_PERIOD_TICKS;
 
     /* Period of one STEP pulse: canonical degrees per step × the pulse
-     * multiplier of the active microstep resolution. */
-    float deg_per_pulse = motors_get_deg_per_microstep(axis)
-                        * (float) motors_steps_per_pulse();
+     * multiplier of this motion's microstep resolution. */
+    float deg_per_pulse = motors_get_deg_per_microstep(axis) * (float) spp;
     float period_s = deg_per_pulse / fabsf(velocity_dps);
     uint32_t ticks = (uint32_t) (period_s * (float) RMT_RESOLUTION_HZ);
     if (ticks < STEP_MIN_PERIOD_TICKS)
@@ -146,18 +253,21 @@ static uint32_t step_period_ticks(AxisId axis, float velocity_dps) {
 
 /* --------------------------------------------------------------------------
  * Stop the active motion loop from outside the motion task.
- * Aborts any in-flight RMT transmission and notifies the task so it
- * wakes immediately and can check s_motion.active.
+ * Sets active=false (abort the loop) and graceful=true (request the in-flight
+ * batches to be drained exactly) and notifies the task so it wakes immediately.
  *
  * Safe to call from any task.
  * -------------------------------------------------------------------------- */
 void motors_motion_stop(void) {
-    /* Bump the epoch FIRST so any command enqueued before this stop — and
-     * not yet consumed by the queue — is discarded at execution. */
-    motors_stop_generation++;
-
+    /* The stop generation is advanced separately by motors_stop_begin() so that
+     * admission-close and generation-bump are one atomic step.  This function
+     * only aborts the running motion loop and wakes the task.  The flags are
+     * written under the admission lock — the same mechanism the motion task uses
+     * to read them at motion start — so the abort is coherent across cores. */
+    portENTER_CRITICAL(&motors_admission_lock);
     s_motion.active = false;
-    s_motion.aborted = true;
+    s_motion.graceful = true;
+    portEXIT_CRITICAL(&motors_admission_lock);
 
     /* Clear any in-flight guide pulse so a stale deadline/offset cannot
      * "resume" the pulse after a quick stop → restart. */
@@ -174,6 +284,18 @@ void motors_motion_stop(void) {
          * by up to the sleep timeout. */
         xTaskNotifyGive(motors_motion_task_handle);
     }
+}
+
+/*
+ * Mark the running motion as gracefully stopped, called with
+ * motors_admission_lock already held.  The STOP path holds that lock to bump the
+ * stop generation and set this flag in ONE coherent critical section, so the
+ * finalisation capture (which reads generation and graceful under the same
+ * lock) can never observe a new generation with a stale graceful flag.
+ */
+void motors_motion_mark_stopped_locked(void) {
+    s_motion.active = false;
+    s_motion.graceful = true;
 }
 
 /* --------------------------------------------------------------------------
@@ -218,34 +340,34 @@ static int64_t clamp_dec_steps(int64_t steps) {
  * direction (±1).  Applied per batch so a limit changed while a move is in
  * flight still stops the motion at the new boundary.
  */
-static uint32_t clamp_ra_batch(int64_t current, int sign, uint32_t batch) {
+static uint32_t clamp_ra_batch(int64_t current, int sign, uint32_t batch, uint32_t spp) {
     int64_t limit = (sign > 0) ? motors_deg_to_steps(AXIS_RA, motors_state.limits.ra_max)
                                : motors_deg_to_steps(AXIS_RA, motors_state.limits.ra_min);
     int64_t headroom = (sign > 0) ? (limit - current) : (current - limit);
     /* `current`/limit are canonical steps; `batch` is STEP pulses. */
     uint32_t max_steps = (headroom > 0)
-                             ? (uint32_t)(headroom / (int64_t) motors_steps_per_pulse())
+                             ? (uint32_t)(headroom / (int64_t) spp)
                              : 0;
     return (batch > max_steps) ? max_steps : batch;
 }
 
-static uint32_t clamp_dec_batch(int64_t current, int sign, uint32_t batch) {
+static uint32_t clamp_dec_batch(int64_t current, int sign, uint32_t batch, uint32_t spp) {
     int64_t limit = (sign > 0) ? motors_deg_to_steps(AXIS_DEC, motors_state.limits.dec_max)
                                : motors_deg_to_steps(AXIS_DEC, motors_state.limits.dec_min);
     int64_t headroom = (sign > 0) ? (limit - current) : (current - limit);
     uint32_t max_steps = (headroom > 0)
-                             ? (uint32_t)(headroom / (int64_t) motors_steps_per_pulse())
+                             ? (uint32_t)(headroom / (int64_t) spp)
                              : 0;
     return (batch > max_steps) ? max_steps : batch;
 }
 
-/* Clean shutdown: mark motion finished and return to READY. */
+/* Mark the motion finished.  READY is published at the idle barrier (top of the
+ * motion loop), not here, so a reader never observes READY while the task is
+ * still leaving its loop; a resume-tracking transition that follows this sets
+ * TRACKING before the barrier and must not be clobbered. */
 static void finish_motion(void) {
     s_motion.active = false;
-    portENTER_CRITICAL(&motors_state_lock);
-    motors_state.status = MOTORS_STATUS_READY;
-    motors_state.tracking = TRACKING_NONE;
-    portEXIT_CRITICAL(&motors_state_lock);
+    s_motion.completed = true;
 }
 
 /*
@@ -275,12 +397,13 @@ static void compute_slew_periods(
         int64_t dec_dist,
         int ra_distance_cds,
         int dec_distance_cds,
+        uint32_t spp,
         uint32_t *ra_period,
         uint32_t *dec_period)
 {
     if (is_move_axis) {
-        *ra_period = step_period_ticks(AXIS_RA, motors_state.ra_speed);
-        *dec_period = step_period_ticks(AXIS_DEC, motors_state.dec_speed);
+        *ra_period = step_period_ticks(AXIS_RA, motors_state.ra_speed, spp);
+        *dec_period = step_period_ticks(AXIS_DEC, motors_state.dec_speed, spp);
         return;
     }
 
@@ -289,8 +412,8 @@ static void compute_slew_periods(
     float dec_vel = slew_velocity_dps(motors_state.dec_speed,
                                       dec_travelled, dec_dist, dec_distance_cds);
 
-    *ra_period = step_period_ticks(AXIS_RA, ra_vel);
-    *dec_period = step_period_ticks(AXIS_DEC, dec_vel);
+    *ra_period = step_period_ticks(AXIS_RA, ra_vel, spp);
+    *dec_period = step_period_ticks(AXIS_DEC, dec_vel, spp);
 }
 
 /*
@@ -313,6 +436,52 @@ static void update_guide(
 
     *deadline_us = new_deadline;
     *offset_dps = cmd->guide_offset_dps;
+}
+
+/*
+ * Single-step wait during tracking: worst-case 500 ms, blocked in 50 ms slices
+ * so an urgent fault (ERROR) interrupts the wait without busy-waiting.  The
+ * slice take returns the moment the completion ISR gives the token, so a normal
+ * step stays latency-free; only the absent-completion worst case is re-polled.
+ *
+ * A single tracking pulse is one RMT symbol (STEP_PULSE_TICKS + STEP_MIN_LOW_TICKS
+ * = 4 us), so its completion arrives in microseconds or never; 500 ms is a pure
+ * hang-detection bound.  It is deliberately <= MOTION_IDLE_TIMEOUT_US (1 s) so a
+ * STOP's rest confirmation always outlasts this wait: the executor faults (or
+ * reconciles) before the producer's idle wait can expire.
+ */
+#define TRACKING_STEP_TIMEOUT_US 500000
+#define TRACKING_STEP_SLICE_MS   50
+
+/*
+ * Wait for one tracking step's completion, interrupting early on an urgent
+ * fault.  Reuses motors_status_is_error — the same predicate
+ * check_motion_conditions uses — so the interrupt condition is identical to the
+ * loop-top abort.  A normal STOP (active=false, graceful) is NOT treated as an
+ * interrupt: the committed pulse's completion is allowed to arrive and reconcile
+ * within the deadline, and the caller accounts it before checking s_motion.active.
+ * Returns ESP_OK on a confirmed step, ESP_ERR_TIMEOUT on a fault or expired
+ * deadline (the step is indeterminate).
+ */
+static esp_err_t wait_tracking_step_done(esp_err_t (*wait)(TickType_t)) {
+    const int64_t deadline_us = esp_timer_get_time() + TRACKING_STEP_TIMEOUT_US;
+    while (true) {
+        esp_err_t e = wait(pdMS_TO_TICKS(TRACKING_STEP_SLICE_MS));
+        if (e == ESP_OK) return ESP_OK;
+        if (motors_status_is_error(motors_state.status)) return ESP_ERR_TIMEOUT;
+        if (esp_timer_get_time() > deadline_us) return ESP_ERR_TIMEOUT;
+    }
+}
+
+/*
+ * A tracking step was submitted to RMT but its completion never arrived: the
+ * pulse may or may not have been physically emitted, so the position is no
+ * longer trustworthy until a re-reference (set_current_as_home) clears it.
+ */
+static void mark_tracking_position_uncertain(void) {
+    portENTER_CRITICAL(&motors_state_lock);
+    motors_state.position_uncertain = true;
+    portEXIT_CRITICAL(&motors_state_lock);
 }
 
 /*
@@ -339,7 +508,9 @@ static bool emit_ra_tracking_step(int direction, rmt_symbol_word_t *buffer) {
         s_motion.dec_guide_deadline_us = 0;
         s_motion.dec_guide_offset_dps = 0.0f;
         portENTER_CRITICAL(&motors_state_lock);
-        motors_state.status = MOTORS_STATUS_READY;
+        if (motors_state.status != MOTORS_STATUS_ERROR) {
+            motors_state.status = MOTORS_STATUS_READY;
+        }
         motors_state.tracking = TRACKING_NONE;
         motors_state.guiding = false;
         if (any_guide) {
@@ -360,18 +531,23 @@ static bool emit_ra_tracking_step(int direction, rmt_symbol_word_t *buffer) {
         return false;
     }
 
-    esp_err_t wait_err = motors_rmt_wait_ra(pdMS_TO_TICKS(2000));
+    esp_err_t wait_err = wait_tracking_step_done(motors_rmt_wait_ra);
     if (wait_err != ESP_OK) {
-        ESP_LOGW(TAG, "RMT RA wait %s",
-                 (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
+        /* The pulse was submitted but its completion was lost: indeterminate. */
+        mark_tracking_position_uncertain();
         abort_rmt_hardware_fault();
         return false;
     }
 
+    /* Account the confirmed step even if STOP arrived during the wait: a pulse
+     * whose completion was consumed must advance the counter exactly once. */
+    portENTER_CRITICAL(&motors_state_lock);
+    motors_state.ra_steps = next;
+    portEXIT_CRITICAL(&motors_state_lock);
+
     if (!s_motion.active)
         return false;
 
-    motors_state.ra_steps = next;
     return true;
 }
 
@@ -414,10 +590,7 @@ static bool check_motion_conditions(void) {
     if ((s_motion.active_cmd_type == MOTION_CMD_SLEW ||
          s_motion.active_cmd_type == MOTION_CMD_MOVE_AXIS) &&
         !ra_has_target && !dec_has_target) {
-        portENTER_CRITICAL(&motors_state_lock);
-        motors_state.status = MOTORS_STATUS_READY;
-        motors_state.tracking = TRACKING_NONE;
-        portEXIT_CRITICAL(&motors_state_lock);
+        s_motion.completed = true;
         s_motion.active = false;
 
         return false;
@@ -426,7 +599,7 @@ static bool check_motion_conditions(void) {
     /* External tracking stop. */
     if (motors_state.tracking == TRACKING_NONE &&
         motors_state.status == MOTORS_STATUS_TRACKING) {
-        motors_state.status = MOTORS_STATUS_READY;
+        s_motion.completed = true;
         s_motion.active = false;
 
         return false;
@@ -487,9 +660,11 @@ static void process_command(MotionCommand cmd) {
         return;
     }
 
-    /* Discard a command invalidated by a STOP that landed after it was
-     * enqueued but before it was dequeued here. */
-    if (cmd.generation != motors_stop_generation) {
+    /* Discard a command invalidated by a STOP that landed after it was enqueued
+     * but before it was dequeued here.  Read the generation under the admission
+     * lock — the same mechanism the STOP uses to bump it — so the comparison is
+     * coherent with a concurrent stop. */
+    if (cmd.generation != motors_stop_generation_get()) {
         return;
     }
 
@@ -538,10 +713,55 @@ static void process_command(MotionCommand cmd) {
                 float ra_sp, dec_sp;
                 uint32_t ver;
 
-                portENTER_CRITICAL(&motors_state_lock);
+                /* Discard a MoveAxis whose manual session no longer matches the
+                 * active one: either it was finalised (manual_move false) or a
+                 * newer session replaced it (identity changed).  A global STOP
+                 * generation no longer distinguishes two manual sessions. */
+                bool session_active;
+                uint32_t cur_session;
+                portENTER_CRITICAL(&motors_admission_lock);
+                session_active = motors_manual_move;
+                cur_session = motors_manual_session;
+                portEXIT_CRITICAL(&motors_admission_lock);
+                if (!session_active || cmd.session != cur_session) {
+                    /* A discarded MoveAxis marks its session as finished: it can
+                     * never begin emitting pulses, so a finalization of that
+                     * session may complete.  When the discarded command belongs
+                     * to the last session (no newer one active), a preceding
+                     * same-session motion may have aborted via a setpoint-version
+                     * preempt and left the mount SLEWING; publish READY here so a
+                     * finalization never returns while the mount is stuck. */
+                    portENTER_CRITICAL(&motors_state_lock);
+                    if (cmd.session > s_finished_manual_session) {
+                        s_finished_manual_session = cmd.session;
+                        s_finished_manual_aborted = false;
+                    }
+                    if (!session_active
+                        && motors_state.status == MOTORS_STATUS_SLEWING) {
+                        motors_state.status = MOTORS_STATUS_READY;
+                    }
+                    portEXIT_CRITICAL(&motors_state_lock);
+                    return;
+                }
+
+                /* The setpoint tuple is guarded by motors_admission_lock (the
+                 * producer publishes it in the same section as the enqueue). */
+                portENTER_CRITICAL(&motors_admission_lock);
                 ra_sp = motors_move_axis_ra_dps;
                 dec_sp = motors_move_axis_dec_dps;
                 ver = motors_move_axis_version;
+                portEXIT_CRITICAL(&motors_admission_lock);
+
+                /* Capture the tracking mode to restore when the manual session
+                 * ends.  This is the transition point: the tracking loop just
+                 * ended, so the mode read here is the one actually active — not
+                 * a pre-admission snapshot a STOP may have invalidated. */
+                TrackingMode saved = TRACKING_NONE;
+                portENTER_CRITICAL(&motors_state_lock);
+                if (motors_state.status == MOTORS_STATUS_TRACKING
+                    && motors_state.tracking != TRACKING_NONE) {
+                    saved = motors_state.tracking;
+                }
                 motors_state.ra_speed = fabsf(ra_sp);
                 motors_state.dec_speed = fabsf(dec_sp);
                 motors_state.status = MOTORS_STATUS_SLEWING;
@@ -562,7 +782,30 @@ static void process_command(MotionCommand cmd) {
                 s_motion.ra_start = motors_state.ra_steps;
                 s_motion.dec_start = motors_state.dec_steps;
                 s_motion.move_axis_version = ver;
+                s_motion.move_axis_session = cmd.session;
                 s_motion.active = true;
+
+                /* Test hook: pause after the tracking mode is captured and the
+                 * state is set to SLEWING, but before saved_tracking is published
+                 * — so a test can exercise a STOP that invalidates the session in
+                 * that window (E03-D). */
+                motors_test_hook_before_move_axis_saved_tracking_publish();
+
+                /* Record the saved tracking only when transitioning from
+                 * tracking AND the session is still the one being processed (a
+                 * STOP may have invalidated it in the window above, and a newer
+                 * session may have replaced it — the boolean alone cannot tell
+                 * the two apart).  The check and the publication are one
+                 * admission-lock critical section, so a STOP or a newer session
+                 * cannot invalidate between them. */
+                if (saved != TRACKING_NONE) {
+                    portENTER_CRITICAL(&motors_admission_lock);
+                    if (motors_manual_move
+                        && motors_manual_session == cmd.session) {
+                        motors_saved_tracking = saved;
+                    }
+                    portEXIT_CRITICAL(&motors_admission_lock);
+                }
             }
 
             break;
@@ -613,6 +856,7 @@ static void process_command(MotionCommand cmd) {
  */
 static uint32_t encode_axis_batch(AxisId axis, rmt_symbol_word_t *buf, uint32_t max_sym,
                                    uint32_t batch, uint32_t period_ticks,
+                                   uint32_t spp,
                                    float speed_dps,
                                    int64_t base_travelled, int64_t dist_steps,
                                    int distance_cds, bool is_move_axis)
@@ -628,7 +872,7 @@ static uint32_t encode_axis_batch(AxisId axis, rmt_symbol_word_t *buf, uint32_t 
     for (uint32_t i = 0; i < batch && total_sym < max_sym; i++) {
         int64_t travelled = base_travelled + (int64_t)i;
         float vel = slew_velocity_dps(speed_dps, travelled, dist_steps, distance_cds);
-        uint32_t period = step_period_ticks(axis, vel);
+        uint32_t period = step_period_ticks(axis, vel, spp);
         uint32_t n = motors_rmt_encode_steps(sym, max_sym - total_sym,
                                               period, 1);
         sym += n;
@@ -638,8 +882,8 @@ static uint32_t encode_axis_batch(AxisId axis, rmt_symbol_word_t *buf, uint32_t 
 }
 
 /*
- * Correct the coarse-microstep residual after a slew: at MOTORS_MICROSTEPS_SLEW one
- * STEP pulse advances `spp` canonical steps, so up to spp-1 canonical steps may
+ * Correct the coarse-microstep residual after a slew: at the coarse slew
+ * resolution one STEP pulse advances `spp` canonical steps, so up to spp-1 canonical steps may
  * remain short of the target.  Switch back to fine resolution and emit one
  * pulse per remaining canonical step.  Returns false only on abort/error.
  */
@@ -668,7 +912,7 @@ static bool slew_residual_correction(int64_t ra_dist, int64_t dec_dist,
 
         motors_rmt_encode_pulse(&sym);
         if (motors_rmt_transmit_ra(&sym, 1) != ESP_OK
-            || motors_rmt_wait_ra(pdMS_TO_TICKS(2000)) != ESP_OK) {
+            || motors_rmt_wait_ra(pdMS_TO_TICKS(TRACKING_STEP_TIMEOUT_US / 1000)) != ESP_OK) {
             abort_rmt_hardware_fault();
             return false;
         }
@@ -682,7 +926,7 @@ static bool slew_residual_correction(int64_t ra_dist, int64_t dec_dist,
 
         motors_rmt_encode_pulse(&sym);
         if (motors_rmt_transmit_dec(&sym, 1) != ESP_OK
-            || motors_rmt_wait_dec(pdMS_TO_TICKS(2000)) != ESP_OK) {
+            || motors_rmt_wait_dec(pdMS_TO_TICKS(TRACKING_STEP_TIMEOUT_US / 1000)) != ESP_OK) {
             abort_rmt_hardware_fault();
             return false;
         }
@@ -708,6 +952,46 @@ static bool slew_residual_correction(int64_t ra_dist, int64_t dec_dist,
  * already queued and starts with zero gap) and the coupling between
  * axes: a slow axis no longer stalls a fast one.
  */
+/* Account the two submitted batches (ping + pong) for one axis, each exactly
+ * once, waiting for their RMT completions within a shared deadline.  Returns
+ * false when the deadline expires with a batch still unconfirmed — the caller
+ * then aborts and marks the position uncertain. */
+static bool drain_axis_batches(uint32_t batch[2], int ping, int pong,
+                               int sign, uint32_t spp, int64_t *steps,
+                               bool (*try_wait)(void), int64_t deadline_us) {
+    while (batch[ping] > 0 || batch[pong] > 0) {
+        /* Promote a queued pong into the free in-flight slot. */
+        if (batch[ping] == 0 && batch[pong] > 0) {
+            batch[ping] = batch[pong];
+            batch[pong] = 0;
+        }
+        if (batch[ping] > 0 && try_wait()) {
+            /* A completion is already available — consume and account it even if
+             * the deadline has passed, so a completed batch on this axis is never
+             * lost because the *other* axis (or an earlier wait) exhausted the
+             * shared deadline.  This also preserves known work during an abort. */
+            portENTER_CRITICAL(&motors_state_lock);
+            *steps += (int64_t) sign * (int64_t) batch[ping] * (int64_t) spp;
+            portEXIT_CRITICAL(&motors_state_lock);
+            batch[ping] = batch[pong];
+            batch[pong] = 0;
+        } else if (batch[ping] > 0) {
+            motors_test_hook_drain_wait();
+            /* No completion yet — an urgent fault interrupts the wait rather than
+             * blocking on a transmission that is unsafe to continue. */
+            if (motors_status_is_error(motors_state.status)) {
+                return false;
+            }
+            /* Only now is the deadline the boundary. */
+            if (esp_timer_get_time() > deadline_us) {
+                return false;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+    }
+    return true;
+}
+
 static void slewing_loop_rmt(void) {
     /* Total step counts — exact from int64_t targets. */
     int64_t ra_dist = s_motion.ra_target - s_motion.ra_start;
@@ -769,7 +1053,7 @@ static void slewing_loop_rmt(void) {
 
     compute_slew_periods(is_move_axis, 0, 0,
                          (int64_t) total_ra_steps, (int64_t) total_dec_steps,
-                         distance_ra_cds, distance_dec_cds,
+                         distance_ra_cds, distance_dec_cds, spp,
                          &ra_period, &dec_period);
     last_ramp_recalc_us = esp_timer_get_time();
 
@@ -777,8 +1061,8 @@ static void slewing_loop_rmt(void) {
     uint32_t dec_rem = total_dec_steps - dec_steps_done;
     ra_batch[0] = compute_batch_size(ra_period, ra_rem);
     dec_batch[0] = compute_batch_size(dec_period, dec_rem);
-    ra_batch[0] = clamp_ra_batch(motors_state.ra_steps, ra_sign, ra_batch[0]);
-    dec_batch[0] = clamp_dec_batch(motors_state.dec_steps, dec_sign, dec_batch[0]);
+    ra_batch[0] = clamp_ra_batch(motors_state.ra_steps, ra_sign, ra_batch[0], spp);
+    dec_batch[0] = clamp_dec_batch(motors_state.dec_steps, dec_sign, dec_batch[0], spp);
 
     /* Encode first batch. */
     int64_t ra_trav_base = (int64_t)ra_sign
@@ -787,12 +1071,12 @@ static void slewing_loop_rmt(void) {
                             * (motors_state.dec_steps - s_motion.dec_start) / (int64_t)spp;
 
     ra_num[0] = encode_axis_batch(AXIS_RA, ra_buf[0], RMT_BUFFER_SYMBOLS,
-                                   ra_batch[0], ra_period,
+                                   ra_batch[0], ra_period, spp,
                                    motors_state.ra_speed,
                                    ra_trav_base, (int64_t) total_ra_steps, distance_ra_cds,
                                    is_move_axis);
     dec_num[0] = encode_axis_batch(AXIS_DEC, dec_buf[0], RMT_BUFFER_SYMBOLS,
-                                    dec_batch[0], dec_period,
+                                    dec_batch[0], dec_period, spp,
                                     motors_state.dec_speed,
                                     dec_trav_base, (int64_t) total_dec_steps, distance_dec_cds,
                                     is_move_axis);
@@ -830,17 +1114,17 @@ static void slewing_loop_rmt(void) {
         ra_batch[1] = compute_batch_size(ra_period, ra_rem);
         dec_batch[1] = compute_batch_size(dec_period, dec_rem);
         ra_batch[1] = clamp_ra_batch(motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[0] * (int64_t)spp,
-                                     ra_sign, ra_batch[1]);
+                                     ra_sign, ra_batch[1], spp);
         dec_batch[1] = clamp_dec_batch(motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[0] * (int64_t)spp,
-                                       dec_sign, dec_batch[1]);
+                                       dec_sign, dec_batch[1], spp);
 
         ra_num[1] = encode_axis_batch(AXIS_RA, ra_buf[1], RMT_BUFFER_SYMBOLS,
-                                       ra_batch[1], ra_period,
+                                       ra_batch[1], ra_period, spp,
                                        motors_state.ra_speed,
                                        ra_proj, (int64_t) total_ra_steps, distance_ra_cds,
                                        is_move_axis);
         dec_num[1] = encode_axis_batch(AXIS_DEC, dec_buf[1], RMT_BUFFER_SYMBOLS,
-                                        dec_batch[1], dec_period,
+                                        dec_batch[1], dec_period, spp,
                                         motors_state.dec_speed,
                                         dec_proj, (int64_t) total_dec_steps, distance_dec_cds,
                                         is_move_axis);
@@ -876,14 +1160,44 @@ static void slewing_loop_rmt(void) {
      */
 
     while (s_motion.active) {
-        /* A newer MoveAxis setpoint preempts the running one: abort now so the
-         * main loop re-reads the setpoint and applies it.  Uses the version
-         * counter rather than peeking the queue, so a non-MOVE_AXIS command
-         * interleaved ahead of a newer rate cannot hide it. */
-        if (is_move_axis
-            && motors_move_axis_version != s_motion.move_axis_version) {
+        motors_test_hook_loop_top();
+        /* Read the shared MoveAxis state (setpoint version, manual-session
+         * identity and validity) under the admission lock — the same lock the
+         * producer and the finalization use to write them — so the checks below
+         * are coherent rather than racy `volatile` reads. */
+        uint32_t setpoint_version = 0;
+        bool manual = false;
+        uint32_t session = 0;
+        if (is_move_axis) {
+            portENTER_CRITICAL(&motors_admission_lock);
+            setpoint_version = motors_move_axis_version;
+            manual = motors_manual_move;
+            session = motors_manual_session;
+            portEXIT_CRITICAL(&motors_admission_lock);
+        }
+
+        /* The manual session that owns this motion was finalised or replaced:
+         * drain gracefully (not abort) so the committed batches are accounted
+         * and the session's own completion can be confirmed.  This must be
+         * checked before the setpoint-version preempt below: a replacement
+         * session bumps the version too, and mistaking it for a plain rate
+         * change would abort the old session (dropping its in-flight batches)
+         * instead of draining it. */
+        if (is_move_axis && (!manual || session != s_motion.move_axis_session)) {
             s_motion.active = false;
-            s_motion.aborted = true;
+            s_motion.graceful = true;
+            break;
+        }
+
+        /* A newer MoveAxis setpoint within the SAME session preempts the running
+         * one: reconcile the committed batches (drain) and let the main loop
+         * re-read the setpoint and apply it, without finalising the session.
+         * Uses the version counter rather than peeking the queue, so a
+         * non-MOVE_AXIS command interleaved ahead of a newer rate cannot hide
+         * it. */
+        if (is_move_axis && setpoint_version != s_motion.move_axis_version) {
+            s_motion.active = false;
+            s_motion.preempted = true;
             break;
         }
 
@@ -902,7 +1216,7 @@ static void slewing_loop_rmt(void) {
             compute_slew_periods(is_move_axis,
                                  ra_proj_trav, dec_proj_trav,
                                  (int64_t) total_ra_steps, (int64_t) total_dec_steps,
-                                 distance_ra_cds, distance_dec_cds,
+                                 distance_ra_cds, distance_dec_cds, spp,
                                  &ra_period, &dec_period);
             last_ramp_recalc_us = now;
         }
@@ -911,9 +1225,12 @@ static void slewing_loop_rmt(void) {
         if (ra_steps_done < total_ra_steps
             && ra_batch[ra_ping] > 0
             && motors_rmt_try_wait_ra()) {
-            if (!s_motion.active) break;
+            portENTER_CRITICAL(&motors_state_lock);
             motors_state.ra_steps += (int64_t)ra_sign * (int64_t)ra_batch[ra_ping] * (int64_t)spp;
+            portEXIT_CRITICAL(&motors_state_lock);
             ra_steps_done += ra_batch[ra_ping];
+            ra_batch[ra_ping] = 0;   /* ping accounted — slot now free */
+            if (!s_motion.active) break;   /* graceful: don't submit the next */
 
             int64_t ra_proj_trav = (int64_t)ra_sign
                 * (motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[ra_pong]
@@ -921,9 +1238,9 @@ static void slewing_loop_rmt(void) {
             ra_rem = total_ra_steps - ra_steps_done - ra_batch[ra_pong];
             ra_batch[ra_ping] = compute_batch_size(ra_period, ra_rem);
             ra_batch[ra_ping] = clamp_ra_batch(motors_state.ra_steps + (int64_t)ra_sign * (int64_t)ra_batch[ra_pong] * (int64_t)spp,
-                                               ra_sign, ra_batch[ra_ping]);
+                                               ra_sign, ra_batch[ra_ping], spp);
             ra_num[ra_ping] = encode_axis_batch(AXIS_RA, ra_buf[ra_ping], RMT_BUFFER_SYMBOLS,
-                                                 ra_batch[ra_ping], ra_period,
+                                                 ra_batch[ra_ping], ra_period, spp,
                                                  motors_state.ra_speed,
                                                  ra_proj_trav, (int64_t) total_ra_steps, distance_ra_cds,
                                                  is_move_axis);
@@ -942,9 +1259,12 @@ static void slewing_loop_rmt(void) {
         if (dec_steps_done < total_dec_steps
             && dec_batch[dec_ping] > 0
             && motors_rmt_try_wait_dec()) {
-            if (!s_motion.active) break;
+            portENTER_CRITICAL(&motors_state_lock);
             motors_state.dec_steps += (int64_t)dec_sign * (int64_t)dec_batch[dec_ping] * (int64_t)spp;
+            portEXIT_CRITICAL(&motors_state_lock);
             dec_steps_done += dec_batch[dec_ping];
+            dec_batch[dec_ping] = 0;   /* ping accounted — slot now free */
+            if (!s_motion.active) break;   /* graceful: don't submit the next */
 
             int64_t dec_proj_trav = (int64_t)dec_sign
                 * (motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[dec_pong]
@@ -952,9 +1272,9 @@ static void slewing_loop_rmt(void) {
             dec_rem = total_dec_steps - dec_steps_done - dec_batch[dec_pong];
             dec_batch[dec_ping] = compute_batch_size(dec_period, dec_rem);
             dec_batch[dec_ping] = clamp_dec_batch(motors_state.dec_steps + (int64_t)dec_sign * (int64_t)dec_batch[dec_pong] * (int64_t)spp,
-                                                  dec_sign, dec_batch[dec_ping]);
+                                                  dec_sign, dec_batch[dec_ping], spp);
             dec_num[dec_ping] = encode_axis_batch(AXIS_DEC, dec_buf[dec_ping], RMT_BUFFER_SYMBOLS,
-                                                   dec_batch[dec_ping], dec_period,
+                                                   dec_batch[dec_ping], dec_period, spp,
                                                    motors_state.dec_speed,
                                                    dec_proj_trav, (int64_t) total_dec_steps, distance_dec_cds,
                                                    is_move_axis);
@@ -985,6 +1305,39 @@ static void slewing_loop_rmt(void) {
         /* 4. Yield — batch durations are far coarser than 1 ms, so this
          *    adds no meaningful latency and keeps the CPU free. */
         vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    /* Graceful STOP or a setpoint preemption: account the in-flight + queued
+     * batches already submitted to RMT, so the position stays exact.  Both axes
+     * share one deadline bounded by the maximum committed transmission (see
+     * MOTION_DRAIN_TIMEOUT_US).  A drain that cannot complete degrades to an
+     * abort.  A preemption drains here without finalising the session; the
+     * barrier publishes the session completion only for a graceful stop. */
+    if ((s_motion.graceful || s_motion.preempted) && !s_motion.aborted) {
+        int64_t deadline_us = esp_timer_get_time() + MOTION_DRAIN_TIMEOUT_US;
+        bool ra_ok = drain_axis_batches(ra_batch, ra_ping, ra_pong, ra_sign, spp,
+                                        &motors_state.ra_steps, motors_rmt_try_wait_ra,
+                                        deadline_us);
+        bool dec_ok = drain_axis_batches(dec_batch, dec_ping, dec_pong, dec_sign, spp,
+                                         &motors_state.dec_steps, motors_rmt_try_wait_dec,
+                                         deadline_us);
+        if (!ra_ok || !dec_ok) {
+            s_motion.aborted = true;
+        }
+    } else if (s_motion.aborted) {
+        /* Urgent abort: consume the completions that are ALREADY available, without
+         * waiting, so a batch that fully completed before the fault keeps its known
+         * canonical displacement — the RMT channels are about to be reset and their
+         * pending completions discarded.  Unknown (partially-emitted) batches are
+         * left unconsumed and surface as position_uncertain.  `deadline_us == 0`
+         * makes drain_axis_batches non-blocking: it consumes available completions
+         * in FIFO order and returns on the first unavailable one. */
+        (void) drain_axis_batches(ra_batch, ra_ping, ra_pong, ra_sign, spp,
+                                  &motors_state.ra_steps, motors_rmt_try_wait_ra,
+                                  0);
+        (void) drain_axis_batches(dec_batch, dec_ping, dec_pong, dec_sign, spp,
+                                  &motors_state.dec_steps, motors_rmt_try_wait_dec,
+                                  0);
     }
 }
 
@@ -1075,6 +1428,18 @@ static void tracking_loop_rmt(void) {
                        || queued.type == MOTION_CMD_TRACK)) {
                 xQueueReceive(motion_cmd_queue, &queued, 0);
                 process_command(queued);
+            }
+        }
+
+        /* A MOVE_AXIS accepted while tracking ends this loop so the main loop
+         * dequeues and dispatches it (the transition from tracking to manual
+         * motion, without a global STOP). */
+        {
+            MotionCommand queued;
+            if (xQueuePeek(motion_cmd_queue, &queued, 0) == pdTRUE
+                && queued.type == MOTION_CMD_MOVE_AXIS) {
+                s_motion.active = false;
+                break;
             }
         }
 
@@ -1169,18 +1534,19 @@ static void tracking_loop_rmt(void) {
                 dec_phase = 0.0;
                 return;
             }
-            esp_err_t wait_err = motors_rmt_wait_dec(pdMS_TO_TICKS(2000));
+            esp_err_t wait_err = wait_tracking_step_done(motors_rmt_wait_dec);
             if (wait_err != ESP_OK) {
-                ESP_LOGW(TAG, "RMT DEC wait %s",
-                         (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
+                mark_tracking_position_uncertain();
                 abort_rmt_hardware_fault();
                 dec_phase = 0.0;
                 return;
             }
-            if (!s_motion.active) { dec_phase = 0.0; return; }
-
+            /* Account the confirmed step even if STOP arrived during the wait. */
+            portENTER_CRITICAL(&motors_state_lock);
             motors_state.dec_steps = next;
+            portEXIT_CRITICAL(&motors_state_lock);
             dec_phase -= 1.0;
+            if (!s_motion.active) { dec_phase = 0.0; return; }
         }
         while (dec_phase <= -1.0) {
             if (dec_dir_set != -1) {
@@ -1208,18 +1574,19 @@ static void tracking_loop_rmt(void) {
                 dec_phase = 0.0;
                 return;
             }
-            esp_err_t wait_err = motors_rmt_wait_dec(pdMS_TO_TICKS(2000));
+            esp_err_t wait_err = wait_tracking_step_done(motors_rmt_wait_dec);
             if (wait_err != ESP_OK) {
-                ESP_LOGW(TAG, "RMT DEC wait %s",
-                         (wait_err == ESP_ERR_TIMEOUT) ? "timeout" : "error");
+                mark_tracking_position_uncertain();
                 abort_rmt_hardware_fault();
                 dec_phase = 0.0;
                 return;
             }
-            if (!s_motion.active) { dec_phase = 0.0; return; }
-
+            /* Account the confirmed step even if STOP arrived during the wait. */
+            portENTER_CRITICAL(&motors_state_lock);
             motors_state.dec_steps = next;
+            portEXIT_CRITICAL(&motors_state_lock);
             dec_phase += 1.0;
+            if (!s_motion.active) { dec_phase = 0.0; return; }
         }
 
         /* ── Sleep ─────────────────────────────────────────── */
@@ -1290,10 +1657,22 @@ static void motion_loop(void) {
         return;
     }
 
-    /* Start a fresh motion: clear any prior abort up front so a STOP that
-     * lands during the microstep switch below still marks this motion as
-     * aborted (the flag is never reset after the switch). */
-    s_motion.aborted = false;
+    /* Synchronize the start of the motion with STOP: read `active` and reset
+     * `aborted`/`graceful` together under the admission lock — the same lock the
+     * STOP uses to write them — so a STOP that landed after process_command()
+     * set active=true is seen coherently and its request is not clobbered.
+     * `preempted` is single-writer (motion task) and reset here too. */
+    portENTER_CRITICAL(&motors_admission_lock);
+    bool stopped = !s_motion.active;
+    if (!stopped) {
+        s_motion.aborted = false;
+        s_motion.graceful = false;
+        s_motion.preempted = false;
+    }
+    portEXIT_CRITICAL(&motors_admission_lock);
+    if (stopped) {
+        return;
+    }
 
     /* Select the microstep resolution for this motion BEFORE any STEP pulse is
      * emitted.  The microstep module owns the policy (coarse for large ramped
@@ -1308,6 +1687,10 @@ static void motion_loop(void) {
     if (!motors_microsteps_prepare(s_motion.active_cmd_type, ra_dist, dec_dist)) {
         return;
     }
+
+    /* A motion is about to run: mark it so the idle barrier captures the abort
+     * result exactly once (and not on a later idle re-poll or generation bump). */
+    s_motion.ran = true;
 
     /* Standalone guide pulse (no tracking) — use the tracking loop
      * with zero base rate.  It handles DEC-only and RA-only guiding. */
@@ -1324,11 +1707,12 @@ static void motion_loop(void) {
          * transition is atomic and cannot be lost to a queue-full or a
          * concurrent STOP.  An aborted slew (STOP) cancels the resume too.
          */
-        if (!s_motion.aborted && s_motion.resume_tracking != TRACKING_NONE) {
+        if (!s_motion.aborted && !s_motion.graceful
+            && s_motion.resume_tracking != TRACKING_NONE) {
             TrackingMode resume = s_motion.resume_tracking;
             s_motion.resume_tracking = TRACKING_NONE;
 
-            /* A coarse slew left the drivers at MOTORS_MICROSTEPS_SLEW; tracking
+            /* A coarse slew left the drivers at the coarse resolution; tracking
              * runs at fine resolution, so restore it before the tracking loop. */
             if (!motors_microsteps_prepare(MOTION_CMD_TRACK, 0, 0)) {
                 return;   /* mount is in ERROR */
@@ -1366,6 +1750,24 @@ static void motion_loop(void) {
             portEXIT_CRITICAL(&motors_state_lock);
         }
     }
+
+    /* The drain result is final here: capture the identity AND the finalisation
+     * motive (graceful/aborted) at the true finalisation point, so the idle
+     * barrier publishes a stable result independent of when it runs.  A STOP that
+     * lands after this point (before the barrier) changes s_motion.graceful, but
+     * the published reason stays the one the motion actually ended with.
+     *
+     * Read the generation and the graceful flag together under the admission
+     * lock: a concurrent STOP bumps the generation (motors_stop_begin) and sets
+     * graceful (motors_motion_stop) in separate critical sections, so reading
+     * them without a shared section could tag the result with a foreign identity
+     * (generation read before the STOP, graceful read after it). */
+    portENTER_CRITICAL(&motors_admission_lock);
+    s_motion.drain_generation = motors_stop_generation;
+    s_motion.drain_graceful = s_motion.graceful;
+    portEXIT_CRITICAL(&motors_admission_lock);
+    s_motion.drain_aborted = s_motion.aborted;
+    motors_test_hook_after_motion_loop();
 }
 
 /* --------------------------------------------------------------------------
@@ -1392,18 +1794,103 @@ static void motors_motion_task_run(void *arg) {
         return;
     }
     while (true) {
-        /* Signal idle so control ops (home/limits/stop) can wait for the
-         * motion to actually stop before touching counters/limits. */
+        /* Publish the stop outcome BEFORE signalling idle.  The drain result and
+         * its identity (s_motion.drain_generation) are captured at the end of
+         * motion_loop(), at the moment the motion actually ended — so a STOP that
+         * times out and releases the control mutex, letting a later STOP advance
+         * the generation while this task is held (or preempted) before the
+         * barrier, can never re-tag the drain result with a foreign identity.
+         * The rest generation is read here, so a STOP that landed while the task
+         * was held is still confirmed at the current generation. */
+        motors_test_hook_before_idle_publish();
+        uint32_t rest_gen = motors_stop_generation_get();
+        portENTER_CRITICAL(&motors_state_lock);
+        /* Current rest generation — re-published every barrier so a STOP that
+         * lands while the task is already idle is confirmed on the next poll. */
+        s_idle_generation = rest_gen;
+        if (s_motion.ran) {
+            /* The finalisation motive is the snapshot captured at the end of
+             * motion_loop, not the live flags — a STOP that lands after the
+             * motion ended must not rewrite the reason it ended with. */
+            bool graceful = s_motion.drain_graceful;
+            bool motion_aborted = s_motion.drain_aborted;
+            /* The drain result belongs to the generation captured at the moment
+             * the motion ended (s_motion.drain_generation), not the generation
+             * current at publish time.  Only a drain request (graceful) yields an
+             * abort result: a plain setpoint-version preempt (graceful=false,
+             * aborted=true) is not a failed drain and must not leak into a later
+             * wait.  The record is NOT cleared on an idle re-poll, so a published
+             * failure stays associated with its own generation instead of being
+             * erased into a false success. */
+            s_idle_aborted_generation = s_motion.drain_generation;
+            s_idle_aborted = graceful && motion_aborted;
+            s_motion.aborted = false;
+            s_motion.ran = false;
+            /* A MoveAxis whose session was finalised (graceful) publishes READY
+             * here, before any queued command is dequeued — so a later SLEW/TRACK
+             * started independently is never overwritten by a late producer write
+             * — and publishes the explicit session completion.  A setpoint
+             * preemption (not graceful) drains but does NOT finalise the session,
+             * so this block is skipped for it. */
+            if (s_motion.active_cmd_type == MOTION_CMD_MOVE_AXIS) {
+                if (graceful) {
+                    if (!motion_aborted
+                        && motors_state.status == MOTORS_STATUS_SLEWING) {
+                        motors_state.status = MOTORS_STATUS_READY;
+                    }
+                    if (s_motion.move_axis_session > s_finished_manual_session) {
+                        s_finished_manual_session = s_motion.move_axis_session;
+                        s_finished_manual_aborted = motion_aborted;
+                    }
+                }
+                if (motion_aborted) {
+                    /* The drain failed (position uncertain), whether the motion
+                     * was a graceful stop or a setpoint preemption.  Close
+                     * admission at the point of detection, so no work can be
+                     * admitted or processed between the executor publishing the
+                     * failure and the requester consuming it.  Idempotent: a STOP
+                     * drain already has admission closed. */
+                    motors_admission_close();
+                }
+            }
+        }
+        /* Publish READY for a motion that just completed, here at the barrier
+         * where the task is formally at rest.  A resume-tracking transition
+         * (TRACKING with a live mode), a latched fault or a park must not be
+         * overwritten. */
+        if (s_motion.completed) {
+            if (motors_state.status == MOTORS_STATUS_SLEWING
+                || (motors_state.status == MOTORS_STATUS_TRACKING
+                    && motors_state.tracking == TRACKING_NONE)) {
+                motors_state.status = MOTORS_STATUS_READY;
+                motors_state.tracking = TRACKING_NONE;
+            }
+            s_motion.completed = false;
+        }
         s_motion_idle = true;
+        portEXIT_CRITICAL(&motors_state_lock);
 
         MotionCommand cmd;
-        if (xQueueReceive(motion_cmd_queue, &cmd, portMAX_DELAY) != pdTRUE)
+        /* Block for at most MOTION_IDLE_QUEUE_POLL_MS so a STOP that lands while
+         * already idle re-publishes the idle generation above (confirming rest
+         * at the new generation) instead of sleeping past it. */
+        if (xQueueReceive(motion_cmd_queue, &cmd,
+                          pdMS_TO_TICKS(MOTION_IDLE_QUEUE_POLL_MS)) != pdTRUE) {
             continue;
+        }
 
-        /* The motion task is now running. */
+        /* The motion task is now running.  Published under the same lock that
+         * guards the idle read in motors_motion_wait_idle, so the transition
+         * idle→running is coherent with a concurrent rest wait. */
+        portENTER_CRITICAL(&motors_state_lock);
         s_motion_idle = false;
+        portEXIT_CRITICAL(&motors_state_lock);
 
         process_command(cmd);
+
+        /* Test hook: pause here to exercise a STOP after the command was
+         * dequeued and validated but before the motion loop activates it. */
+        motors_test_hook_after_process_command();
 
         if (cmd.type == MOTION_CMD_SLEW || cmd.type == MOTION_CMD_TRACK ||
             cmd.type == MOTION_CMD_MOVE_AXIS) {
@@ -1449,19 +1936,140 @@ esp_err_t motors_motion_task_init(void) {
 }
 
 /*
- * Wait (bounded) until the motion task is idle, so a caller can safely modify
- * counters/limits without racing the in-flight motion loop.  Callers must
- * invoke motors_stop() first, which sets active=false and bumps the stop epoch;
- * this then blocks until the motion task has actually left its loop.
+ * Wait (bounded) until the motion task confirms rest at `generation` or later,
+ * so a caller can safely modify counters/limits without racing the in-flight
+ * motion loop.  Callers must invoke motors_stop_and_wait() (which advances the
+ * generation and aborts the motion) before this; it then blocks until the task
+ * has left its loop and re-published the idle generation.  The confirmation and
+ * the abort result for that generation are returned together in one coherent
+ * read.
  */
-bool motors_motion_wait_idle(void) {
-    const int64_t deadline_us = esp_timer_get_time() + 500 * 1000;
-    while (!s_motion_idle) {
+bool motors_motion_wait_idle(uint32_t generation, bool *aborted) {
+    const int64_t deadline_us = esp_timer_get_time() + MOTION_IDLE_TIMEOUT_US;
+    while (true) {
+        bool idle;
+        uint32_t idle_gen;
+        bool idle_aborted;
+        uint32_t idle_aborted_gen;
+        portENTER_CRITICAL(&motors_state_lock);
+        idle = s_motion_idle;
+        idle_gen = s_idle_generation;
+        idle_aborted = s_idle_aborted;
+        idle_aborted_gen = s_idle_aborted_generation;
+        if (idle && idle_gen >= generation) {
+            /* Rest is confirmed at `generation` (or later).  The drain result is
+             * attributed only to the generation it belongs to: a later generation's
+             * confirmation never hands a stale result to an earlier request, and a
+             * clean stop on an already-idle mount (no motion ran) reports no abort. */
+            portEXIT_CRITICAL(&motors_state_lock);
+            if (aborted != NULL) {
+                *aborted = (idle_aborted_gen == generation) ? idle_aborted : false;
+            }
+            return true;
+        }
+        portEXIT_CRITICAL(&motors_state_lock);
+
         if (esp_timer_get_time() >= deadline_us) {
-            ESP_LOGW(TAG, "motion task did not become idle within 500 ms");
+            ESP_LOGW(TAG, "motion task did not confirm rest at generation %lu",
+                     (unsigned long) generation);
             return false;
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
-    return true;
+}
+
+/*
+ * Wait (bounded) until the executor publishes the explicit completion of the
+ * MoveAxis session `session` (or a later one): either the session's motion
+ * drained gracefully, or its command was discarded.  A setpoint-version preempt
+ * or an unrelated idle barrier never publishes a completion, so this cannot
+ * return prematurely.  Returns the drain outcome.
+ */
+bool motors_motion_wait_drained(uint32_t session, bool *aborted) {
+    const int64_t deadline_us = esp_timer_get_time() + MOTION_IDLE_TIMEOUT_US;
+    while (true) {
+        uint32_t finished_session;
+        bool finished_aborted;
+        portENTER_CRITICAL(&motors_state_lock);
+        finished_session = s_finished_manual_session;
+        finished_aborted = s_finished_manual_aborted;
+        if (finished_session >= session) {
+            portEXIT_CRITICAL(&motors_state_lock);
+            if (aborted != NULL) {
+                *aborted = finished_aborted;
+            }
+            return true;
+        }
+        portEXIT_CRITICAL(&motors_state_lock);
+
+        if (esp_timer_get_time() >= deadline_us) {
+            ESP_LOGW(TAG, "motion task did not confirm manual session completion");
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
+/*
+ * Observability — read the last published manual-session completion under the
+ * same lock that guards its publication, so a test (or a future diagnostic) can
+ * assert the completion is stable and tied to the right session.  The session
+ * identity is monotonic: it only ever advances, never regresses or erases.
+ */
+uint32_t motors_finished_manual_session(void) {
+    uint32_t session;
+    portENTER_CRITICAL(&motors_state_lock);
+    session = s_finished_manual_session;
+    portEXIT_CRITICAL(&motors_state_lock);
+    return session;
+}
+
+bool motors_finished_manual_aborted(void) {
+    bool aborted;
+    portENTER_CRITICAL(&motors_state_lock);
+    aborted = s_finished_manual_aborted;
+    portEXIT_CRITICAL(&motors_state_lock);
+    return aborted;
+}
+
+/*
+ * Observability — read the last published global stop confirmation (idle
+ * generation + drain result) under the same lock that guards its publication.
+ */
+uint32_t motors_idle_generation(void) {
+    uint32_t gen;
+    portENTER_CRITICAL(&motors_state_lock);
+    gen = s_idle_generation;
+    portEXIT_CRITICAL(&motors_state_lock);
+    return gen;
+}
+
+bool motors_idle_aborted(void) {
+    bool aborted;
+    portENTER_CRITICAL(&motors_state_lock);
+    aborted = s_idle_aborted;
+    portEXIT_CRITICAL(&motors_state_lock);
+    return aborted;
+}
+
+/* The generation the last published drain result belongs to.  Together with
+ * motors_idle_aborted() this is the stable confirmation record: a test can assert
+ * the result stays tied to its own generation across idle re-polls. */
+uint32_t motors_idle_aborted_generation(void) {
+    uint32_t gen;
+    portENTER_CRITICAL(&motors_state_lock);
+    gen = s_idle_aborted_generation;
+    portEXIT_CRITICAL(&motors_state_lock);
+    return gen;
+}
+
+/* Test-only: clear the stable drain-result record.  Production never clears it
+ * mid-session (a confirmation, once published, stays associated with its own
+ * generation); the host harness reuses one process across many tests and must
+ * start each from a clean record. */
+void motors_reset_idle_completion(void) {
+    portENTER_CRITICAL(&motors_state_lock);
+    s_idle_aborted = false;
+    s_idle_aborted_generation = 0;
+    portEXIT_CRITICAL(&motors_state_lock);
 }

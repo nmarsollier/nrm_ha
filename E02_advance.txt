@@ -1,0 +1,125 @@
+E02 — MoveAxis rechazado interrumpe el tracking: conclusiones
+=============================================================
+
+Estado: COMPLETO.
+
+## Diagnóstico y código responsable
+
+Archivo `main/motors/motors_move_axis_speed.c`, función `motors_set_move_axis_speed()`.
+
+El productor detenía el tracking con un STOP global (`motors_stop()`) ANTES de
+intentar admitir el MoveAxis. Si el enqueue fallaba (cola llena), el STOP ya
+había producido efectos irreversibles: avanzó la generación STOP, interrumpió la
+emisión de tracking, canceló pulsos de guiado, invalidó comandos pendientes y
+drenó transmisiones RMT. El rollback (`motors_start_tracking(saved)`) no revertía
+esos efectos y, además, su resultado no se comprobaba.
+
+## Secuencia problemática
+
+1. El productor detecta tracking sideral.
+2. Ejecuta `motors_stop()` (parada global).
+3. Guarda `motors_saved_tracking`.
+4. Se suspende en `motors_test_hook_before_move_axis_enqueue()`.
+5. La admisión falla (cola llena).
+6. Intenta restaurar tracking (rollback insuficiente).
+7. Devuelve `MOTOR_ERR_BUSY`.
+
+## Solución
+
+Se invirtió el orden de responsabilidades:
+
+- El productor solo detecta el tracking (`saved`) y **admite primero** el MoveAxis
+  (`motors_queue_put_move_axis`). Si es rechazado, retorna sin tocar nada.
+- La transición física (fin del tracking → movimiento manual) la hace el
+  **ejecutor**: tras la aceptación, el productor emite una señal suave
+  (`motors_state.tracking = TRACKING_NONE`), y el lazo de tracking ya existente
+  ("external tracking stop") termina y el main loop despacha el MoveAxis.
+- `motors_queue_put_move_axis` recibe ahora `saved_tracking` y lo registra solo
+  al ABRIR la sesión (una actualización no pisa el modo guardado), dentro de la
+  misma transacción de admisión consolidada en E01.
+
+### Cambios de producción
+
+- `main/motors/motors_move_axis_speed.c` — `motors_set_move_axis_speed`: se
+  eliminó el STOP previo y el rollback; se admite primero y se emite la señal
+  suave `tracking = NONE` solo tras la aceptación.
+- `main/motors/motors_command_queue.c` — `motors_queue_put_move_axis`: nuevo
+  parámetro `TrackingMode saved_tracking`; se registra `motors_saved_tracking`
+  solo cuando se abre la sesión (no en una actualización).
+- `main/motors/motors_internal.h` — firma y documentación actualizadas.
+
+## Pruebas agregadas y ubicación
+
+`test/host/test_move_axis_tracking.py` (4 pruebas). Sincronización determinista:
+
+- `motors_test_hook_before_move_axis_enqueue` suspende al productor antes del
+  enqueue (donde un rechazo debe dejar la montura intacta).
+- `host_fill_queue_with_slew(n)` llena la cola con comandos SLEW reales vía
+  `motors_queue_put`; el lazo de tracking no los drena en línea, por lo que
+  permanecen encolados sin perturbar el movimiento activo.
+- `host_stop_generation()` observa la generación STOP.
+- Hooks con atómicos C11 (heredados de E01).
+
+## Resultados RED (antes de corregir) — registrados
+
+- test_rejected_move_axis_preserves_active_tracking ... FAIL
+  AssertionError: 5 != 4 : a not-yet-admitted MoveAxis must not advance the STOP generation
+
+- test_rejected_move_axis_preserves_pending_pulse_guide ... FAIL
+  AssertionError: 0 != 1 : the MoveAxis must not cancel the guide before admission
+
+- test_accepted_move_axis_transitions_from_tracking ... PASS (esperado)
+
+- test_rejected_move_axis_update_preserves_existing_session ... PASS (esperado)
+
+## Resultados GREEN (después de corregir)
+
+- test_rejected_move_axis_preserves_active_tracking ... ok
+- test_rejected_move_axis_preserves_pending_pulse_guide ... ok
+- test_accepted_move_axis_transitions_from_tracking ... ok
+- test_rejected_move_axis_update_preserves_existing_session ... ok
+
+## Pruebas de E01 (5) — continúan pasando
+
+test_move_axis_admission.py: 5/5 PASS (incluidas en la suite completa).
+
+## Suites completas (comandos y resultados)
+
+- `make test-all` → NRM-HA: Ran 113 tests ... OK
+- `make test-all` → BFT:    Ran 113 tests ... OK (skipped=1, preexistente)
+
+(113 = 104 originales + 5 E01 + 4 E02.)
+
+## Acceptance criteria
+
+- [x] Se inspeccionó el flujo real de MoveAxis desde tracking.
+- [x] Se escribieron las cuatro pruebas de regresión.
+- [x] Se ejecutaron antes de modificar producción (RED).
+- [x] Se registraron los resultados RED reales (nombres y aserciones).
+- [x] Se identificó el efecto secundario anterior a la admisión (STOP global).
+- [x] Un MoveAxis rechazado no ejecuta STOP global.
+- [x] Un MoveAxis rechazado no interrumpe tracking.
+- [x] Un MoveAxis rechazado no cancela PulseGuide.
+- [x] Un MoveAxis rechazado no modifica la generación STOP.
+- [x] Un MoveAxis rechazado no modifica consignas ni sesiones existentes.
+- [x] No se guarda tracking para una sesión rechazada.
+- [x] Un MoveAxis aceptado puede comenzar desde tracking normalmente.
+- [x] El ejecutor transiciona (señal suave) sin STOP global.
+- [x] Se conservan todas las garantías de E01.
+- [x] Las cuatro pruebas pasan en NRM-HA y BFT.
+- [x] Las cinco pruebas de E01 continúan pasando.
+- [x] Suites completas NRM-HA y BFT pasan.
+- [x] No se introducen locks ni mecanismos redundantes (reusa "external tracking stop").
+- [x] No se corrigen defectos ajenos a E02 (SLEW conserva su STOP; ver limitaciones).
+
+## Limitaciones y pendientes
+
+- El defecto análogo de SLEW (motors_slew_to_angle / motors_slew_axis detienen
+  tracking antes de admitir) NO se corrigió: es ajeno a E02.
+- Flake intermitente de BFT en `make test-all` (test
+  `test_east_decelerates_ra_without_reversing`) — seguimiento en E11_advance.txt.
+
+## Conclusión
+
+E02 queda cerrado: un MoveAxis rechazado ya no altera el movimiento previamente
+aceptado. Se preservan las correcciones y pruebas de E01.

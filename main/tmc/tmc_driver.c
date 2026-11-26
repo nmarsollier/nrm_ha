@@ -9,7 +9,7 @@
 
 #include "tmc.h"
 #include "tmc_internal.h"
-#include "config.h"
+#include "board/board_config.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -17,29 +17,12 @@
 
 static const char *TAG = "TMC_DRIVER";
 
-/* ── Target microstep resolution — see MOTORS_MICROSTEPS_TRACKING in config.h ── */
-
-/* MOTORS_MICROSTEPS_TRACKING must be a valid TMC2209 microstep value; otherwise
- * tmc_microsteps_to_mres() returns false. */
-_Static_assert(MOTORS_MICROSTEPS_TRACKING == 256 || MOTORS_MICROSTEPS_TRACKING == 128 ||
-               MOTORS_MICROSTEPS_TRACKING == 64  || MOTORS_MICROSTEPS_TRACKING == 32  ||
-               MOTORS_MICROSTEPS_TRACKING == 16  || MOTORS_MICROSTEPS_TRACKING == 8   ||
-               MOTORS_MICROSTEPS_TRACKING == 4   || MOTORS_MICROSTEPS_TRACKING == 2   ||
-               MOTORS_MICROSTEPS_TRACKING == 1,
-               "MOTORS_MICROSTEPS_TRACKING must be 256/128/64/32/16/8/4/2/1");
-
-_Static_assert(MOTORS_MICROSTEPS_SLEW == 256 || MOTORS_MICROSTEPS_SLEW == 128 ||
-               MOTORS_MICROSTEPS_SLEW == 64  || MOTORS_MICROSTEPS_SLEW == 32  ||
-               MOTORS_MICROSTEPS_SLEW == 16  || MOTORS_MICROSTEPS_SLEW == 8   ||
-               MOTORS_MICROSTEPS_SLEW == 4   || MOTORS_MICROSTEPS_SLEW == 2   ||
-               MOTORS_MICROSTEPS_SLEW == 1,
-               "MOTORS_MICROSTEPS_SLEW must be 256/128/64/32/16/8/4/2/1");
-
-/* Active microstep resolution on both drivers.  Only ever written after a
- * verified read-back (tmc2209_set_microsteps / tmc_configure_drivers), so it is
- * always the real hardware value — the motors layer trusts it via
- * tmc2209_get_microsteps(). */
-uint16_t tmc_microsteps = MOTORS_MICROSTEPS_TRACKING;
+/* Active microstep resolution on both drivers.  0 means "not yet configured":
+ * tmc_configure_drivers() (via tmc2209_hw_init/reinit) sets it to the verified
+ * profile resolution.  Only ever written after a verified read-back, so a
+ * non-zero value is always the real hardware value — the motors layer trusts it
+ * via tmc2209_get_microsteps(). */
+uint16_t tmc_microsteps = 0;
 
 /* Active chopper mode on both drivers.  Same trust rule as tmc_microsteps:
  * only ever written after a verified read-back. */
@@ -192,7 +175,7 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, uint16_t microsteps)
 
     /* ── CHOPCONF (read-write) ── */
     uint8_t mres = 0;
-    (void) tmc_microsteps_to_mres(microsteps, &mres);  /* validated by _Static_assert */
+    (void) tmc_microsteps_to_mres(microsteps, &mres);  /* validated by tmc_configure_drivers */
     uint32_t chopconf = (10U << 0)   /* TOFF = 10 */
                       | (5U << 4)    /* HSTRT = 5 */
                       | (2U << 7)    /* HEND = 2 */
@@ -267,8 +250,16 @@ void tmc_reset_diagnostics(void) {
 }
 
 /* Configure and verify every driver's registers. Assumes the UARTs are already
- * installed and the buses have settled. */
-esp_err_t tmc_configure_drivers(void) {
+ * installed and the buses have settled.  `microsteps` is the initial resolution
+ * (the profile's canonical/tracking resolution) applied to both axes. */
+esp_err_t tmc_configure_drivers(uint16_t microsteps) {
+    uint8_t mres = 0;
+    if (!tmc_microsteps_to_mres(microsteps, &mres)) {
+        ESP_LOGE(TAG, "Invalid microstep resolution %u — not a TMC2209 MRES value",
+                 (unsigned) microsteps);
+        return ESP_FAIL;
+    }
+
     vTaskDelay(pdMS_TO_TICKS(20));
 
     bool all_ok = true;
@@ -277,7 +268,7 @@ esp_err_t tmc_configure_drivers(void) {
             all_ok = false;  /* UART setup already failed for this axis */
             continue;
         }
-        esp_err_t result = tmc_init_driver(&tmc_axes[i], MOTORS_MICROSTEPS_TRACKING);
+        esp_err_t result = tmc_init_driver(&tmc_axes[i], microsteps);
         if (result != ESP_OK) {
             ESP_LOGE(TAG, "Error initialising axis %s", tmc_axes[i].name);
             all_ok = false;
@@ -292,7 +283,7 @@ esp_err_t tmc_configure_drivers(void) {
     }
 
     /* same values the drivers were just verified with */
-    tmc_microsteps = MOTORS_MICROSTEPS_TRACKING;
+    tmc_microsteps = microsteps;
     tmc_chop_mode = TMC_CHOP_STEALTH;
     tmc2209_set_initialized(true);
     tmc_status = TMC_OK;

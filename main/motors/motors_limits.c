@@ -63,6 +63,12 @@ static bool apply_limits_if_valid(float ra_min, float ra_max,
     }
 
     portENTER_CRITICAL(&motors_state_lock);
+    if (motors_state.status == MOTORS_STATUS_ERROR) {
+        /* A concurrent ERROR invalidates the operation — never mutate the limits
+         * after the fault. */
+        portEXIT_CRITICAL(&motors_state_lock);
+        return false;
+    }
     motors_state.limits.ra_min = ra_min;
     motors_state.limits.ra_max = ra_max;
     motors_state.limits.dec_min = dec_min;
@@ -135,67 +141,132 @@ void motors_limits_save(void) {
 
 /* ── Runtime setters ─────────────────────────────────────── */
 
+/*
+ * Each setter stops the mount and keeps command admission CLOSED while it reads
+ * the position and writes the new limit, so a concurrent command cannot enqueue
+ * against a half-updated limit set.  Admission is reopened only after the write
+ * (and, where applicable, the persistence) has completed.
+ */
+
 bool motors_set_current_as_home(void) {
-    if (motors_stop() != MOTOR_OK) {
-        /* Never re-zero the counters if the stop did not complete — the motion
-         * task may still be running and would clobber the reference. */
+    if (!motors_control_lock()) {
+        return false;
+    }
+    if (motors_stop_and_wait() != MOTOR_OK) {
+        /* Never re-zero the counters if the stop did not confirm rest — the
+         * motion task may still be running and would clobber the reference. */
+        motors_control_unlock();
         return false;
     }
     portENTER_CRITICAL(&motors_state_lock);
-    motors_state.ra_steps  = 0;
-    motors_state.dec_steps = 0;
-    motors_state.status    = MOTORS_STATUS_READY;
-    /* The operator just re-established the physical origin, so the counters
-     * are trustworthy again — clear any uncertainty left by an aborted move. */
-    motors_state.position_uncertain = false;
+    if (motors_state.status != MOTORS_STATUS_ERROR) {
+        motors_state.ra_steps  = 0;
+        motors_state.dec_steps = 0;
+        motors_state.status = MOTORS_STATUS_READY;
+        /* The operator just re-established the physical origin, so the counters
+         * are trustworthy again — but only clear uncertainty when no concurrent
+         * ERROR invalidated the reference. */
+        motors_state.position_uncertain = false;
+    }
     portEXIT_CRITICAL(&motors_state_lock);
     motors_limits_save();
-    return true;
+    bool ok = motors_admission_open();
+    motors_control_unlock();
+    return ok;
 }
 
 bool motors_set_current_as_ra_left_limit(void) {
-    if (motors_stop() != MOTOR_OK) {
+    if (!motors_control_lock()) {
+        return false;
+    }
+    if (motors_stop_and_wait() != MOTOR_OK) {
+        motors_control_unlock();
         return false;
     }
     float pos = motors_get_ra_deg();
-    return apply_limits_if_valid(pos, motors_state.limits.ra_max,
-                                 motors_state.limits.dec_min, motors_state.limits.dec_max);
+    bool ok = apply_limits_if_valid(pos, motors_state.limits.ra_max,
+                                    motors_state.limits.dec_min, motors_state.limits.dec_max);
+    if (!motors_admission_open()) {
+        ok = false;
+    }
+    motors_control_unlock();
+    return ok;
 }
 
 bool motors_set_current_as_ra_right_limit(void) {
-    if (motors_stop() != MOTOR_OK) {
+    if (!motors_control_lock()) {
+        return false;
+    }
+    if (motors_stop_and_wait() != MOTOR_OK) {
+        motors_control_unlock();
         return false;
     }
     float pos = motors_get_ra_deg();
-    return apply_limits_if_valid(motors_state.limits.ra_min, pos,
-                                 motors_state.limits.dec_min, motors_state.limits.dec_max);
+    bool ok = apply_limits_if_valid(motors_state.limits.ra_min, pos,
+                                    motors_state.limits.dec_min, motors_state.limits.dec_max);
+    if (!motors_admission_open()) {
+        ok = false;
+    }
+    motors_control_unlock();
+    return ok;
 }
 
 bool motors_set_current_as_dec_left_limit(void) {
-    if (motors_stop() != MOTOR_OK) {
+    if (!motors_control_lock()) {
+        return false;
+    }
+    if (motors_stop_and_wait() != MOTOR_OK) {
+        motors_control_unlock();
         return false;
     }
     float pos = motors_get_dec_deg();
-    return apply_limits_if_valid(motors_state.limits.ra_min, motors_state.limits.ra_max,
-                                 pos, motors_state.limits.dec_max);
+    bool ok = apply_limits_if_valid(motors_state.limits.ra_min, motors_state.limits.ra_max,
+                                    pos, motors_state.limits.dec_max);
+    if (!motors_admission_open()) {
+        ok = false;
+    }
+    motors_control_unlock();
+    return ok;
 }
 
 bool motors_set_current_as_dec_right_limit(void) {
-    if (motors_stop() != MOTOR_OK) {
+    if (!motors_control_lock()) {
+        return false;
+    }
+    if (motors_stop_and_wait() != MOTOR_OK) {
+        motors_control_unlock();
         return false;
     }
     float pos = motors_get_dec_deg();
-    return apply_limits_if_valid(motors_state.limits.ra_min, motors_state.limits.ra_max,
-                                 motors_state.limits.dec_min, pos);
+    bool ok = apply_limits_if_valid(motors_state.limits.ra_min, motors_state.limits.ra_max,
+                                    motors_state.limits.dec_min, pos);
+    if (!motors_admission_open()) {
+        ok = false;
+    }
+    motors_control_unlock();
+    return ok;
 }
 
-void motors_limits_reset(void) {
-    motors_stop();
+bool motors_limits_reset(void) {
+    if (!motors_control_lock()) {
+        return false;
+    }
+    if (motors_stop_and_wait() != MOTOR_OK) {
+        /* Never reset the limits if the stop did not confirm rest — the motion
+         * task may still be running and would race the write. */
+        motors_control_unlock();
+        return false;
+    }
     portENTER_CRITICAL(&motors_state_lock);
-    motors_state.limits.ra_min  = LIMITS_DEFAULT_RA_MIN;
-    motors_state.limits.ra_max  = LIMITS_DEFAULT_RA_MAX;
-    motors_state.limits.dec_min = LIMITS_DEFAULT_DEC_MIN;
-    motors_state.limits.dec_max = LIMITS_DEFAULT_DEC_MAX;
+    if (motors_state.status != MOTORS_STATUS_ERROR) {
+        motors_state.limits.ra_min  = LIMITS_DEFAULT_RA_MIN;
+        motors_state.limits.ra_max  = LIMITS_DEFAULT_RA_MAX;
+        motors_state.limits.dec_min = LIMITS_DEFAULT_DEC_MIN;
+        motors_state.limits.dec_max = LIMITS_DEFAULT_DEC_MAX;
+    }
     portEXIT_CRITICAL(&motors_state_lock);
     motors_limits_save();
+    bool ok = motors_admission_open();
+    motors_control_unlock();
+    return ok;
 }

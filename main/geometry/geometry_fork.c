@@ -78,7 +78,10 @@ static bool quantize_within(AxisId axis, double degrees, float limit_min,
         return false;   /* interval narrower than one step: no valid step */
     }
 
-    int64_t steps = axis_deg_to_steps(axis, degrees);
+    int64_t steps;
+    if (!axis_deg_to_steps(axis, degrees, &steps)) {
+        return false;   /* non-finite or out-of-range destination */
+    }
     if (steps < lo) steps = lo;
     if (steps > hi) steps = hi;
 

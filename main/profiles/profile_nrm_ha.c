@@ -10,7 +10,6 @@ const MountProfile mount_profile = {
     .name = "NRM-HA",
     .profile_revision = 1,
     .geometry = GEOMETRY_GERMAN,
-    .motion_ready = true,
     .ra_reference_offset_deg = 90.0f,
 
     .axes = {

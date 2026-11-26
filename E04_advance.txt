@@ -1,0 +1,471 @@
+E04 — Separar la finalización de MoveAxis de STOP global: conclusiones
+=====================================================================
+
+Estado: COMPLETO (E04 cerrado; ver secciones 19 y 20).
+
+## 1. Diagnóstico de cada hipótesis
+
+- **E04-A (invalidación de comandos ajenos): CONFIRMADA.** `motors_move_axis_stop()`
+  usaba `motors_stop_and_wait()`, cuyo `motors_queue_clear()` eliminaba comandos
+  independientes admitidos durante la sesión manual.
+- **E04-B (incremento innecesario de la generación STOP): CONFIRMADA.**
+  `motors_stop_begin()` incrementaba la generación en cada finalización manual,
+  invalidando trabajo independiente.
+- **E04-C (cancelación de trabajo ajeno / guiado): DESCARTADA como defecto.**
+  El clear de guiado de `motors_motion_stop()` afecta solo al estado de guiado
+  activo, que ya quedó interrumpido por la transición a manual; no afecta a un
+  PulseGuide pendiente encolado.
+- **E04-D (dependencia de la limpieza global): CONFIRMADA como requisito.** Al
+  retirar `queue_clear`/generación, el comando MoveAxis pendiente debe descartarse
+  de forma localizada.
+
+## 2. Código original responsable
+
+- `motors_move_axis_stop()` (motors_move_axis_speed.c) llamaba `motors_stop_and_wait()`.
+- `motors_stop_and_wait()` (motors_stop.c): `stop_begin` (gen++, cierre de admisión,
+  invalidación de sesión), `queue_clear`, `motion_stop`, `wait_idle`.
+- `motors_motion_stop()` (motors_motion_task.c): active=false, graceful=true,
+  clear de guiado, notificación.
+
+## 3. Semántica de admisión durante una sesión manual
+
+Durante un MoveAxis (lazo de slewing) el lazo no drena la cola en línea. Por lo
+tanto, comandos TRACK, PULSE_GUIDE y SLEW pueden admitirse legítimamente
+(`motors_queue_put`) y quedan encolados detrás del MoveAxis. El comando MoveAxis
+en sí se consume por el mecanismo de consigna/versión. Un TRACK admitido durante
+una sesión manual es, pues, un caso válido de "comando independiente".
+
+## 4. Defectos confirmados / descartados
+
+- Confirmados: E04-A (queue_clear), E04-B (generación), E04-D (descarte de MoveAxis
+  pendiente).
+- Descartado: E04-C (guiado) — sin efecto observable.
+
+## 5. Pruebas agregadas y ubicación
+
+`test/host/test_move_axis_finalization.py` (7 pruebas):
+`test_manual_finalization_does_not_advance_global_stop_generation`,
+`test_manual_finalization_preserves_unrelated_accepted_commands`,
+`test_pending_manual_session_is_cancelled_without_global_stop`,
+`test_manual_finalization_accounts_committed_rmt_batches`,
+`test_manual_finalization_restores_tracking_without_global_stop`,
+`test_global_stop_supersedes_manual_finalization`,
+`test_redundant_manual_zero_does_not_affect_unrelated_motion`.
+
+## 6. Hooks y sincronización
+
+Reutiliza los hooks atómicos existentes (after_move_axis_stop_open,
+before_move_axis_tracking_restore) y las funciones de observabilidad
+(host_stop_generation, host_manual_move, host_saved_tracking, host_tracking,
+host_step_count, host_ra_steps, host_position_uncertain). No se añadieron hooks
+nuevos para E04.
+
+## 7. Resultados RED reales
+
+- test_manual_finalization_does_not_advance_global_stop_generation ... FAIL
+  (generación avanzada: `stop_generation != gen_before`; consigna no cero).
+- test_manual_finalization_preserves_unrelated_accepted_commands ... FAIL
+  `AssertionError: timeout waiting for status=2` (el TRACK fue eliminado por queue_clear).
+- test_pending_manual_session_is_cancelled_without_global_stop ... FAIL
+  (la versión inicial con hook de process-command provocó `0 != 1`; se simplificó).
+- test_manual_finalization_restores_tracking_without_global_stop ... FAIL
+  `AssertionError: 10 != 9 : manual finalization must not advance the global STOP generation`.
+- Tests 4, 6, 7 ... PASS.
+
+## 8. Correcciones realizadas
+
+- Nueva `motors_manual_stop_and_wait()` (motors_stop.c): invalida la sesión y
+  pone a cero las consignas sin cerrar admisión ni avanzar la generación, solicita
+  el drenaje gracioso y espera la confirmación mediante un **epoch de reposo
+  monotónico** (no la generación STOP).
+- Nueva señal `s_idle_epoch` (motors_motion_task.c): contador monotónico
+  incrementado en cada barrera de reposo; `motors_motion_wait_drained(epoch)` y
+  `motors_motion_idle_epoch()` confirman que el movimiento manual drenó incluso
+  si un comando encolado se despacha inmediatamente después.
+- `motors_move_axis_stop()` usa `motors_manual_stop_and_wait()` y publica READY
+  solo si el estado sigue siendo SLEWING (no sobrescribe un TRACKING iniciado por
+  un comando independiente).
+- `process_command` (MOVE_AXIS): descarta el comando si `manual_move` es falso
+  (sesión ya invalidada), cubriendo el MoveAxis pendiente sin queue_clear ni
+  generación.
+
+## 9. Cómo se diferencia la finalización manual de STOP global
+
+STOP/PARK conservan `motors_stop_and_wait()` (stop_begin + queue_clear +
+motion_stop + wait_idle con generación). La finalización manual reutiliza solo el
+drenaje (`motors_motion_stop` + confirmación de reposo), sin cerrar admisión, sin
+avanzar la generación y sin limpiar la cola.
+
+## 10. Mecanismos de drenaje reutilizados / nuevos
+
+Reutilizado: `motors_motion_stop()` (active=false, graceful=true) y el drenaje
+gracioso del lazo de slewing. Nuevo: `s_idle_epoch` (justificado: sin avanzar la
+generación no había una señal "fresca" para confirmar el drenaje sin depender de
+la cola vacía). No se duplicó STOP.
+
+## 11. Resultados GREEN
+
+7/7 PASS. Regresión E01 (5), E02 (4), E03 (11): PASS.
+
+## 12. Comandos ejecutados
+
+- `make PROFILE=nrm_ha build`
+- `NRM_TEST_PROFILE=nrm_ha python3 -m unittest test_move_axis_finalization -v` (RED → GREEN)
+- `make test-all`
+
+## 13. Resultados completos de ambos perfiles
+
+- NRM-HA: Ran 131 tests ... OK
+- BFT:    Ran 131 tests ... OK (skipped=1 preexistente)
+
+(131 = 104 originales + 5 E01 + 4 E02 + 11 E03 + 7 E04.)
+
+## 14. Acceptance criteria
+
+- [x] Se investigó el flujo real de finalización manual.
+- [x] Se escribieron y ejecutaron las pruebas antes de modificar producción.
+- [x] Se registraron los resultados RED reales.
+- [x] Finalizar MoveAxis no ejecuta una invalidación global innecesaria.
+- [x] Finalizar MoveAxis no incrementa la generación STOP global.
+- [x] No se limpia indiscriminadamente la cola de comandos.
+- [x] Se conserva el trabajo independiente legítimamente admitido.
+- [x] Una sesión manual pendiente puede finalizar sin comenzar físicamente.
+- [x] Ningún comando de una sesión anterior puede ejecutarse en una nueva sesión.
+- [x] Las consignas de una sesión finalizada quedan invalidadas (puestas a cero).
+- [x] Los pulsos manuales comprometidos se contabilizan correctamente.
+- [x] La finalización manual no provoca incertidumbre artificial de posición.
+- [x] La finalización no devuelve éxito prematuramente.
+- [x] No se publica READY mientras existen transmisiones manuales comprometidas.
+- [x] Se conserva la restauración normal de tracking.
+- [x] No se generan restauraciones obsoletas.
+- [x] Los fallos reales de restauración se propagan correctamente.
+- [x] STOP y PARK conservan su prioridad y semántica global.
+- [x] Los ceros redundantes no afectan otros movimientos.
+- [x] No se introducen deadlocks ni inversiones de locks.
+- [x] No se duplican mecanismos de drenaje.
+- [x] No se introducen estados o flags innecesarios (s_idle_epoch es el mínimo necesario).
+- [x] Las pruebas nuevas pasan con ambos perfiles.
+- [x] Las 20 pruebas de E01, E02 y E03 continúan pasando.
+- [x] Las suites completas de NRM-HA y BFT pasan.
+
+## 15. Limitaciones y pendientes
+
+- E04-C se registró como descartado (el clear de guiado no tiene efecto observable
+  sobre trabajo ajeno durante la finalización manual); no se modificó.
+- La confirmación de reposo usa un nuevo contador monotónico (`s_idle_epoch`)
+  justificado por la necesidad de confirmar el drenaje sin avanzar la generación.
+- E11 (flake BFT) sigue abierto; véase E11_advance.txt.
+
+## 16. Conclusión
+
+E04 queda cerrado: la finalización de MoveAxis es ahora una operación localizada
+que invalida su propia sesión y drena su propio movimiento, sin cerrar la
+admisión global, sin avanzar la generación STOP y sin limpiar la cola. Se
+preservan E01, E02 y E03.
+
+---
+
+## 18. Seguimiento: identidad de sesión y carreras residuales (E04-E/F/G/H)
+
+### Diagnóstico
+
+La revisión identificó cuatro carreras residuales:
+- **E04-E**: `manual_move` (booleano) no distinguía dos sesiones manuales dentro
+  de la misma generación STOP; un comando pendiente de la sesión A podía
+  ejecutarse como la sesión B.
+- **E04-F**: `motors_motion_stop()` detenía incondicionalmente el movimiento
+  activo, sin vincularlo a la sesión finalizada.
+- **E04-G**: `s_idle_epoch` (epoch de reposo) no identificaba el drenaje
+  solicitado; una barrera idle espuria podía confirmar prematuramente.
+- **E04-H**: la publicación de READY basada en `SLEWING` era ambigua (un GoTo
+  independiente también usa SLEWING).
+
+### Cambios realizados
+
+- Nueva identidad de sesión `motors_manual_session` (monotónica, bajo
+  `motors_admission_lock`), sellada en `MotionCommand.session` al admitir y en
+  `s_motion.move_axis_session` al procesar. `process_command` descarta el comando
+  si `cmd.session != motors_manual_session` o `!manual_move`.
+- El lazo de slewing observa la invalidación (`!manual_move` o sesión cambiada) y
+  drena graciosamente, en lugar de una parada global incondicional.
+- El resultado de drenaje se distingue: `s_idle_aborted = graceful && aborted`
+  (un preempt por cambio de consigna no es un drenaje fallido), y se introduce
+  `s_idle_manual_session` (sesión del último MoveAxis drenado graciosamente).
+- READY se publica en la barrera idle del ejecutor (para un drenaje gracioso),
+  no desde el productor.
+
+### Resultado
+
+- Suite NRM-HA: 130/131 PASS. Suite BFT: 131/131 PASS (skipped=1 preexistente).
+- **Limitación conocida (E04-G residual)**: `test_newest_rate_wins`
+  (test_move_axis_setpoint) falla de forma determinista en la suite NRM-HA
+  completa (no en aislamiento ni en BFT). La finalización puede devolver antes de
+  que el MoveAxis inverso drene, quedando el estado en SLEWING. La carrera es
+  sensible al orden/timing de la suite; requiere investigación adicional para
+  cerrar E04-G por completo.
+
+### Nota
+
+No se declara E04-G cerrado: la confirmación de drenaje vinculada a la sesión
+reduce pero no elimina del todo la carrera expuesta por `test_newest_rate_wins`.
+
+
+---
+
+## 19. PR5 — Cierre definitivo de E04-G y de las carreras E04-E/F/H
+
+### 19.1 Reproducción del fallo
+
+`test_move_axis_setpoint.test_newest_rate_wins` falla de forma determinista en la
+suite completa NRM-HA (no en aislamiento ni en BFT). Traceback exacto:
+
+```
+FAIL: test_newest_rate_wins (test_move_axis_setpoint.MoveAxisSetpointTests.test_newest_rate_wins)
+Traceback (most recent call last):
+  File ".../test/host/test_move_axis_setpoint.py", line 35, in test_newest_rate_wins
+    h.wait_idle_status()
+  File ".../test/host/harness.py", line 169, in wait_idle_status
+    return self.wait_until(lambda: self.lib.host_status() in (STATUS_READY, STATUS_TRACKING), ...)
+  File ".../test/host/harness.py", line 161, in wait_until
+    raise AssertionError(f"timeout waiting for {desc} (last={last!r})")
+AssertionError: timeout waiting for status=ready|tracking (last=False)
+```
+
+La reproducción mínima es `test_move_axis_admission + test_move_axis_setpoint`
+(6 tests): el fallo no depende del orden dentro del módulo, sino del estado
+monótono (`motors_manual_session` / `s_finished_manual_session`) que no se
+resetea entre tests y que deja expuesta la carrera en la suite completa.
+
+### 19.2 Causa demostrada (con trazas)
+
+Instrumentación puntual de `process_command`/`motors_manual_stop_and_wait`
+(la primera tanda se reproduce por timing, la traza se obtuvo en la suite):
+
+```
+E04-DBG: manual_stop_and_wait session=6
+E04-DBG: DISCARD cmd.session=6 cur=6 active=0 finished=5 status=1
+E04-DBG: manual_stop_and_wait DONE session=6 aborted=0 status=1
+```
+
+Causa raíz: el MoveAxis inverso (misma sesión, versión superior) queda encolado
+cuando aterriza la finalización (`manual_move=false`). Al desencolarse, el
+camino de descarte publica `s_finished_manual_session = cmd.session` (con lo que
+`motors_motion_wait_drained` retorna éxito) pero **no** transiciona el estado
+SLEWING→READY. El MoveAxis directo anterior había abortado por preempt de
+versión dejando el estado en SLEWING; nadie lo restaura. La finalización
+devuelve éxito mientras la montura queda atascada en SLEWING.
+
+Segunda causa (encontrada por el Test G determinista): al admitirse una sesión
+nueva que reemplaza a la anterior, el lazo de slewing evaluaba el cambio de
+**versión** antes que el cambio de **sesión**. Como la sesión nueva también
+incrementa la versión, el movimiento de la sesión anterior se abortaba (perdiendo
+los lotes en vuelo) en lugar de drenarse graciosamente, y su finalización nunca
+podía confirmarse.
+
+### 19.3 Modelo final de confirmación de sesión
+
+El ejecutor es el único publicador de la finalización de sesión manual
+(`s_finished_manual_session` + `s_finished_manual_aborted`, bajo
+`motors_state_lock`). La publica exclusivamente en dos casos:
+
+- **Drenaje gracioso**: el movimiento MoveAxis detecta su sesión invalidada o
+  reemplazada y drena los lotes comprometidos; en la barrera idle publica la
+  sesión y transiciona SLEWING→READY.
+- **Descarte**: un MoveAxis encolado pertenece a una sesión ya invalidada (nunca
+  emite pulsos); el descarte publica la sesión y, si no hay una sesión más
+  reciente activa, transiciona SLEWING→READY.
+
+`motors_motion_wait_drained(session)` espera `s_finished_manual_session >=
+session` y devuelve el resultado de aborto. El resultado es monótono (nunca
+regresa ni se sobrescribe) y permanece disponible hasta que el solicitante lo
+consume.
+
+### 19.4 Correcciones realizadas
+
+1. **Descarte → READY** (`process_command`, MOVE_AXIS): cuando un comando se
+   descarta por sesión invalidada y no hay sesión nueva activa, se publica READY
+   si el estado quedó SLEWING (causa raíz de `test_newest_rate_wins`).
+2. **Orden de checks en `slewing_loop_rmt`**: primero el cambio de sesión
+   (drenaje gracioso) y después el cambio de versión (preempt). Un reemplazo de
+   sesión ya no se confunde con un cambio de consigna.
+3. **`saved_tracking` por sesión**: la publicación del tracking guardado exige
+   `motors_manual_session == cmd.session`, no solo `motors_manual_move`, para que
+   un ejecutor antiguo no guarde tracking en una sesión nueva.
+4. **Completación monótona**: la publicación de drenaje usa `if
+   (move_axis_session > s_finished_manual_session)` (nunca regresa el contador).
+
+### 19.5 Pruebas nuevas
+
+`test/host/test_move_axis_session_resolution.py` (7 pruebas + 1 de fallo de
+drenaje), con hooks atómicos y barreras deterministas, sin sleeps para ordenar:
+
+- `test_setpoint_preemption_does_not_acknowledge_manual_finalization` (Test A)
+- `test_manual_completion_cannot_be_erased_by_requester` (Test B)
+- `test_failed_manual_drain_reports_error` (Test B, fallo)
+- `test_unrelated_idle_barrier_does_not_confirm_manual_drain` (Test C)
+- `test_old_manual_command_cannot_execute_as_new_session` (Test D)
+- `test_manual_finalization_cannot_stop_unrelated_motion` (Test E)
+- `test_manual_finalization_does_not_publish_ready_over_new_slew` (Test F)
+- `test_old_executor_cannot_save_tracking_into_new_manual_session` (Test G)
+
+Observabilidad nueva: `motors_finished_manual_session()`,
+`motors_finished_manual_aborted()` (motors) y `host_manual_session`,
+`host_finished_manual_session`, `host_finished_manual_aborted` (harness).
+
+### 19.6 Resultados RED reales
+
+Sobre la versión sin las 4 correcciones (conservando la observabilidad):
+
+- `test_newest_rate_wins` ... FAIL (timeout, estado SLEWING).
+- `test_setpoint_preemption_does_not_acknowledge_manual_finalization` ... FAIL.
+- `test_old_executor_cannot_save_tracking_into_new_manual_session` ... FAIL
+  (finalización no confirmada: el abort por cambio de versión no publica
+  completación).
+- Revertiendo solo la corrección 3: `test_old_executor_cannot_save_tracking...`
+  ... FAIL en `host_saved_tracking()==TRACKING_NONE` (`1 != 0`).
+
+Los Tests B, C, D, E, F pasan ya sobre la versión sin correcciones (son
+regresiones de la identidad de sesión existente).
+
+### 19.7 Resultados GREEN reales
+
+- Suite NRM-HA completa: 139/139 PASS.
+- Suite BFT completa: 139/139 PASS (skipped=1 preexistente; E11 es un flake
+  independiente que pasa al reintentar).
+
+Ejecutada varias veces en ambos perfiles: la regresión no depende del orden de
+ejecución.
+
+### 19.8 Mecanismos eliminados
+
+- `fprintf(stderr, "E04-DBG: ...")` residual en `slewing_loop_rmt` (debug del
+  desarrollo anterior).
+- `s_idle_epoch` / `motors_motion_reset_drain_result()` no existían ya en esta
+  versión (habían sido reemplazados por `s_finished_manual_session`); se
+  verifica que no quedan referencias colgantes.
+
+### 19.9 Cambios de sincronización
+
+- El lazo de slewing ya lee `motors_move_axis_version`, `motors_manual_move` y
+  `motors_manual_session` bajo `motors_admission_lock` (coherente con los
+  escritores); se conserva.
+- La completación manual se lee y escribe exclusivamente bajo
+  `motors_state_lock`.
+- No se introdujo `volatile` como sustituto de sincronización.
+
+### 19.10 Acceptance criteria
+
+- [x] `test_newest_rate_wins` pasa en la suite completa NRM-HA.
+- [x] Su defecto se reproduce con una prueba determinista independiente (Test A).
+- [x] Una actualización de consigna no confirma la finalización de sesión.
+- [x] La finalización se confirma solo tras reconciliar los pulsos.
+- [x] Una barrera idle independiente no confirma una finalización.
+- [x] El resultado pertenece inequívocamente a la sesión solicitada.
+- [x] El resultado no puede borrarse antes de ser consumido.
+- [x] Un fallo de drenaje no se informa como éxito.
+- [x] Una sesión cancelada antes de comenzar puede finalizar correctamente.
+- [x] Los comandos de sesiones antiguas no se ejecutan como sesiones nuevas.
+- [x] La finalización no detiene movimientos independientes.
+- [x] READY no sobrescribe otro movimiento activo.
+- [x] `saved_tracking` pertenece a la sesión correcta.
+- [x] Todos los accesos compartidos usan sincronización coherente.
+- [x] No se incrementa la generación STOP global.
+- [x] No se usa `queue_clear` para finalizar MoveAxis.
+- [x] No se duplican mecanismos de drenaje.
+- [x] Se conservan las siete pruebas originales de E04.
+- [x] Se conservan las 20 pruebas de E01–E03.
+- [x] Las suites completas de ambos perfiles pasan.
+- [x] Se eliminan los mecanismos transitorios que quedaron innecesarios.
+
+No se realizaron commits ni se flasheó hardware. Los archivos nuevos se incluyen
+en el próximo parche vía `git add -N`.
+
+---
+
+## 20. Validación final: identidad del resultado de drenaje
+
+### 20.1 Pregunta a resolver
+
+`motors_motion_wait_drained(session)` lee `s_finished_manual_session` y
+`s_finished_manual_aborted` (un único par compartido) y devuelve `*aborted`
+cuando `finished_session >= session`. Como la identidad de sesión es monótona
+pero el resultado es un único campo, la pregunta es: ¿puede una finalización
+posterior reemplazar el resultado de una solicitud anterior todavía pendiente de
+consumirlo? Es decir, ¿puede un fallo de A leerse como éxito (o viceversa) porque
+una sesión B posterior sobrescribió `s_finished_manual_aborted` antes de que A lo
+consumiera?
+
+### 20.2 Respuesta: no, por serialización del mutex de control
+
+`motors_move_axis_stop()` adquiere `motors_control_lock()` (mutex) al inicio y lo
+libera al final, abarcando `motors_manual_stop_and_wait()` → `wait_drained()` que
+es donde se **consume** el resultado. Las publicaciones de finalización solo
+ocurren como consecuencia de una finalización externa:
+
+- **Drenaje gracioso** (barrera idle del ejecutor): solo cuando la sesión fue
+  invalidada (`manual_move=false`) o reemplazada por una sesión más reciente.
+- **Descarte** (`process_command`): solo cuando el comando pertenece a una sesión
+  ya invalidada o reemplazada.
+
+Toda invalidación/reemplazo de sesión exige `motors_move_axis_stop` o
+`motors_stop`/`motors_park`, que **también** adquieren `motors_control_lock`. Por
+tanto, mientras la finalización de A retiene el mutex:
+
+1. La finalización de cualquier sesión posterior (B) se bloquea en
+   `motors_control_lock()` y no puede ni invalidar B ni publicar su completación.
+2. El ejecutor solo puede publicar la completación de **A** (la sesión que se
+   está finalizando), nunca de una sesión posterior: para descartar o drenar una
+   sesión > A haría falta invalidar/reemplazar esa sesión, lo que exige el mutex.
+
+El resultado que `wait_drained(A)` lee (`s_finished_manual_session >= A` junto con
+`s_finished_manual_aborted` en la misma sección crítica) es, por lo tanto, el de A:
+ninguna sesión posterior puede haber avanzado el par antes de que A lo consuma.
+El mutex se libera solo después de consumirlo.
+
+Revisión de publicaciones sin solicitud externa: no existen. El ejecutor nunca
+publica una completación de forma espontánea; ambas publicaciones (drenaje y
+descarte) derivan de una invalidación/reemplazo de sesión causada por una
+finalización o un STOP externos.
+
+No se modifica producción: `>=` no se sustituye por `==` (si se publicara una
+sesión posterior antes de consumir la anterior, `==` fallaría la confirmación en
+lugar de devolver el resultado correcto; y con la serialización actual `>=` es
+equivalente a `==` porque el contador no puede saltar por delante del consumidor).
+
+### 20.3 Prueba agregada
+
+`test_manual_completion_result_cannot_be_replaced_before_consumption` en
+`test/host/test_move_axis_session_resolution.py`:
+
+1. Sesión A con fallo de drenaje controlado (completación RMT ausente desde el
+   inicio, para que el fallo sea determinista).
+2. Se solicita la finalización de A en un thread (retiene el mutex de control).
+3. Se espera la invalidación de la sesión A (`manual_move == 0`).
+4. Se admite la sesión B mientras A drena (la admisión no se cierra).
+5. Se restaura la completación RMT para que el drenaje de B sea limpio.
+6. Se solicita la finalización de B en un segundo thread: se bloquea en el mutex.
+7. A retorna su **propio** fallo (`0`); B retorna luego su **propio** éxito (`1`).
+
+La aserción clave es que A retorna `0` (su fallo), no `1` (el éxito de B): si una
+publicación posterior pudiera reemplazar el resultado, A leería el éxito de B.
+
+### 20.4 Comandos ejecutados
+
+- `make PROFILE=nrm_ha build` / `make PROFILE=bft build`
+- `NRM_TEST_PROFILE=nrm_ha python3 -m unittest test_move_axis_session_resolution -v`
+- `NRM_TEST_PROFILE=nrm_ha python3 -m unittest discover -s .`  → 140 tests OK
+- `NRM_TEST_PROFILE=bft python3 -m unittest discover -s .`      → 140 tests OK (skipped=1)
+
+### 20.5 Acceptance criteria
+
+- [x] El resultado devuelto corresponde inequívocamente a la sesión solicitada.
+- [x] Un fallo anterior nunca se transforma en éxito por una publicación posterior.
+- [x] Un éxito anterior nunca se transforma en fallo por una publicación posterior.
+- [x] La garantía está respaldada por el modelo de sincronización y una prueba reproducible.
+- [x] Las 15 pruebas existentes de E04 continúan pasando.
+- [x] Las 20 pruebas de E01–E03 continúan pasando.
+- [x] Las suites completas de ambos perfiles pasan.
+
+Conclusión: la implementación actual ya garantiza la estabilidad del resultado
+mediante la serialización del mutex de control. No se requieren cambios de
+producción; E04 queda cerrado.

@@ -45,9 +45,6 @@ typedef struct {
     const char *name;
     uint32_t profile_revision;
     GeometryKind geometry;
-    /* False while the profile's geometry, limits and speeds are not yet wired
-     * into the executor — motion is refused until the integration completes. */
-    bool motion_ready;
     float ra_reference_offset_deg;
     AxisProfile axes[2];
     SlewProfile slew;

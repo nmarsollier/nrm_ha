@@ -13,7 +13,7 @@ ROOT    := $(HOSTDIR)../..
 PROFILE ?= nrm_ha
 
 STUB_INC := -I$(HOSTDIR)stubs -I$(HOSTDIR)
-PROD_INC := -I$(ROOT)/main -I$(ROOT)/main/config -I$(ROOT)/main/mount \
+PROD_INC := -I$(ROOT)/main -I$(ROOT)/main/mount \
             -I$(ROOT)/main/motors -I$(ROOT)/main/tmc -I$(ROOT)/main/utils \
             -I$(ROOT)/main/profiles -I$(ROOT)/main/board -I$(ROOT)/main/geometry -I$(ROOT)/main/motion
 
@@ -22,13 +22,13 @@ CFLAGS := -shared -fPIC -std=c11 -O2 -Wall -Wextra $(STUB_INC) $(PROD_INC)
 MOTOR_SRCS := \
   motors_current_state.c motors_enter_error_state.c motors_get_tracking_speed.c \
   motors_get_move_axis_speed.c motors_move_axis_speed.c motors_start_tracking.c \
-  motors_stop.c motors_tools.c motors_hw.c motors_rmt.c motors_command_queue.c \
-  motors_motion_task.c motors_pulse_guide.c motors_is_pulse_guiding.c \
-  motors_microsteps.c motors_power.c
+  motors_stop.c motors_park.c motors_unpark.c motors_tools.c motors_hw.c motors_rmt.c \
+  motors_command_queue.c motors_motion_task.c motors_pulse_guide.c \
+  motors_is_pulse_guiding.c motors_microsteps.c motors_power.c
 
 MOUNT_SRCS := \
   mount_tools.c mount_pulse_guide.c mount_set_move_axis_speed.c \
-  mount_stop.c mount_set_tracking.c
+  mount_stop.c mount_park.c mount_unpark.c mount_set_tracking.c
 
 PROD_SRCS := $(addprefix $(ROOT)/main/motors/,$(MOTOR_SRCS)) \
              $(addprefix $(ROOT)/main/mount/,$(MOUNT_SRCS)) \
@@ -53,14 +53,11 @@ $(LIB): $(PROD_SRCS) $(HOST_SRCS) $(HOSTDIR)host_internal.h
 	$(CC) $(CFLAGS) $(PROD_SRCS) $(HOST_SRCS) -lpthread -lm -o $(LIB)
 
 test: build
-ifeq ($(PROFILE),nrm_ha)
 	NRM_TEST_PROFILE=$(PROFILE) PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest discover -s $(HOSTDIR) -v
-else
-	NRM_TEST_PROFILE=$(PROFILE) PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest test_profile_validate test_profile_contract test_fork_bft test_fork_mount_bft -v
-endif
 
-# Run both profiles.  Each runs its current contract: NRM the full motion suite,
-# BFT the profile contract (valid profile, scale/polarity, motion refused).
+# Run both profiles.  Each runs the full host suite: the common motion suite
+# (queue, stop barrier, RMT, tracking, move-axis, slew ramp) plus the
+# per-profile geometry tests, all against the selected profile's scale/polarity.
 test-all:
 	$(MAKE) PROFILE=nrm_ha clean test
 	$(MAKE) PROFILE=bft clean test

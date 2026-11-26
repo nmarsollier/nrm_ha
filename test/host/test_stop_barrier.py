@@ -2,16 +2,15 @@
 task has actually finished.
 
 The production motion task runs in a real thread while motors_stop() runs in
-the test thread.  Without a stop barrier, motors_stop() sets status to READY
-and returns before the motion task has left its loop and torn down RMT, so a
-caller can observe READY (and enqueue a new move) while the mount is still
-finishing.  The barrier makes motors_stop() wait for the motion task's
-post-abort cleanup — which marks an interrupted batched move's position as
-uncertain — so that flag is already visible the instant stop returns.
+the test thread.  Without a stop barrier, motors_stop() could return before the
+motion task has left its loop and drained RMT, so a caller could enqueue a new
+move while the mount is still finishing.  PR5 makes STOP graceful: it drains the
+in-flight batches (exact position, no uncertainty) and publishes READY only
+after the motion task is idle.
 """
 import unittest
 
-from harness import Harness, STATUS_SLEWING
+from harness import Harness, STATUS_READY, STATUS_SLEWING
 
 
 class StopBarrierTests(unittest.TestCase):
@@ -29,13 +28,17 @@ class StopBarrierTests(unittest.TestCase):
         self.assertEqual(h.lib.host_mount_move_axis_speed(0.5, 0.0), 1)
         h.wait_status(STATUS_SLEWING)
 
-        # STOP must not return until the motion task has exited its loop and run
-        # the post-abort cleanup that marks the interrupted move's position
-        # uncertain.  The motion task takes ~1 ms to notice the abort, far longer
-        # than the ctypes round-trip that reads the flag next, so a missing
-        # barrier deterministically reads 0 here.
+        # STOP must not return until the motion task has exited its loop and
+        # drained the in-flight batches.  The graceful drain preserves the exact
+        # position, so no uncertainty is flagged.
         self.assertEqual(h.lib.host_mount_stop(), 1)
-        self.assertEqual(h.lib.host_position_uncertain(), 1)
+        self.assertEqual(h.lib.host_status(), STATUS_READY)
+        self.assertEqual(h.lib.host_position_uncertain(), 0)
+        # The graceful drain accounts every emitted pulse exactly: the counter
+        # equals the number of STEP transmissions observed (fine resolution, so
+        # one pulse == one canonical microstep).
+        self.assertEqual(h.lib.host_ra_steps(), len(h.ra_steps_recorded()),
+                         "RA counter != emitted RA pulses")
 
 
 if __name__ == "__main__":

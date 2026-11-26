@@ -1,0 +1,502 @@
+E07 — Identidad y estabilidad de las confirmaciones STOP
+========================================================
+
+Estado: COMPLETO.
+
+## 1. Diagnóstico de E07-A/B/C/D/E
+
+- **E07-A (aceptación de una generación posterior, `idle_gen >= generation`):
+  NO ALCANZABLE como defecto.** La generación solo avanza por `motors_stop_begin()`
+  (serializado por `motors_control_lock` en STOP/PARK/origen/límites) o por
+  `motors_admission_close()` (idempotente: no avanza si la admisión ya está
+  cerrada). Durante la espera de `motors_motion_wait_idle()` el mutex de control
+  se mantiene tomado y la admisión está cerrada, por lo que **la generación queda
+  congelada**: `idle_gen` coincide exactamente con `generation` en el éxito de la
+  espera. `>=` y `==` son equivalentes en la práctica. Se documenta la garantía
+  estructural (ver §5) y, como refuerzo, el resultado del drenaje pasa a asociarse
+  a la generación exacta (`==`) en lugar de "cualquier generación posterior".
+- **E07-B (consumo destructivo del resultado, `s_idle_aborted = false` dentro de
+  `wait_idle`): YA CORREGIDO en el árbol de trabajo** (la línea ya no existe).
+  `motors_motion_wait_idle(gen, NULL)` es una consulta pura: no escribe el
+  resultado. Se agrega una prueba de regresión que lo fija (Test 3).
+- **E07-C (resultado antiguo asociado a generación nueva): CONFIRMADO (RED real).**
+  La barrera idle hacía `s_idle_aborted = false` en *cada* barrera y solo lo
+  reponía cuando `s_motion.ran`. Consecuencia: un fallo de drenaje publicado se
+  borraba en el siguiente re-poll idle (≈100 ms), transformando un fallo en un
+  falso éxito. Es el defecto principal de E07.
+- **E07-D (confirmación anterior a la parada efectiva): NO ALCANZABLE.** La barrera
+  publica `s_idle_generation = motors_stop_generation_get()` en el instante de la
+  barrera; si el movimiento todavía está activo el ejecutor no ha llegado a la
+  barrera (`s_motion_idle == false`). La confirmación depende del estado real del
+  ejecutor, no de haber observado una generación nueva. Test 1 lo fija.
+- **E07-E (validación de generación y activación de comandos): YA CUBIERTO.** La
+  ventana entre validar y activar se cierra con `s_motion.active`/`s_motion.graceful`
+  escritos bajo `motors_admission_lock` y releídos al inicio de `motion_loop()`
+  (un STOP intercalado fuerza `stopped == true`). Test 7 lo fija para SLEW además
+  del MoveAxis existente.
+- **E07-F (etiquetado tardío de un resultado con otra generación): CONFIRMADO
+  (RED real).** La primera corrección leía la generación del resultado *después*
+  del hook de publicación (`before_idle_publish`). Si un STOP A hace timeout y
+  libera el mutex de control mientras el ejecutor está suspendido, un STOP B
+  posterior avanza la generación; al soltar el ejecutor, el resultado del drenaje
+  de A se etiquetaba con la generación de B, y B heredaba el fallo de A (devolvía
+  NOT_READY). Corregido leyendo la generación del resultado *antes* del hook (la
+  generación en la que terminó el movimiento) y la generación de reposo *después*
+  del hook (la vigente). Ver §27.
+
+## 2. Inventario de productores y consumidores
+
+### Productor único del registro de confirmación global
+
+El ejecutor (`motors_motion_task_run`, barrera idle, bajo `motors_state_lock`)
+publica dos identidades distintas:
+
+| Campo | Semántica | Cuándo se actualiza |
+|---|---|---|
+| `s_idle_generation` | generación en la que el ejecutor está ahora en reposo | cada barrera (incluye re-poll idle; monotónica) |
+| `s_idle_aborted` + `s_idle_aborted_generation` | resultado del drenaje del último movimiento que terminó, etiquetado con la generación en que terminó | solo cuando `s_motion.ran` (un movimiento realmente terminó) |
+
+### Consumidores directos de `motors_motion_wait_idle()`
+
+| Consumidor | Generación solicitada | Resultado de drenaje | aborted==NULL | Lock durante la espera |
+|---|---|---|---|---|
+| `motors_stop_and_wait()` (STOP/PARK/origen/límites) | `motors_stop_begin()` (nueva) | sí (`&aborted`) | no | `motors_control_lock` (mutex) |
+| `motors_update_power()` (recuperación de alimentación) | `motors_stop_generation_get()` (actual) | no | sí | ninguno (la montura está en ERROR) |
+
+### Consumidores indirectos
+
+STOP, PARK, `motors_set_current_as_home`, los cuatro setters de límites,
+`motors_limits_reset` — todos vía `motors_stop_and_wait()`, por lo que heredan el
+contrato: ante `aborted` o timeout devuelven error y no reabren admisión.
+
+## 3. Código original responsable
+
+- `main/motors/motors_motion_task.c` — barrera idle (publicación de
+  `s_idle_generation`/`s_idle_aborted`), `motors_motion_wait_idle()`,
+  observabilidad `motors_idle_*`.
+- `main/motors/motors_internal.h` — declaraciones.
+- Consultados sin modificar: `motors_stop.c`, `motors_park.c`, `motors_power.c`,
+  `motors_limits.c`, `motors_command_queue.c`.
+
+## 4. Hipótesis confirmadas y descartadas
+
+- **Confirmada:** E07-C (borrado del resultado por re-poll idle). RED real obtenido.
+- **Descartadas como no alcanzables con las APIs reales:** E07-A (avance de
+  generación durante la espera) y E07-D (confirmación prematura), por la
+  congelación de la generación durante la espera (mutex de control + `admission_close`
+  idempotente) y por la lectura de la generación en el instante de la barrera.
+- **Ya corregidas previamente (verificadas por prueba):** E07-B (consumo
+  destructivo) y E07-E (activación de comando invalidado).
+
+## 5. Garantías reales del mutex de control
+
+`motors_control_lock` (mutex FreeRTOS, no spinlock) serializa la *totalidad* de
+cada operación de control — `stop_begin` + `wait_idle` + publicación de estado +
+reapertura — porque `motors_stop()`/`motors_park()`/los setters de límites lo
+toman antes de `motors_stop_and_wait()` y lo liberan después. Por tanto:
+
+- Mientras una operación espera reposo, **ninguna otra operación de control puede
+  avanzar la generación** (bloquea en `motors_control_lock`).
+- La única vía alternativa de avance es `motors_admission_close()`, que es
+  idempotente: como la operación en curso ya cerró la admisión (`s_stopping ==
+  true`), **no incrementa la generación**.
+
+La recuperación de alimentación no toma el mutex durante su `wait_idle`, pero
+durante esa espera la montura está en ERROR (admisión cerrada, sin movimiento),
+por lo que STOP/PARK se rechazan sin avanzar la generación. Garantía estructural
+documentada, no reproducida con APIs reales.
+
+## 6. Pruebas agregadas
+
+`test/host/test_stop_generation.py` — 15 pruebas (1 skip):
+
+1. `test_stop_generation_is_not_acknowledged_before_executor_rest`
+2. `test_stop_completion_result_is_stable_across_observations` (RED)
+3. `test_power_recovery_does_not_consume_pending_stop_result`
+4. `test_concurrent_stop_cannot_advance_generation_while_another_finalizes`
+5. `test_late_stop_completion_does_not_contaminate_next_generation`
+6. `test_idle_polling_does_not_change_stop_completion` (RED)
+7. `test_prevalidated_slew_cannot_start_after_stop_confirmation`
+8. `test_serialized_control_operations_receive_their_own_completion`
+9. `test_reference_operations_require_valid_stop_generation` (skip — ver §25)
+10. `test_stop_on_idle_mount_confirms_new_generation_without_stale_result`
+11. `test_manual_completion_does_not_acknowledge_global_stop`
+12. `test_new_stop_before_late_completion_publication_preserves_result_identity` (E07-F, RED)
+13. `test_new_stop_before_late_successful_completion_preserves_identity` (E07-F, RED)
+14. `test_drain_identity_survives_preemption_before_idle_barrier` (revisión E07, RED)
+15. `test_drain_identity_survives_preemption_before_idle_barrier_successful` (revisión E07, RED)
+
+## 7. Orden determinista de operaciones concurrentes
+
+- **Drenaje fallido determinista:** `host_rmt_set_absent(0)` (la completación RA
+  nunca llega) + `wait_until(host_step_count() > 0)` (el primer lote está en vuelo)
+  ⇒ el drenaje gracioso del STOP agota el plazo y aborta. Sin sleeps de orden.
+- **Confusión de generaciones / timeout:** el hook `before_idle_publish` suspende al
+  ejecutor antes de publicar la confirmación; el STOP hace timeout real (1 s) o se
+  publica tardíamente según lo requiera el test.
+- **STOP concurrente:** el hook `after_stop_begin` suspende a un STOP tras avanzar
+  la generación, reteniendo el mutex de control, para observar que un segundo STOP
+  no avanza la generación.
+
+## 8. Hooks utilizados
+
+- `motors_test_hook_before_idle_publish` (nuevo) — pausa el ejecutor en la barrera
+  idle, antes de publicar la confirmación.
+- `motors_test_hook_after_stop_begin` (existente) — pausa STOP tras `stop_begin`.
+- `motors_test_hook_after_process_command` (existente) — pausa el ejecutor tras
+  validar un comando y antes del lazo de movimiento.
+
+## 9. Resultados RED reales
+
+Revertiendo el núcleo de la corrección (restaurar `s_idle_aborted = false` en cada
+barrera, el comportamiento previo), sobre el mismo build:
+
+- `test_stop_completion_result_is_stable_across_observations` … FAIL
+- `test_idle_polling_does_not_change_stop_completion` … FAIL
+
+El resto de `test_stop_generation.py` (regresión) pasa tanto antes como después.
+
+Revertiendo la corrección E07-F (etiquetar el resultado con la generación leída
+*después* del hook), sobre el mismo build:
+
+- `test_new_stop_before_late_completion_publication_preserves_result_identity` … FAIL
+- `test_new_stop_before_late_successful_completion_preserves_identity` … FAIL
+
+## 10. Tracebacks y aserciones fallidas
+
+```
+FAIL: test_stop_completion_result_is_stable_across_observations
+AssertionError: 0 != 1 : an idle re-poll must not erase a published failure
+
+FAIL: test_idle_polling_does_not_change_stop_completion
+AssertionError: 0 != 1 : idle polling must not erase a published result
+```
+
+E07-F (reversión de la corrección de etiquetado), verificado por traza:
+
+- `idle_aborted_generation == gen_b` (la generación posterior) en lugar de
+  `gen_a`; la aserción `test_new_stop_..._preserves_result_identity` falla en
+  `self.assertEqual(h.lib.host_idle_aborted_generation(), gen_a)`.
+- `STOP B` devuelve `0` (NOT_READY) en lugar de `1`: hereda el fallo de A.
+
+Confirmación empírica previa (script exploratorio, sin corrección): tras un drenaje
+fallido `host_idle_aborted()==1`, y a los ~300 ms de re-poll idle pasaba a `0`.
+
+## 11. Correcciones realizadas
+
+- `motors_motion_task.c` — se separa la identidad de reposo de la identidad del
+  resultado:
+  - `s_idle_generation` conserva su rol de "generación de reposo actual" (se
+    republica en cada barrera para confirmar un STOP sobre montura ya idle).
+  - Nueva `s_idle_aborted_generation`: etiqueta del resultado de drenaje. El
+    resultado (`s_idle_aborted`) **ya no se resetea en el re-poll idle**; solo se
+    escribe cuando un movimiento terminó (`s_motion.ran`), junto con su generación.
+  - `motors_motion_wait_idle()`: el reposo se confirma con `idle_gen >= generation`,
+    pero el resultado de drenaje se devuelve **solo si** `s_idle_aborted_generation
+    == generation`; en caso contrario devuelve `false` (un STOP limpio sobre una
+    montura idle, o una generación posterior, no heredan el fallo anterior).
+  - La generación del resultado se lee **antes** del hook de publicación
+    (`drain_gen`), y la generación de reposo **después** (`rest_gen`): así el
+    resultado queda etiquetado con la generación en la que terminó el movimiento,
+    no con la vigente al publicar (E07-F).
+- `motors_motion_task.c` — observabilidad `motors_idle_aborted_generation()` y
+  reset de test `motors_reset_idle_completion()` (análogo a
+  `motors_reset_hardware_fault()`: solo el harness lo limpia, producción nunca).
+- `motors_internal.h` — declaraciones de las dos funciones nuevas.
+- `test/host/host_main.c` — override del hook `motors_test_hook_before_idle_publish`,
+  wrappers `host_idle_aborted_generation()`, `host_set_pause_before_idle_publish()` /
+  `host_reached_before_idle_publish()` / `host_clear_before_idle_publish()`, y
+  `motors_reset_idle_completion()` en `host_reset()`.
+- `test/host/harness.py` — bindings de los wrappers nuevos.
+- `test/host/test_stop_generation.py` — suite E07.
+
+## 12. Modelo final de confirmación global
+
+Dos registros coherentes, ambos publicados bajo `motors_state_lock` por el único
+productor (el ejecutor):
+
+- **Reposo** (`s_idle_generation`): "estoy en reposo en la generación G". Monótono,
+  se republica en cada barrera (necesario para confirmar un STOP sobre montura
+  ya idle).
+- **Resultado** (`s_idle_aborted_generation`, `s_idle_aborted`): "el último
+  movimiento que terminó lo hizo en la generación G, con drenaje fallido o no".
+  Estable: solo cambia cuando un movimiento termina.
+
+Un consumidor obtiene ambos en una lectura coherente (`wait_idle`), y el resultado
+solo se atribuye si su etiqueta coincide con la generación solicitada.
+
+## 13. Asociación entre generación y resultado
+
+El resultado de drenaje queda **etiquetado con la generación exacta** en la que el
+movimiento terminó (`s_idle_aborted_generation = gen` en la barrera con
+`s_motion.ran`). No se puede actualizar la identidad de una confirmación conservando
+arbitrariamente un resultado anterior, ni viceversa: identidad y resultado se
+escriben juntos.
+
+## 14. Semántica de consulta y consumo
+
+`motors_motion_wait_idle(generation, aborted)` es **no destructivo**: leer el
+resultado no lo borra. `aborted == NULL` (recuperación de alimentación) es una
+consulta pura que no elimina información para otro consumidor. El resultado no
+cambia por ser consultado ni por un re-poll idle posterior.
+
+## 15. Tratamiento de generaciones reemplazadas
+
+Una solicitud cuya generación fue reemplazada por otra posterior (solo posible
+fuera de la espera, por el mutex de control) no recibe el resultado de la
+generación posterior: la etiqueta (`== generation`) impide la reasignación. La
+operación reemplazada termina con su propio resultado (o con timeout si nunca se
+confirmó reposo), no con el de otra generación.
+
+## 16. Tratamiento de timeout y confirmaciones tardías
+
+Un timeout de `wait_idle` deja la admisión cerrada (E06) y no consume el resultado.
+Si el ejecutor publica la confirmación tarde (después del timeout), el resultado
+queda etiquetado con su generación y **no contamina** una parada posterior (que
+tiene generación mayor y, por tanto, etiqueta distinta). Verificado por el Test 5.
+
+## 17. Consideraciones de wraparound
+
+`motors_stop_generation` es `uint32_t`. El desbordamiento requeriría 2³² paradas
+(≈4×10⁹), fuera de toda vida útil. La identidad del resultado usa igualdad exacta
+(`==`), inmune al wraparound. El chequeo de reposo usa `>=` (comparación de orden),
+que es legítima porque el reposo es monótono: si el ejecutor está en reposo en una
+generación posterior, también lo estaba en una anterior (no "se des-reposa" entre
+generaciones), por lo que una confirmación posterior satisface correctamente una
+solicitud anterior. El único caso teórico es una confirmación idle publicada antes
+del desbordamiento comparada contra una generación recién envuelta; es benigno
+(implica reposo real) y, además, inalcanzable en la práctica. No se sustituye
+`>=` por `==` (rompería la supersession legítima); no se introduce una
+refactorización general de contadores.
+
+## 18. Orden de adquisición de locks
+
+Sin cambios respecto de E06: `motors_control_lock` (mutex) → `motors_state_lock` →
+`motors_admission_lock` (anidado state→admission en `motors_enter_error_state` y
+`motors_admission_open`). La barrera idle toma `motors_state_lock` y, solo en el
+cierre de admisión por drenaje fallido, anida `motors_admission_lock`. El reset de
+test toma `motors_state_lock` sin anidar. No hay inversiones; no se mantiene
+ningún spinlock durante esperas bloqueantes, UART, NVS ni RMT. `volatile` no se usa
+como sustituto de sincronización para el registro (se accede bajo `motors_state_lock`).
+
+## 19. Código redundante eliminado
+
+- La línea `s_idle_aborted = false;` incondicional de la barrera idle (era el
+  mecanismo de "republicar sin fallo por defecto" que causaba E07-C). Reemplazada
+  por el registro estable etiquetado por generación.
+
+No se agregaron: otra generación global, otro contador idle, un mutex nuevo, un
+segundo mecanismo de espera ni un registro histórico ilimitado. `s_motion_idle` se
+conserva (tiene consumidor legítimo: el propio `wait_idle` y el estado del ejecutor).
+
+## 20. Resultados GREEN reales
+
+- `test_stop_generation.py`: 14 PASS + 1 skip (Test 9), estable.
+- NRM-HA: 179 tests OK (skipped=1).
+- BFT: 179 tests OK (skipped=2; el skip adicional es el flake preexistente E11).
+
+## 21. Resultados de las 60 pruebas anteriores
+
+E01 (5) + E02 (4) + E03 (11) + E04 (16) + E05 (11) + E06 (13) = 60 pruebas: PASS,
+sin cambios de comportamiento. Verificadas como parte de la suite completa (164 →
+179).
+
+## 22. Comandos ejecutados
+
+- `make -C test/host PROFILE=nrm_ha build`
+- `make -C test/host PROFILE=bft build`
+- `NRM_TEST_PROFILE=nrm_ha python3 -m unittest discover -s test/host` → 179 OK
+- `NRM_TEST_PROFILE=bft python3 -m unittest discover -s test/host` → 179 OK
+- `python3 -m unittest test_stop_generation -v` (por perfil)
+- Script exploratorio `host_idle_aborted` antes/después de la corrección.
+- Reversión temporal del núcleo de la corrección para registrar el RED real.
+
+## 23. Resultados completos de NRM-HA y BFT
+
+- NRM-HA: 179 tests OK (skipped=1).
+- BFT: 179 tests OK (skipped=2).
+
+## 24. Acceptance criteria
+
+- [PASS] Se inventariaron todos los productores y consumidores de confirmaciones globales.
+- [PASS] Se identificaron las garantías reales del mutex de control.
+- [PASS] Se reprodujeron los defectos alcanzables mediante pruebas RED (E07-C y E07-F).
+- [PASS] Cada confirmación corresponde inequívocamente a una generación.
+- [PASS] El resultado de drenaje pertenece a la generación confirmada.
+- [PASS] Un resultado tardío no cambia de identidad al avanzar una generación posterior (E07-F).
+- [PASS] Una consulta no transforma un fallo anterior en éxito.
+- [PASS] aborted == NULL no elimina información necesaria.
+- [PASS] Una generación posterior no proporciona un resultado incorrecto a una solicitud anterior.
+- [PASS] Las solicitudes reemplazadas terminan de manera coherente.
+- [PASS] Un timeout anterior no contamina una nueva confirmación.
+- [PASS] Polling idle no modifica resultados publicados indebidamente.
+- [PASS] No se confirma reposo mientras existen transmisiones anteriores sin reconciliar.
+- [PASS] Un comando invalidado no comienza después de confirmar STOP.
+- [PASS] STOP y PARK conservan su semántica.
+- [PASS] Origen y límites requieren una confirmación válida (por construcción vía motors_stop_and_wait; ver §25).
+- [PASS] La recuperación de alimentación conserva las garantías de E06.
+- [PASS] ERROR latched nunca autoriza una reapertura indebida.
+- [PASS] position_uncertain no se elimina por una confirmación de reposo.
+- [PASS] La finalización manual conserva su independencia.
+- [PASS] No se introducen inversiones de locks.
+- [PASS] No se mantienen spinlocks durante operaciones bloqueantes.
+- [PASS] No se introducen mecanismos de sincronización redundantes.
+- [PASS] Se elimina el código residual directamente relacionado con E07.
+- [PASS] Las 60 pruebas anteriores continúan pasando.
+- [PASS] Las pruebas nuevas pasan con ambos perfiles.
+- [PASS] Las suites completas de NRM-HA y BFT pasan.
+
+## 25. Limitaciones y riesgos pendientes
+
+- **Test 9 (origen/límites) NOT VERIFIED en host:** los setters de origen/límites no
+  están en el build host (dependen de NVS). Como en E06, la garantía se sostiene por
+  construcción: todos llaman `motors_stop_and_wait()` y comprueban `!= MOTOR_OK`
+  antes de mutar estado o persistir; `motors_stop_and_wait()` propaga el resultado
+  etiquetado corregido. No se expusieron wrappers nuevos para no ampliar el alcance.
+- **Avance de generación durante la espera (E07-A) documentado, no reproducido** con
+  APIs reales: se demuestra estructuralmente (mutex de control + `admission_close`
+  idempotente), no con una carrera artificial.
+- La contabilidad RMT no se auditó aquí (corresponde a E09); el drenaje se reutiliza
+  tal como existe.
+- No se auditaron E08, E10, E11, E12.
+
+## 26. Conclusión
+
+E07 queda cerrado: la confirmación global de reposo tiene ahora una identidad
+explícita y estable. El resultado del drenaje se etiqueta con la generación exacta
+en la que terminó el movimiento y deja de ser borrado por el re-poll idle; una
+consulta o un re-poll ya no transforman un fallo en un falso éxito, y una generación
+posterior no hereda el resultado de una anterior — ni siquiera cuando un STOP hace
+timeout y libera el mutex de control antes de que el resultado tardío se publique
+(E07-F). Se preservan E01–E06 y las 60 pruebas de regresión, en ambos perfiles.
+
+---
+
+## 27. Seguimiento: E07-F — etiquetado tardío de un resultado con otra generación
+
+### Causa demostrada
+
+En la barrera idle, la primera corrección de E07 obtenía la identidad del resultado
+con `gen = motors_stop_generation_get()` **después** del hook de publicación
+(`before_idle_publish`). En producción el hook es no-op, pero la ventana real es la
+misma: entre que el movimiento termina y la barrera publica, el scheduler puede
+preemtar al ejecutor y otra tarea puede avanzar la generación. El mutex de control
+protege la espera *normal* de STOP, pero no protege a una operación que ya devolvió
+timeout y liberó ese mutex.
+
+Secuencia reproducida:
+
+1. STOP A avanza a generación A; el ejecutor procesa y falla el drenaje de A.
+2. El ejecutor queda suspendido en `before_idle_publish` antes de publicar.
+3. STOP A hace timeout, devuelve error y libera el mutex de control.
+4. STOP B comienza, avanza a generación B.
+5. Se libera el ejecutor; lee la generación vigente (B) y publica el resultado
+   del drenaje anterior con la identidad B (defecto).
+
+Consecuencia del defecto: STOP B hereda el fallo de A (`aborted=true` etiquetado B)
+y devuelve NOT_READY en lugar de éxito; el resultado anterior cambia arbitrariamente
+de identidad.
+
+### Corrección
+
+La identidad del resultado se captura ahora en el **punto real de finalización del
+drenaje**, no en la barrera idle. En `motion_loop()`, una vez que el drenaje terminó
+y `s_motion.aborted`/`s_motion.ran` son definitivos:
+
+- se captura `s_motion.drain_generation = motors_stop_generation_get()` (la
+  generación vigente en ese instante, congelada porque el STOP que disparó el
+  drenaje aún mantiene el mutex de control);
+- la barrera idle ya no lee la generación del resultado: publica
+  `s_idle_aborted_generation = s_motion.drain_generation`.
+
+La generación de reposo (`s_idle_generation`) sigue leyéndose en la barrera (la
+vigente al publicar). Así la pareja identidad/resultado tiene un punto de asociación
+bien definido, independiente de cuándo el ejecutor alcance la barrera o de una
+preemption intermedia.
+
+La observación de la revisión —que mover la lectura *antes del hook* no elimina la
+ventana entre la finalización del drenaje y la captura— queda resuelta porque la
+captura se mueve *dentro* de `motion_loop()`, al cierre real del movimiento, sin
+ningún bloqueo ni preemption que pueda intercalarse antes de la captura.
+
+### Contrato resultante para STOP B
+
+Cuando el drenaje anterior no fue confirmado a tiempo, STOP B es una operación
+independiente con su propia generación:
+
+- B confirma reposo en su propia generación y devuelve éxito (no hereda el fallo).
+- El resultado de A permanece etiquetado con la generación de A (no se reasigna).
+- `position_uncertain` permanece latente (el fallo de A no se limpia con el éxito de B).
+- La admisión se reabre de forma segura (sin ERROR latched), pero la posición sigue
+  incierta hasta una re-referencia explícita.
+
+No se exige que una misma reconciliación satisfaga ambas solicitudes: el drenaje de
+A ya terminó (falló) antes de que B comenzara; B no tiene trabajo que drenar.
+
+### Pruebas nuevas
+
+- `test_new_stop_before_late_completion_publication_preserves_result_identity`
+  (drenaje fallido, hook `before_idle_publish`): RED real — con la corrección
+  revertida, `idle_aborted_generation == gen_b` (no gen_a) y `STOP B` devuelve `0`.
+- `test_new_stop_before_late_successful_completion_preserves_identity`
+  (drenaje exitoso, hook `before_idle_publish`): RED real — con la corrección
+  revertida, `idle_aborted_generation != gen_a` (etiqueta equivocada).
+- `test_drain_identity_survives_preemption_before_idle_barrier` (drenaje fallido,
+  hook `after_motion_loop`): RED real — con la captura en la barrera, el ejecutor
+  suspendido *después* del drenaje pero *antes* de la barrera relee la generación
+  avanzada y etiqueta el resultado con `gen_b`; `STOP B` devuelve `0`.
+- `test_drain_identity_survives_preemption_before_idle_barrier_successful` (drenaje
+  exitoso, hook `after_motion_loop`): RED real — con la captura en la barrera,
+  `idle_aborted_generation != gen_a`.
+
+Hook nuevo: `motors_test_hook_after_motion_loop` (al final de `motion_loop()`,
+después de capturar `drain_generation`), para suspender al ejecutor en el punto
+exacto "resultado conocido y capturado, barrera aún no alcanzada".
+
+### Fortalecimiento de pruebas existentes
+
+- `test_late_stop_completion_does_not_contaminate_next_generation`: el `sleep(0.2)`
+  se reemplazó por `wait_until(idle_aborted == 1)` (espera explícita de publicación).
+- `test_serialized_control_operations_receive_their_own_completion`: joins con
+  `timeout=5.0` y resultados identificados individualmente (dict por operación),
+  para detectar un intercambio de resultados en lugar de tres éxitos indistinguibles;
+  el chequeo de deadlock usa `assertFalse(thread.is_alive())` tras `join(timeout)`
+  (corrige el `join(...) is None`, que no distingue terminación de timeout).
+- `test_superseded_stop_generation_cannot_report_false_success` renombrado a
+  `test_concurrent_stop_cannot_advance_generation_while_another_finalizes` y
+  documentado como la garantía de *serialización* del mutex de control; la generación
+  reemplazada por hardware fault con admisión abierta queda cubierta por E06
+  (`test_fault_admission.py`), no por esta prueba.
+
+### Verificación de aceptación de generaciones posteriores en recuperación
+
+`motors_update_power(true)` llama `motors_motion_wait_idle(motors_stop_generation_get(),
+NULL)` **sin** mantener el mutex de control. Verificado: durante esa espera la montura
+está en ERROR (admisión cerrada, sin movimiento), por lo que STOP/PARK se rechazan sin
+avanzar la generación y `motors_admission_close()` es idempotente. La generación no
+puede avanzar; `>=` es seguro para este consumidor. Documentado, no reproducido con
+una carrera artificial.
+
+### Resultados GREEN
+
+- `test_stop_generation.py`: 14 PASS + 1 skip (estable).
+- NRM-HA: 179 tests OK (skipped=1). BFT: 179 tests OK (skipped=2).
+
+### Conclusión de E07-F
+
+E07 queda cerrado con la identidad del resultado capturada en el punto real de
+finalización del drenaje (`motion_loop`), no en la barrera idle. Se distinguen dos
+escenarios:
+
+- **Publicación tardía (Escenario A):** el drenaje de A terminó antes de que B
+  comenzara; el resultado conserva su identidad. Probado por los 4 tests E07-F.
+- **Drenaje todavía pendiente (Escenario B):** no alcanzable con los plazos actuales
+  (el drenaje termina en ≤500 ms, antes del timeout de 1 s de STOP); si ocurriera,
+  la generación se leería en la barrera de la generación posterior — pero para el
+  lazo de slew la captura en `motion_loop` lo excluye. Documentado como garantía
+  estructural (MOTION_DRAIN_TIMEOUT_US < MOTION_IDLE_TIMEOUT_US).
+
+No se realizó otra refactorización general; se preservan la eliminación del consumo
+destructivo, la estabilidad durante polling idle, la separación entre generación de
+reposo y generación del resultado, la reutilización de locks y la independencia de
+la finalización manual.

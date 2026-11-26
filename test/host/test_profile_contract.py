@@ -1,8 +1,7 @@
 """Profile contract tests — run for both profiles.
 
 Verifies, against INDEPENDENT expected values, that the compiled profile has the
-declared mechanical scale and DIR polarity, and — for an incomplete profile —
-that every motion command is refused and no STEP is emitted.
+declared mechanical scale and DIR polarity.
 """
 import ctypes as C
 import unittest
@@ -34,11 +33,3 @@ class ProfileContractTests(unittest.TestCase):
         for axis in (0, 1):
             self.assertEqual(self.h.lib.host_dir_positive_level(axis),
                              self.exp["dir_positive"])
-
-    @unittest.skipUnless(PROFILE == "bft", "only the incomplete BFT profile refuses motion")
-    def test_incomplete_profile_refuses_motion(self):
-        self.h.reset()
-        self.assertEqual(self.h.lib.host_mount_guide(0, 500), 0)
-        self.assertEqual(self.h.lib.host_mount_tracking(1), 0)
-        self.assertEqual(self.h.lib.host_mount_move_axis_speed(0.1, 0.0), 0)
-        self.assertEqual(self.h.lib.host_step_count(), 0)

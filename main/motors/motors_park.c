@@ -2,28 +2,40 @@
  *
  * Purpose: park both axes immediately.
  *
- * Stops the motion loop and updates state directly — no queue round-trip.
+ * Stops the motion loop, drains RMT, and publishes PARKED only after the motion
+ * task has confirmed rest at the stop generation.
  */
 #include "motors.h"
 #include "motors_internal.h"
 
 MotorResultCode motors_park(void) {
-    if (motors_status_is_error(motors_state.status)) {
+    if (!motors_control_lock()) {
         return MOTOR_ERR_HARDWARE_ERROR;
     }
 
-    motors_queue_clear();
-    motors_motion_stop();
-    portENTER_CRITICAL(&motors_state_lock);
-    motors_state.status = MOTORS_STATUS_PARKED;
-    motors_state.tracking = TRACKING_NONE;
-    portEXIT_CRITICAL(&motors_state_lock);
-
-    /* Same barrier as STOP: PARKED must not be reported until the motion task
-     * has truly stopped and torn down RMT. */
-    if (!motors_motion_wait_idle()) {
-        return MOTOR_ERR_NOT_READY;
+    MotorResultCode rc = motors_stop_and_wait();
+    if (rc != MOTOR_OK) {
+        motors_control_unlock();
+        return rc;
     }
 
-    return MOTOR_OK;
+    /* Publish PARKED and read the final status in one critical section, so a
+     * fault that lands after the drain result is reported as an error, never as
+     * a successful park.  Never overwrite a latched ERROR. */
+    portENTER_CRITICAL(&motors_state_lock);
+    if (motors_state.status != MOTORS_STATUS_ERROR) {
+        motors_state.status = MOTORS_STATUS_PARKED;
+    }
+    motors_state.tracking = TRACKING_NONE;
+    rc = motors_status_is_error(motors_state.status)
+         ? MOTOR_ERR_HARDWARE_ERROR : MOTOR_OK;
+    portEXIT_CRITICAL(&motors_state_lock);
+
+    /* Reopen admission only when no ERROR is latched; a fault that landed after
+     * the status check keeps admission closed and is reported. */
+    if (!motors_admission_open()) {
+        rc = MOTOR_ERR_HARDWARE_ERROR;
+    }
+    motors_control_unlock();
+    return rc;
 }

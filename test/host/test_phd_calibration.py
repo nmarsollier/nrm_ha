@@ -10,19 +10,19 @@ import unittest
 
 from harness import (Harness, STATUS_READY, STATUS_TRACKING, STATUS_ERROR,
                      TRACKING_NONE, TRACKING_SIDEREAL,
-                     NORTH, SOUTH, EAST, WEST,
+                     NORTH, SOUTH, EAST, WEST, PROFILE,
                      SIDEREAL_DPS, GUIDE_DPS, DEG_PER_STEP)
-
-# DIR GPIO level recorded for each DEC direction by motors_hw_set_direction_dec:
-# POSITIVE → DEC_DIR_GPIO = 1, NEGATIVE → DEC_DIR_GPIO = 0.
-DEC_POS = 1
-DEC_NEG = 0
 
 
 class PhdCalibrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.h = Harness()
+        # DIR GPIO level recorded for a POSITIVE DEC step is the profile's
+        # dir_positive_level (1 for NRM HIGH, 0 for BFT LOW); NEGATIVE is the
+        # opposite level.
+        cls.dec_pos = cls.h.lib.host_dir_positive_level(1)
+        cls.dec_neg = 1 - cls.dec_pos
 
     def setUp(self):
         self.h.reset()
@@ -76,7 +76,7 @@ class PhdCalibrationTests(unittest.TestCase):
         self.assertEqual(len(dec_rec), dec_delta,
                          "DEC STEP records != counter delta")
         self.assertGreater(len(dec_rec), 0, "no DEC STEP transmitted")
-        self.assertTrue(all(s.dir_gpio == DEC_POS for s in dec_rec),
+        self.assertTrue(all(s.dir_gpio == self.dec_pos for s in dec_rec),
                         "North STEP direction must be +DEC")
         # A DEC pulse must not add an RA correction: RA delta is base tracking.
         self.assertGreater(ra_delta, 0)
@@ -89,7 +89,7 @@ class PhdCalibrationTests(unittest.TestCase):
         self.assertLess(abs(abs(dec_delta) - expected), 2.0)
         self.assertEqual(len(dec_rec), abs(dec_delta),
                          "DEC STEP records != |counter delta|")
-        self.assertTrue(all(s.dir_gpio == DEC_NEG for s in dec_rec),
+        self.assertTrue(all(s.dir_gpio == self.dec_neg for s in dec_rec),
                         "South STEP direction must be -DEC")
 
     def test_east_decelerates_ra_without_reversing(self):
@@ -198,6 +198,8 @@ class PhdCalibrationTests(unittest.TestCase):
         self.h.lib.host_update_power(1)
         self.assertEqual(self.h.lib.host_status(), STATUS_READY)
 
+    @unittest.skipUnless(PROFILE == "nrm_ha",
+                         "BFT rejects a limit-exceeding guide at the mount layer")
     def test_dec_limit_truncates_guide_and_flags_it(self):
         # DEC at its upper mechanical limit: the guide is accepted but the very
         # first step would exceed the limit, so it is truncated to zero movement

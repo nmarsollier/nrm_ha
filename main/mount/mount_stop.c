@@ -17,7 +17,6 @@ MountResult mount_stop(void) {
         return mount_result_error_state();
     }
 
-    mount_move_axis_reset();
     MotorResultCode rc = motors_stop();
     if (rc != MOTOR_OK) {
         return motors_result_code_error_result(rc);

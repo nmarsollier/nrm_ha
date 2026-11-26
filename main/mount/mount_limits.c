@@ -42,7 +42,9 @@ MountResult mount_limits_set(const char *action) {
             return mount_result_error("Invalid limit");
         }
     } else if (strcmp(action, "clear_limits") == 0) {
-        motors_limits_reset();
+        if (!motors_limits_reset()) {
+            return mount_result_error("Stop failed");
+        }
     } else {
         return mount_result_error("Unknown action");
     }

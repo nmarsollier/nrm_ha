@@ -15,10 +15,6 @@ static const char *TAG = "MOTORS_SLEW_AXIS";
 
 static MotorResultCode motors_slew_axis_impl(float ra_delta_deg, float dec_delta_deg,
                                              float ra_speed, float dec_speed) {
-    if (!mount_profile.motion_ready) {
-        return MOTOR_ERR_MOTION_DISABLED;
-    }
-
     if (motors_status_is_error(motors_state.status)) {
         return MOTOR_ERR_HARDWARE_ERROR;
     }

@@ -17,13 +17,15 @@ static float ramp_percent(const SlewProfile *p, float distance_deg, float travel
 
     if (distance_deg <= total) {
         if (total <= 0.0f) return 100.0f;
+        /* A zero window degenerates to a single-phase ramp. */
+        if (accel <= 0.0f)
+            return (distance_deg - travelled_deg) * 100.0f / distance_deg;  /* decel only */
+        if (decel <= 0.0f)
+            return travelled_deg * 100.0f / distance_deg;  /* accel only */
         float peak = distance_deg * accel / total;
-        if (peak <= 0.0f) return 100.0f;
         if (travelled_deg < peak)
             return travelled_deg * 100.0f / peak;
-        float decel_len = distance_deg - peak;
-        if (decel_len <= 0.0f) return 100.0f;
-        return (distance_deg - travelled_deg) * 100.0f / decel_len;
+        return (distance_deg - travelled_deg) * 100.0f / (distance_deg - peak);
     }
 
     if (accel > 0.0f && travelled_deg < accel)
@@ -61,16 +63,21 @@ float slew_ramp_velocity(const SlewProfile *p, float distance_deg,
 }
 
 float slew_ramp_duration(const SlewProfile *p, float distance_deg, float target_speed_dps) {
-    if (!isfinite(distance_deg) || !isfinite(target_speed_dps)) {
-        return 0.0f;
+    /* Non-finite, negative-distance or negative-speed input is an error, not a
+     * zero-duration move: return NaN so a caller can tell the difference.  A
+     * zero distance or zero speed is a valid zero-length/no-compensation move
+     * and returns 0. */
+    if (!isfinite(distance_deg) || !isfinite(target_speed_dps)
+        || distance_deg < 0.0f || target_speed_dps < 0.0f) {
+        return NAN;
     }
-    if (distance_deg <= 0.0f || target_speed_dps <= 0.0f) {
+    if (distance_deg == 0.0f || target_speed_dps == 0.0f) {
         return 0.0f;
     }
 
     float min = p->min_speed_dps;
     if (min <= 0.0f) {
-        return 0.0f;
+        return NAN;
     }
 
     float capped = target_speed_dps;
@@ -98,7 +105,8 @@ float slew_ramp_duration(const SlewProfile *p, float distance_deg, float target_
 
     if (distance_deg <= accel + decel) {
         /* Triangular profile (symmetric in every current profile). */
-        return distance_deg * ramp_ln;
+        float result = distance_deg * ramp_ln;
+        return isfinite(result) ? result : NAN;
     }
 
     /* Trapezoidal: accel + cruise + decel, with the two ramp legs summed
@@ -106,5 +114,5 @@ float slew_ramp_duration(const SlewProfile *p, float distance_deg, float target_
     float t_accel = accel * ramp_ln;
     float t_decel = decel * ramp_ln;
     float result = t_accel + t_decel + (distance_deg - accel - decel) / capped;
-    return isfinite(result) ? result : 0.0f;
+    return isfinite(result) ? result : NAN;
 }

@@ -32,6 +32,14 @@ portMUX_TYPE motors_state_lock = portMUX_INITIALIZER_UNLOCKED;
 esp_err_t motors_init(void) {
     esp_err_t err;
 
+    /* The control mutex serialises STOP/PARK/limits — create it once, before
+     * any control operation can run. */
+    err = motors_control_init();
+    if (err != ESP_OK) {
+        ESP_LOGE("MOTORS_INIT", "motors_control_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
     /* Load persisted axis limits (or factory defaults on first boot). */
     motors_limits_load();
 

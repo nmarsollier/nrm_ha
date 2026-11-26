@@ -10,8 +10,6 @@ const MountProfile mount_profile = {
     .name = "BFT",
     .profile_revision = 1,
     .geometry = GEOMETRY_FORK,
-    /* Geometry/limits/speeds not yet wired: refuse motion until integrated. */
-    .motion_ready = false,
     .ra_reference_offset_deg = 0.0f,
 
     .axes = {

@@ -65,7 +65,7 @@ bool tmc_read_spread_pin(const TmcAxis *axis, bool *spread_high);
 /* ── Driver configuration — shared by hw_init and reinit (tmc_driver.c) ── */
 
 void tmc_reset_diagnostics(void);
-esp_err_t tmc_configure_drivers(void);
+esp_err_t tmc_configure_drivers(uint16_t microsteps);
 
 /* Active microstep resolution — written by tmc_configure_drivers() and
  * tmc2209_set_microsteps(), read by tmc2209_get_microsteps() (tmc_driver.c). */

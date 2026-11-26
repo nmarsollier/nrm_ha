@@ -149,6 +149,11 @@ SemaphoreHandle_t xSemaphoreCreateCounting(UBaseType_t max, UBaseType_t initial)
     return sem_create(max, initial);
 }
 
+/* A mutex is a binary semaphore that starts available (unlocked). */
+SemaphoreHandle_t xSemaphoreCreateMutex(void) {
+    return sem_create(1, 1);
+}
+
 BaseType_t xSemaphoreGive(SemaphoreHandle_t sem) {
     pthread_mutex_lock(&sem->mtx);
     if (sem->count >= sem->max) {

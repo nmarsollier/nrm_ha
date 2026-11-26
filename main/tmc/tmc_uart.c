@@ -7,7 +7,7 @@
 
 #include "tmc.h"
 #include "tmc_internal.h"
-#include "config.h"
+#include "board/board_config.h"
 
 #include "driver/gpio.h"
 #include "driver/uart.h"

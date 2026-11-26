@@ -24,6 +24,9 @@ class MountGuardTests(unittest.TestCase):
 
     def test_redundant_zero_preserves_tracking_and_guiding(self):
         h = self.h
+        # Guide from a DEC position clear of the pole and limits, so the fork
+        # profile's pole-crossing validation accepts the pulse (both profiles).
+        h.lib.host_set_dec_deg(90.0)
         self.assertEqual(h.lib.host_mount_tracking(TRACKING_SIDEREAL), 1)
         h.wait_status(STATUS_TRACKING)
 

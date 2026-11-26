@@ -117,7 +117,6 @@ idf_component_register(
         "."
         "board"
         "buzzer"
-        "config"
         "geometry"
         "motion"
         "led"

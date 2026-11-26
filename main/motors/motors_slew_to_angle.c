@@ -26,10 +26,6 @@ static const char *TAG = "MOTORS_SLEW_TO_ANGLE";
  *   speed_rate — slew profile (1=1°/s, 2=3°/s, 3=4.5°/s, default=6°/s)
  */
 MotorResultCode motors_slew_to_angle(float ra_deg, float dec_deg, int speed_rate) {
-    if (!mount_profile.motion_ready) {
-        return MOTOR_ERR_MOTION_DISABLED;
-    }
-
     if (motors_status_is_error(motors_state.status)) {
         return MOTOR_ERR_HARDWARE_ERROR;
     }

@@ -16,21 +16,58 @@
 /* Latched hardware fault — set on GPIO/RMT init failure, never cleared. */
 static bool s_hardware_fault = false;
 
-void motors_enter_error_state(void) {
-    portENTER_CRITICAL(&motors_state_lock);
+/* Publish ERROR and close admission, assuming motors_state_lock is held. */
+static void enter_error_locked(void) {
     motors_state.status = MOTORS_STATUS_ERROR;
     motors_state.tracking = TRACKING_NONE;
     motors_state.guiding = false;
+    motors_admission_close();
+}
+
+void motors_enter_error_state(void) {
+    /* Publish ERROR and, in the same state-lock window, close admission and
+     * invalidate queued + manual work.  The nested lock order is
+     * motors_state_lock → motors_admission_lock (matching motors_admission_open),
+     * so the ERROR publication and the admission reopen are linearised against
+     * each other — no producer can admit work after the fault is latched. */
+    portENTER_CRITICAL(&motors_state_lock);
+    enter_error_locked();
     portEXIT_CRITICAL(&motors_state_lock);
 }
 
 void motors_enter_hardware_fault(void) {
+    /* Latch the fault and publish ERROR in the same state-lock window, so a
+     * concurrent reader can never observe the fault flag without the ERROR
+     * status (or vice versa). */
+    portENTER_CRITICAL(&motors_state_lock);
     s_hardware_fault = true;
-    motors_enter_error_state();
+    enter_error_locked();
+    portEXIT_CRITICAL(&motors_state_lock);
 }
 
 bool motors_has_hardware_fault(void) {
-    return s_hardware_fault;
+    bool fault;
+    portENTER_CRITICAL(&motors_state_lock);
+    fault = s_hardware_fault;
+    portEXIT_CRITICAL(&motors_state_lock);
+    return fault;
+}
+
+/*
+ * Recover from a non-hardware ERROR (e.g. a power loss) back to READY and reopen
+ * admission, but only if no hardware fault is latched.  The READY publication and
+ * the admission reopen happen in the same state-lock window (state→admission), so
+ * a concurrent motors_enter_hardware_fault() cannot slip between them; the caller
+ * holds the control mutex so a STOP/PARK cannot begin between READY and reopen.
+ */
+void motors_recover_to_ready(void) {
+    portENTER_CRITICAL(&motors_state_lock);
+    if (!s_hardware_fault) {
+        motors_state.status = MOTORS_STATUS_READY;
+        motors_state.tracking = TRACKING_NONE;
+        motors_admission_open_locked();
+    }
+    portEXIT_CRITICAL(&motors_state_lock);
 }
 
 /*

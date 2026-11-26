@@ -14,7 +14,7 @@
 
 static const char *TAG = "TMC_HW_INIT";
 
-esp_err_t tmc2209_hw_init(void)
+esp_err_t tmc2209_hw_init(uint16_t microsteps)
 {
     if (tmc_uart_lock() != ESP_OK) {
         return ESP_FAIL;
@@ -71,7 +71,7 @@ esp_err_t tmc2209_hw_init(void)
         tmc_uart_ok[i] = true;
     }
 
-    esp_err_t result = tmc_configure_drivers();
+    esp_err_t result = tmc_configure_drivers(microsteps);
     tmc_uart_unlock();
     return result;
 }

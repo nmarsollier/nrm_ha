@@ -11,6 +11,7 @@
  * pins, so GPIO level maps to the driver pin with no inversion.
  */
 
+#include "board/board_config.h"
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -76,4 +77,13 @@ void motors_hw_set_direction_dec(MotorDirection direction) {
         gpio_set_level(DEC_DIR_GPIO, dir);
         esp_rom_delay_us(DIR_SETUP_TIME_US);
     }
+}
+
+/* Test-only: clear the DIR write cache so the next direction set always writes
+ * the GPIO.  The host harness manipulates the physical DIR level directly
+ * (host_dir_level_set) for its self-tests; clearing this cache keeps the mock's
+ * level and the production cache from diverging between tests. */
+void motors_hw_reset_dir_cache(void) {
+    last_dir_ra = -1;
+    last_dir_dec = -1;
 }

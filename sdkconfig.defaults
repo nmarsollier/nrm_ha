@@ -1,9 +1,11 @@
 # sdkconfig.defaults — project-specific overrides for Montura
 # Applied automatically by idf.py build on top of ESP-IDF defaults.
 
-# Flash: ESP32-S3 N8R8 has 8 MB
-CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
-CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+# Flash: the physical ESP32-S3 module is N16R8 (16 MB), verified on hardware
+# (esptool reports 16 MB; the boot log warns the 8 MB header is smaller than the
+# chip).  Configure the real capacity, not a value inherited from the ZIPs.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 
 # CPU: 240 MHz — headroom for the motion task and RMT batch generation
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y

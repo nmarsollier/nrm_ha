@@ -1,8 +1,8 @@
 /* Motors - motors_microsteps.c
  *
  * Purpose: select the TMC2209 microstep resolution and chopper mode per motion —
- * coarse (MOTORS_MICROSTEPS_SLEW, SpreadCycle) for large ramped slews, fine
- * (MOTORS_MICROSTEPS_TRACKING, StealthChop) for everything else.
+ * coarse (the profile's slew microsteps, SpreadCycle) for large ramped slews,
+ * fine (the profile's canonical microsteps, StealthChop) for everything else.
  *
  * The chopper mode follows the resolution so the StealthChop→SpreadCycle switch
  * happens once, at standstill, before motion starts — never mid-ramp (which is
@@ -28,7 +28,10 @@ uint16_t motors_microsteps_active(void) {
 }
 
 uint32_t motors_steps_per_pulse(void) {
-    return (uint32_t) MOTORS_MICROSTEPS_TRACKING / (uint32_t) tmc2209_get_microsteps();
+    /* Precondition: the active resolution is verified (non-zero).  The caller
+     * (motors_microsteps_prepare) refuses motion before this is ever reached. */
+    return (uint32_t) mount_profile.axes[AXIS_RA].canonical_microsteps
+           / (uint32_t) tmc2209_get_microsteps();
 }
 
 /*
@@ -44,6 +47,8 @@ static bool apply_microsteps(uint16_t target) {
 
     if (tmc2209_set_microsteps(target) != ESP_OK) {
         ESP_LOGE(TAG, "microstep switch to %u failed — stop + ERROR", (unsigned) target);
+        /* Abort the pending motion and enter ERROR; motors_enter_error_state()
+         * closes admission and invalidates queued work. */
         motors_motion_stop();
         motors_enter_error_state();
         return false;
@@ -64,6 +69,8 @@ static bool apply_chop_mode(TmcChopMode mode) {
     if (tmc2209_set_chop_mode(mode) != ESP_OK) {
         ESP_LOGE(TAG, "chop mode switch to %s failed — stop + ERROR",
                  mode == TMC_CHOP_SPREAD ? "SpreadCycle" : "StealthChop");
+        /* Abort the pending motion and enter ERROR; motors_enter_error_state()
+         * closes admission and invalidates queued work. */
         motors_motion_stop();
         motors_enter_error_state();
         return false;
@@ -73,15 +80,23 @@ static bool apply_chop_mode(TmcChopMode mode) {
 }
 
 bool motors_microsteps_prepare(MotionCommandType type, int64_t ra_dist, int64_t dec_dist) {
-    uint16_t target = MOTORS_MICROSTEPS_TRACKING;
+    /* A driver that never confirmed a resolution (tmc2209_hw_init/reinit failed)
+     * cannot emit steps: refuse motion rather than assume steps-per-pulse. */
+    if (tmc2209_get_microsteps() == 0) {
+        ESP_LOGE(TAG, "TMC resolution unverified — refusing motion");
+        motors_enter_error_state();
+        return false;
+    }
+
+    uint16_t target = mount_profile.axes[AXIS_RA].canonical_microsteps;
     TmcChopMode chop = TMC_CHOP_STEALTH;
 
     if (type == MOTION_CMD_SLEW) {
         float ra_deg = motors_steps_to_deg(AXIS_RA, ra_dist);
         float dec_deg = motors_steps_to_deg(AXIS_DEC, dec_dist);
         float max_deg = fmaxf(fabsf(ra_deg), fabsf(dec_deg));
-        if (max_deg > MOTORS_SLEW_GENTLE_DEG) {
-            target = MOTORS_MICROSTEPS_SLEW;
+        if (max_deg > mount_profile.slew.gentle_distance_deg) {
+            target = mount_profile.axes[AXIS_RA].slew_microsteps;
             chop = TMC_CHOP_SPREAD;
         }
     }

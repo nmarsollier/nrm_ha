@@ -13,6 +13,7 @@
  */
 
 #include "motors_internal.h"
+#include "board/board_config.h"
 
 #include "driver/rmt_tx.h"
 #include "esp_log.h"

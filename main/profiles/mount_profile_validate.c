@@ -48,6 +48,14 @@ bool mount_profile_validate(const MountProfile *p) {
     if (!valid_axis(&p->axes[AXIS_RA])) return false;
     if (!valid_axis(&p->axes[AXIS_DEC])) return false;
 
+    /* The TMC2209 driver applies a single resolution to both axes (one CHOPCONF
+     * per driver, configured with one value), so the canonical and slew
+     * microsteps must agree across RA and DEC. */
+    if (p->axes[AXIS_RA].canonical_microsteps != p->axes[AXIS_DEC].canonical_microsteps
+        || p->axes[AXIS_RA].slew_microsteps != p->axes[AXIS_DEC].slew_microsteps) {
+        return false;
+    }
+
     const SlewProfile *s = &p->slew;
     if (!isfinite(s->min_speed_dps) || s->min_speed_dps <= 0.0f) return false;
     if (!isfinite(s->short_distance_deg) || s->short_distance_deg < 0.0f) return false;

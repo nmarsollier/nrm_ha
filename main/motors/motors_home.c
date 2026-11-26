@@ -18,6 +18,11 @@ MotorResultCode motors_home(void) {
         return MOTOR_ERR_PARKED;
     }
 
-    motors_stop();
+    MotorResultCode rc = motors_stop();
+    if (rc != MOTOR_OK) {
+        /* Never enqueue the home SLEW if the stop did not confirm rest — the
+         * motion task may still be running and would clobber the move. */
+        return rc;
+    }
     return motors_slew_to_angle(0.0f, 0.0f, 0);
 }

@@ -1,8 +1,9 @@
 /*
  * tmc.h — TMC2209 driver public API (two axes: RA and DEC).
  *
- * The microstep configuration (MOTORS_MICROSTEPS_TRACKING) and the coil currents
- * (TMC_IRUN / TMC_IHOLD) live in config.h.
+ * The coil currents (TMC_IRUN / TMC_IHOLD) live in board_config.h.  The initial
+ * microstep resolution is supplied by the caller (the motors layer, from the
+ * selected mount profile): the driver applies one resolution to both axes.
  */
 
 #pragma once
@@ -20,10 +21,11 @@
  * Initialize the two single-wire UARTs, configure GCONF/IHOLD_IRUN/CHOPCONF
  * on both drivers and verify that each latched the requested microsteps.
  *
- * The drivers are always enabled (no EN pin is connected).  Must be called
- * before any step/direction motion is started.
+ * `microsteps` is the initial resolution applied to both axes (the profile's
+ * canonical/tracking resolution).  The drivers are always enabled (no EN pin is
+ * connected).  Must be called before any step/direction motion is started.
  */
-esp_err_t tmc2209_hw_init(void);
+esp_err_t tmc2209_hw_init(uint16_t microsteps);
 
 /*
  * Probe both drivers over UART: return true only when both answer a register
@@ -36,9 +38,10 @@ bool tmc2209_probe(void);
 /*
  * Re-configure the driver registers after they stop answering and then answer
  * again (power returned): their registers were lost while unpowered, so they
- * are rewritten.  Does not re-install the UARTs.
+ * are rewritten at `microsteps` (the profile's canonical resolution).  Does not
+ * re-install the UARTs.
  */
-esp_err_t tmc2209_reinit(void);
+esp_err_t tmc2209_reinit(uint16_t microsteps);
 
 /*
  * Change the microstep resolution on both drivers at runtime: read-modify-write

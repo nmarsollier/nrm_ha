@@ -101,8 +101,7 @@ typedef enum {
     MOTOR_ERR_NOT_READY = 3,
     MOTOR_ERR_HARDWARE_ERROR = 4,
     MOTOR_ERR_PARKED = 5,
-    MOTOR_ERR_BUSY = 6,
-    MOTOR_ERR_MOTION_DISABLED = 7
+    MOTOR_ERR_BUSY = 6
 } MotorResultCode;
 
 /*
@@ -156,9 +155,9 @@ float motors_get_dec_deg(void);
 float motors_steps_to_deg(AxisId axis, int64_t steps);
 
 /*
- * Current active microstep resolution on both drivers (MOTORS_MICROSTEPS_TRACKING or the
- * coarse MOTORS_MICROSTEPS_SLEW during a large slew).  Public so the protocol
- * layer can report it in the state snapshot.
+ * Current active microstep resolution on both drivers (the profile's canonical
+ * microsteps, or the coarse slew microsteps during a large slew).  Public so the
+ * protocol layer can report it in the state snapshot.
  */
 uint16_t motors_microsteps_active(void);
 
@@ -198,6 +197,32 @@ MotorResultCode motors_start_tracking(TrackingMode mode);
  * Returns MOTOR_ERR_HARDWARE_ERROR if motors are in ERROR state.
  */
 MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed);
+
+/*
+ * Move a single axis (0 = RA, 1 = DEC) continuously at `rate` deg/s, preserving
+ * the other axis's current rate.  A zero rate that leaves both axes at zero
+ * finalizes the manual session.  The read of the other axis, the modification
+ * and the publication are one atomic admission transaction, so concurrent
+ * single-axis updates cannot lose each other's rate.
+ */
+MotorResultCode motors_set_move_axis_rate(int axis, float rate);
+
+/*
+ * Stop the continuous MoveAxis motion only, and restore the tracking mode the
+ * manual session saved if the session is still valid.  A redundant zero (no
+ * manual session) is a no-op and does not cancel tracking, guiding or a goto.
+ * The whole stop+restore runs under the control mutex, so a concurrent STOP
+ * cannot cancel the tracking this operation resumes.  Returns
+ * MOTOR_ERR_HARDWARE_ERROR if motors are in ERROR state.
+ */
+MotorResultCode motors_move_axis_stop(void);
+
+/*
+ * Read the signed MoveAxis setpoint (deg/s) for both axes, under the admission
+ * lock.  Used by the mount layer to build single-axis orders that preserve the
+ * other axis's current rate without keeping a duplicate cache.
+ */
+void motors_get_move_axis_setpoint(float *ra_dps, float *dec_dps);
 
 /*
  * Return the slewing angular speed (deg/s) for a given speed_rate profile.
@@ -277,4 +302,4 @@ bool motors_set_current_as_dec_left_limit(void);
 bool motors_set_current_as_dec_right_limit(void);
 
 /* Reset limits to factory defaults and persist. */
-void motors_limits_reset(void);
+bool motors_limits_reset(void);
