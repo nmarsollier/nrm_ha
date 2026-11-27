@@ -129,12 +129,14 @@ The full protocol spec (format, per-family semantics, design decisions) lives in
 
 ### Tests
 
-`test/proto/` drives the mount through the serial protocol (pytest).
+Two test suites:
 
-```sh
-make flash        # flash the firmware
-make test-cdc     # run the serial protocol suite (auto-detects the CDC port)
-```
+- `test/proto/` — the serial protocol suite (pytest), drives a real mount over
+  CDC-ACM.
+- `test/host/` — the host harness (production C with RTOS/RMT mocked), no board.
+
+The complete build → flash → test workflow for physical boards is documented in
+[Running tests on real mounts](#running-tests-on-real-mounts).
 
 ## Setup
 
@@ -196,10 +198,10 @@ other's cache.
 
 ```sh
 # Flash NRM-HA (replace PORT with the board's flash port)
-idf.py -B build/nrm_ha -D MOUNT_PROFILE=nrm_ha flash
+idf.py -B build/nrm_ha -D MOUNT_PROFILE=nrm_ha -p PORT flash
 
 # Flash BFT — overwrites NRM-HA
-idf.py -B build/bft -D MOUNT_PROFILE=bft flash
+idf.py -B build/bft -D MOUNT_PROFILE=bft -p PORT flash
 ```
 
 The flash port is the board's USB-Serial-JTAG (a `/dev/cu.usbmodem*` device with
@@ -216,6 +218,61 @@ idf.py -B build/nrm_ha -p PORT monitor   # Ctrl+] to exit
 
 Both profiles currently flash at 8 MB (the NRM baseline); the flash size is
 pending physical verification against the common board.
+
+## Running tests on real mounts
+
+The **serial protocol suite** (`test/proto/`, pytest) drives a physical mount
+over USB CDC-ACM. It needs the firmware flashed first, and the **12 V motor rail
+must be on** — a USB-only mount enters ERROR and the motion tests fail.
+
+A board runs one profile at a time: flashing one profile overwrites the other.
+
+### 1. Build
+
+```sh
+source ~/.espressif/v6.0.1/esp-idf/export.sh
+
+idf.py -B build/nrm_ha -D MOUNT_PROFILE=nrm_ha build
+idf.py -B build/bft    -D MOUNT_PROFILE=bft    build
+```
+
+### 2. Flash
+
+Find the flash port with `ls /dev/cu.*` — the USB-Serial/JTAG or CH343 device
+(see [Flash (per profile)](#flash-per-profile)); it is **not** the CDC-ACM
+`usbmodem` port.
+
+```sh
+# NRM-HA
+idf.py -B build/nrm_ha -D MOUNT_PROFILE=nrm_ha flash
+
+# BFT
+idf.py -B build/bft -D MOUNT_PROFILE=bft flash
+```
+
+### 3. Run the serial protocol suite
+
+```sh
+idf.py -B build/nrm_ha -D MOUNT_PROFILE=nrm_ha build
+idf.py -B build/nrm_ha -D MOUNT_PROFILE=nrm_ha flash
+sleep 10 && make -C test test-cdc
+```
+
+```sh
+idf.py -B build/bft -D MOUNT_PROFILE=bft build
+idf.py -B build/bft -D MOUNT_PROFILE=bft flash
+sleep 10 && make -C test test-cdc
+```
+
+### Host suite (no hardware)
+
+The host harness compiles the production C with RTOS/RMT mocked and runs the
+regression suite — no board, no ESP-IDF:
+
+```sh
+make -C test test-host        # NRM-HA
+make -C test/host test-all    # NRM-HA + BFT
+```
 
 ## Project conventions
 

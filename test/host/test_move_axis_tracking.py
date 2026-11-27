@@ -29,50 +29,32 @@ class MoveAxisTrackingTests(unittest.TestCase):
 
     def test_rejected_move_axis_preserves_active_tracking(self):
         h = self.h
+        # Pause the executor right after it processes the TRACK command (before
+        # it enters the tracking loop), so the command queue can be filled
+        # deterministically without the tracking loop draining it.
+        h.lib.host_set_pause_after_process_command(1)
+        h.lib.host_clear_process_command_hook()
         self.assertEqual(h.lib.host_mount_tracking(TRACKING_SIDEREAL), 1)
-        h.wait_status(STATUS_TRACKING)
+        h.wait_until(lambda: h.lib.host_reached_process_command_hook() == 1,
+                     2.0, "executor reached the process-command hook")
         gen_before = h.lib.host_stop_generation()
         self.assertEqual(h.lib.host_tracking(), TRACKING_SIDEREAL)
         self.assertEqual(h.lib.host_manual_move(), 0)
 
-        h.lib.host_set_pause_before_enqueue(1)
-        h.lib.host_clear_before_enqueue_hook()
+        # Fill the queue (the executor is paused, so the orders stay queued).
+        self.assertEqual(h.lib.host_fill_queue_with_slew(10), 10)
 
-        results = []
+        # A MoveAxis request now hits a genuine queue-full rejection.
+        self.assertEqual(h.lib.host_mount_move_axis_speed(0.5, 0.0), 0,
+                         "the MoveAxis must be rejected (BUSY)")
+        self.assertEqual(h.lib.host_stop_generation(), gen_before,
+                         "a rejected MoveAxis must not advance the STOP generation")
+        self.assertEqual(h.lib.host_tracking(), TRACKING_SIDEREAL,
+                         "a rejected MoveAxis must not interrupt tracking")
+        self.assertEqual(h.lib.host_manual_move(), 0,
+                         "a rejected MoveAxis must not open a manual session")
 
-        def producer():
-            results.append(h.lib.host_mount_move_axis_speed(0.5, 0.0))
-
-        t = threading.Thread(target=producer)
-        t.start()
-        try:
-            h.wait_until(lambda: h.lib.host_reached_before_enqueue_hook() == 1,
-                         2.0, "producer reached the before-enqueue hook")
-
-            # At the hook the MoveAxis has not been admitted yet: it must not
-            # have stopped tracking or advanced the STOP generation.
-            self.assertEqual(h.lib.host_stop_generation(), gen_before,
-                             "a not-yet-admitted MoveAxis must not advance the STOP generation")
-            self.assertEqual(h.lib.host_tracking(), TRACKING_SIDEREAL,
-                             "tracking must still be active before admission")
-
-            # Force a genuine queue-full rejection.
-            self.assertEqual(h.lib.host_fill_queue_with_slew(10), 10)
-
-            h.lib.host_set_pause_before_enqueue(0)
-            t.join()
-
-            self.assertEqual(results, [0], "the MoveAxis must be rejected (BUSY)")
-            self.assertEqual(h.lib.host_stop_generation(), gen_before,
-                             "a rejected MoveAxis must not advance the STOP generation")
-            self.assertEqual(h.lib.host_tracking(), TRACKING_SIDEREAL,
-                             "a rejected MoveAxis must not interrupt tracking")
-            self.assertEqual(h.lib.host_manual_move(), 0,
-                             "a rejected MoveAxis must not open a manual session")
-        finally:
-            h.lib.host_set_pause_before_enqueue(0)
-            t.join()
-            h.reset()
+        h.lib.host_set_pause_after_process_command(0)
 
     def test_rejected_move_axis_preserves_pending_pulse_guide(self):
         h = self.h

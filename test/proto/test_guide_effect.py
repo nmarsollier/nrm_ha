@@ -3,10 +3,11 @@ import time
 
 import pytest
 
-from conftest import axis_position, setup_site_time, wait_not_moving
+from client import DeviceError
+from conftest import (axis_position, deg_per_step, move_dec_off_pole,
+                      setup_site_time, wait_not_moving)
 
 GUIDE_RATE = 0.5          # deg/s
-DEG_PER_STEP = 1.8 / (64 * 300)
 
 # The mount's default guide rate (0.5 × sidereal).  GUIDE_RATE above is a
 # manual-slew speed (~239 × sidereal) chosen only to make coarse direction
@@ -40,17 +41,18 @@ def _quiet(proto):
     proto.control(tracking="none")
 
 
-def test_pulse_effect_magnitude(proto):
+def test_pulse_effect_magnitude(proto, caps):
     """A DEC pulse moves the axis by rate × duration."""
     _set_guide_rate(proto, GUIDE_RATE)
+    move_dec_off_pole(proto)          # DEC guide is invalid at the pole on a fork
     before, after = _measure_pulse(proto, "north", 500)
     change_steps = after["dec_steps"] - before["dec_steps"]
-    expected_steps = GUIDE_RATE * 500 / 1000.0 / DEG_PER_STEP
+    expected_steps = GUIDE_RATE * 500 / 1000.0 / deg_per_step(caps)
     assert abs(abs(change_steps) - expected_steps) <= expected_steps * 0.3 + 4, \
         f"DEC change {change_steps} steps != expected ~{expected_steps:.0f}"
 
 
-def test_pulse_default_guide_rate_dec(proto):
+def test_pulse_default_guide_rate_dec(proto, caps):
     """A DEC pulse at the default 0.5×sidereal rate moves by rate × duration.
 
     The coarse magnitude test above uses 0.5 °/s; this exercises the actual
@@ -66,7 +68,7 @@ def test_pulse_default_guide_rate_dec(proto):
     # 5 s at ~22.3 steps/s ≈ 111 steps — enough to measure, still a guide speed.
     before, after = _measure_pulse(proto, "north", 5000)
     change_steps = after["dec_steps"] - before["dec_steps"]
-    expected_steps = DEFAULT_GUIDE_RATE * 5.0 / DEG_PER_STEP
+    expected_steps = DEFAULT_GUIDE_RATE * 5.0 / deg_per_step(caps)
     assert abs(abs(change_steps) - expected_steps) <= expected_steps * 0.3 + 4, \
         f"DEC change {change_steps} steps != expected ~{expected_steps:.0f}"
     assert abs(change_steps) > 0, "DEC pulse at default rate produced zero movement"
@@ -80,8 +82,9 @@ def test_pulse_east_moves_ra_negative(proto):
     assert after["ra_steps"] < before["ra_steps"], "East pulse did not move RA negative"
 
 
+@pytest.mark.geometry("german")
 def test_pulse_flip_reverses_dec(proto):
-    """A North pulse moves DEC + on pierEast and − on pierWest."""
+    """A North pulse moves DEC + on pierEast and − on pierWest (German)."""
     setup_site_time(proto)
     _set_guide_rate(proto, GUIDE_RATE)
     lst = proto.state()["lst"]
@@ -99,31 +102,47 @@ def test_pulse_flip_reverses_dec(proto):
     assert a2["dec_steps"] < b2["dec_steps"], "North should decrease dec_axis on pierWest"
 
 
-def test_pulse_at_dec_limit_clamped(proto):
+@pytest.mark.geometry("german")
+def test_pulse_at_dec_limit_clamped(proto, caps):
     """A pulse toward the DEC axis limit is clamped (does not pass it)."""
     setup_site_time(proto)
     _set_guide_rate(proto, GUIDE_RATE)
     lst = proto.state()["lst"]
-    proto.action("goto", ra=lst, dec=60.0, speed=4)   # DEC axis = ±150 (limit)
+    dec_max = proto.state()["limits"]["dec_max"]
+    # At the +DEC operational limit: dec_axis = celestial DEC + 90.
+    proto.action("goto", ra=lst, dec=dec_max - 90.0, speed=4)
     wait_not_moving(proto)
 
     before, after = _measure_pulse(proto, "north", 500)
-    assert abs(after["dec_deg"]) <= 150.0 + 0.01, \
+    assert abs(after["dec_deg"]) <= dec_max + 0.01, \
         f"DEC axis exceeded the limit: {after['dec_deg']}"
-    full_steps = GUIDE_RATE * 0.5 / DEG_PER_STEP
+    full_steps = GUIDE_RATE * 0.5 / deg_per_step(caps)
     assert abs(after["dec_steps"] - before["dec_steps"]) < full_steps * 0.5, \
         "pulse at limit was not clamped"
+
+
+@pytest.mark.geometry("fork")
+def test_pulse_at_dec_limit_rejected(proto):
+    """A pulse toward the DEC limit is rejected upfront (fork)."""
+    setup_site_time(proto)
+    _set_guide_rate(proto, GUIDE_RATE)
+    lst = proto.state()["lst"]
+    dec_max = proto.state()["limits"]["dec_max"]
+    proto.action("goto", ra=lst, dec=dec_max - 90.0, speed=4)
+    wait_not_moving(proto)
+
+    with pytest.raises(DeviceError):
+        proto.action("guide", direction="north", duration_ms=500)
 
 
 MODES = {0: "sidereal", 1: "lunar", 2: "solar"}
 
 
 @pytest.mark.parametrize("tracking,rate", [(False, None), (True, 0), (True, 1), (True, 2)])
-def test_pulse_tracking_modes(proto, tracking, rate):
+def test_pulse_tracking_modes(proto, caps, tracking, rate):
     """A DEC pulse works with no tracking and with every tracking rate."""
     setup_site_time(proto)
-    proto.action("home")          # start from a known position, away from limits
-    wait_not_moving(proto)
+    move_dec_off_pole(proto)          # start away from the pole, away from limits
     _set_guide_rate(proto, GUIDE_RATE)
     if tracking:
         proto.control(tracking=MODES[rate])
@@ -131,5 +150,5 @@ def test_pulse_tracking_modes(proto, tracking, rate):
         proto.control(tracking="none")
     before, after = _measure_pulse(proto, "north", 500)
     change_steps = after["dec_steps"] - before["dec_steps"]
-    expected_steps = GUIDE_RATE * 500 / 1000.0 / DEG_PER_STEP
+    expected_steps = GUIDE_RATE * 500 / 1000.0 / deg_per_step(caps)
     assert abs(abs(change_steps) - expected_steps) <= expected_steps * 0.3 + 4

@@ -46,16 +46,6 @@ MotorResultCode motors_slew_to_angle(float ra_deg, float dec_deg, int speed_rate
         return MOTOR_ERR_OUT_OF_RANGE;
     }
 
-    TrackingMode currTracking = TRACKING_NONE;
-    if (motors_state.status == MOTORS_STATUS_TRACKING
-        && motors_state.tracking != TRACKING_NONE) {
-        currTracking = motors_state.tracking;
-        MotorResultCode stop_rc = motors_stop();
-        if (stop_rc != MOTOR_OK) {
-            return stop_rc;
-        }
-    }
-
     float speed = motors_get_slewing_speed(speed_rate);
 
     MotionCommand cmd = {
@@ -64,10 +54,6 @@ MotorResultCode motors_slew_to_angle(float ra_deg, float dec_deg, int speed_rate
         .dec_target_deg = dec_deg,
         .ra_speed = speed,
         .dec_speed = speed,
-        /* Restore tracking as part of the slew itself: the motion task resumes
-         * it inline on completion, so a full queue or a concurrent stop cannot
-         * leave the mount stopped after an accepted goto. */
-        .resume_tracking = currTracking,
     };
     if (!motors_queue_put(&cmd)) {
         return MOTOR_ERR_BUSY;

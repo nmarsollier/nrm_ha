@@ -47,8 +47,9 @@ def test_limit_set_rejects_inverted_range(proto):
     proto.action("home")
     wait_not_moving(proto)
 
-    # ra_min := current position (0°), leaving ra_max at the default 100°.
+    # ra_min := current position (0°), leaving ra_max unchanged.
     proto.action("limits", param="set_ra_left")
+    ra_max_before = proto.state()["limits"]["ra_max"]
 
     # ra_max := 0° would make ra_min (0) >= ra_max (0) — must be rejected and
     # leave the previous valid config untouched.
@@ -57,4 +58,4 @@ def test_limit_set_rejects_inverted_range(proto):
 
     st = proto.state()
     assert st["limits"]["ra_min"] == pytest.approx(0.0)
-    assert st["limits"]["ra_max"] == pytest.approx(100.0)
+    assert st["limits"]["ra_max"] == pytest.approx(ra_max_before)

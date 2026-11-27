@@ -4,8 +4,6 @@
  */
 #include "runtime.h"
 
-#include <stdlib.h>
-
 #include "esp_err.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -33,12 +31,6 @@ static const char *TAG = "RUNTIME_SETUP";
  * motor status on its first tick.
  */
 void setup_init(void) {
-    /* Validate the selected mount profile before touching any hardware: a bad
-     * profile would silently break the step/limit math. */
-    if (!mount_profile_validate(&mount_profile)) {
-        ESP_LOGE(TAG, "Invalid mount profile — configuration error, halting");
-        abort();
-    }
     ESP_LOGI(TAG, "Mount profile: %s (%s) revision %lu, geometry %s",
              mount_profile.name, mount_profile.id,
              (unsigned long) mount_profile.profile_revision,

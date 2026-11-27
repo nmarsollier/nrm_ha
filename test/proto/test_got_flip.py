@@ -1,4 +1,4 @@
-"""GOT-flip — a goto across the meridian flips the pier side."""
+"""GOT-flip — a goto across the meridian flips the pier side (German only)."""
 import pytest
 
 from client import DeviceError
@@ -6,7 +6,8 @@ from conftest import (assert_angular_close, assert_goto_duration,
                      goto_and_arrive, setup_site_time, wait_not_moving,
                      wait_slewing)
 
-SPEED_DPS = 6.0
+# Meridian flip is German-equatorial behavior (fork has no flip / no pier side).
+pytestmark = pytest.mark.geometry("german")
 
 
 def _pier(proto):
@@ -20,26 +21,26 @@ def _quiet(proto):
     proto.control(tracking="none")
 
 
-def test_meridian_flip(proto):
+def test_meridian_flip(proto, caps):
     """West-of-meridian → pierEast; east-of-meridian → pierWest (flip)."""
     setup_site_time(proto)
     lst = proto.state()["lst"]
 
     ra_west = (lst - 4.0) % 24.0   # HA = +4h → pierEast
-    assert_goto_duration(proto, ra_west, -60.0, SPEED_DPS)
+    assert_goto_duration(proto, caps, ra_west, -60.0)
     assert _pier(proto) == 0, f"HA=+4h should be pierEast, got {_pier(proto)}"
 
     ra_east = (lst + 4.0) % 24.0   # HA = -4h → pierWest (flip)
-    assert_goto_duration(proto, ra_east, -60.0, SPEED_DPS)
+    assert_goto_duration(proto, caps, ra_east, -60.0)
     assert _pier(proto) == 1, f"HA=-4h should be pierWest (flip), got {_pier(proto)}"
 
 
-def test_goto_near_meridian(proto):
+def test_goto_near_meridian(proto, caps):
     """A target on the meridian (HA≈0) is reached; the side is not forced."""
     setup_site_time(proto)
     lst = proto.state()["lst"]
     ra = lst % 24.0
-    m = assert_goto_duration(proto, ra, -60.0, SPEED_DPS)
+    m = assert_goto_duration(proto, caps, ra, -60.0)
     assert_angular_close(m["final_ra"], m["final_dec"], ra, -60.0, 0.1, "near-meridian goto")
 
 
@@ -59,8 +60,9 @@ def test_goto_invalid_side_rejected(proto):
     assert proto.state()["state"] != "slewing"
 
 
-def test_goto_flip_interrupted_marks_position_uncertain(proto):
-    """Interrupting a flip leaves the position uncertain, not "flip complete"."""
+def test_goto_flip_interrupted_keeps_position_exact(proto):
+    """Interrupting a flip drains the in-flight batch and keeps the position
+    exact (position_uncertain stays false)."""
     setup_site_time(proto)
     lst = proto.state()["lst"]
 
@@ -76,5 +78,5 @@ def test_goto_flip_interrupted_marks_position_uncertain(proto):
     proto.action("stop")
     wait_not_moving(proto)
 
-    # The interrupted flip must not read as a confident new side.
-    assert proto.state()["position_uncertain"] is True
+    assert proto.state()["position_uncertain"] is False, \
+        "a graceful STOP drains the in-flight flip batch; position must stay exact"

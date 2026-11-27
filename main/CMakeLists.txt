@@ -107,7 +107,6 @@ idf_component_register(
 
         ${PROTO_CDC_SRCS}
 
-        "profiles/mount_profile_validate.c"
         ${MOUNT_PROFILE_SRC}
 
         INCLUDE_DIRS

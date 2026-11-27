@@ -34,10 +34,6 @@ typedef struct {
     float ra_speed;
     float dec_speed;
     TrackingMode tracking_mode;
-    /* SLEW: tracking mode to restore once the slew completes successfully.
-     * Carried by the command so the resume is atomic with the slew, not a
-     * separate order that a queue-full or a concurrent STOP could drop. */
-    TrackingMode resume_tracking;
     bool relative;
     float ra_delta_deg;
     float dec_delta_deg;

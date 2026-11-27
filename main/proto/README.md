@@ -103,15 +103,31 @@ hex en ambos.
   "name": "NRM-HA", "firmware_version": "0.1.0",
   "capabilities": {
     "axes": ["ra", "dec"],
+    "geometry": "german",
+    "gear_ratio": 300.0,
+    "full_step_deg": 1.8,
+    "canonical_microsteps": 64,
+    "slew_microsteps": 8,
     "slew_speeds_dps": [1.0, 3.0, 4.5, 6.0],
     "move_axis_speeds_dps": [0.005, 0.009, 0.016, 0.029, 0.053, 0.095, 0.171, 0.308, 0.555, 1.0],
     "tracking_modes": ["none", "sidereal", "lunar", "solar"],
+    "slew": { "min_speed_dps": 0.8, "short_distance_deg": 2.0, "gentle_distance_deg": 8.0,
+              "gentle_max_dps": 3.2, "accel_distance_deg": 5.0, "decel_distance_deg": 5.0 },
+    "mechanical_limits_deg": { "ra_min": -180.0, "ra_max": 180.0, "dec_min": -180.0, "dec_max": 180.0 },
+    "default_limits_deg": { "ra_min": -100.0, "ra_max": 100.0, "dec_min": -150.0, "dec_max": 150.0 },
     "caps": { "guide": true, "home": true, "park": true, "unpark": true,
               "move_axis": true, "slew": true, "tracking": true, "sync": false,
               "meridian_flip": true }
   }
 }
 ```
+
+Los campos mecánicos (`geometry`, `gear_ratio`, `full_step_deg`,
+`canonical_microsteps`, `slew_microsteps`, `slew`, `mechanical_limits_deg` y
+`default_limits_deg`) se leen directamente de `mount_profile`: son la escala
+mecánica, la rampa y la envolvente de la montura, para que el cliente derive toda
+expectativa (duración, pasos↔grados, límites) sin una segunda fuente de
+constantes.
 
 ### `state` — una lectura coherente de toda la montura
 

@@ -23,16 +23,6 @@ static MotorResultCode motors_slew_axis_impl(float ra_delta_deg, float dec_delta
         return MOTOR_ERR_PARKED;
     }
 
-    TrackingMode currTracking = TRACKING_NONE;
-    if (motors_state.status == MOTORS_STATUS_TRACKING
-        && motors_state.tracking != TRACKING_NONE) {
-        currTracking = motors_state.tracking;
-        MotorResultCode stop_rc = motors_stop();
-        if (stop_rc != MOTOR_OK) {
-            return stop_rc;
-        }
-    }
-
     MotionCommand cmd = {
         .type = MOTION_CMD_SLEW,
         .ra_speed = ra_speed,
@@ -40,7 +30,6 @@ static MotorResultCode motors_slew_axis_impl(float ra_delta_deg, float dec_delta
         .relative = true,
         .ra_delta_deg = ra_delta_deg,
         .dec_delta_deg = dec_delta_deg,
-        .resume_tracking = currTracking,
     };
     if (!motors_queue_put(&cmd)) {
         return MOTOR_ERR_BUSY;

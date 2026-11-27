@@ -110,18 +110,19 @@ def test_tracking_stops_at_limit(proto):
     """Tracking stops when the RA axis reaches its limit."""
     from conftest import wait_not_moving
 
+    ra_limit = proto.state()["limits"]["ra_max"]
     proto.action("home")
     wait_not_moving(proto)
 
-    # move RA to the positive limit (+100°); manual is capped at 1.0 deg/s
+    # move RA to the positive limit; manual is capped at 1.0 deg/s
     # so this takes ~100 s.
     proto.control(manual_ra_dps=1.0)
     wait_not_moving(proto, timeout=130)
     pos = axis_position(proto)
-    assert pos["ra_deg"] > 99.0, f"RA not near the limit: {pos['ra_deg']}"
+    assert pos["ra_deg"] > ra_limit - 1.0, f"RA not near the limit: {pos['ra_deg']}"
 
     proto.control(tracking="sidereal")
     time.sleep(2.0)
     assert proto.state()["tracking"] == "none", "tracking did not stop at the limit"
     pos2 = axis_position(proto)
-    assert pos2["ra_deg"] <= 100.0 + 0.1, f"RA passed the limit: {pos2['ra_deg']}"
+    assert pos2["ra_deg"] <= ra_limit + 0.1, f"RA passed the limit: {pos2['ra_deg']}"

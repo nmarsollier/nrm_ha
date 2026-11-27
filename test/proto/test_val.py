@@ -50,7 +50,7 @@ def test_error_then_recover(proto):
     with pytest.raises(DeviceError):
         proto.action("sync", ra=1.0, dec=-33.0)
     # the channel stays healthy
-    assert proto.capabilities()["name"] == "NRM-HA"
+    assert proto.capabilities()["name"]
 
 
 def test_valid_edges(proto):

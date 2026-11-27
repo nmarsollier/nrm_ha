@@ -430,10 +430,88 @@ int host_dir_positive_level(int axis) {
     return mount_profile.axes[axis].dir_positive_level ? 1 : 0;
 }
 
-/* Ramp window (deg) for the selected profile, so the duration oracle can be
- * built against the real ramp instead of a hardcoded NRM window. */
+/* Ramp profile for the selected profile, so the duration oracle can be built
+ * against the real ramp instead of a hardcoded NRM window. */
 float host_slew_accel_deg(void) { return mount_profile.slew.accel_distance_deg; }
 float host_slew_decel_deg(void) { return mount_profile.slew.decel_distance_deg; }
+float host_slew_min_speed_dps(void) { return mount_profile.slew.min_speed_dps; }
+float host_slew_short_distance_deg(void) { return mount_profile.slew.short_distance_deg; }
+float host_slew_gentle_distance_deg(void) { return mount_profile.slew.gentle_distance_deg; }
+float host_slew_gentle_max_dps(void) { return mount_profile.slew.gentle_max_dps; }
+
+/* Flat snapshot of the compiled mount profile, so the profile-invariant tests
+ * read every field they check through one ctypes Structure (no nested structs,
+ * bools or enums on the Python side). */
+typedef struct {
+    const char *id;
+    const char *name;
+    int geometry;               /* GEOMETRY_GERMAN(0) / GEOMETRY_FORK(1) */
+    float ra_reference_offset_deg;
+    float full_step_deg;
+    float gear_ratio;
+    int canonical_microsteps;
+    int slew_microsteps;
+    float max_slew_dps;
+    float max_manual_dps;
+    float slew_min_speed_dps;
+    float slew_short_distance_deg;
+    float slew_gentle_distance_deg;
+    float slew_gentle_max_dps;
+    float slew_accel_distance_deg;
+    float slew_decel_distance_deg;
+    float ra_hard_min_deg, ra_hard_max_deg;
+    float ra_default_min_deg, ra_default_max_deg;
+    float dec_hard_min_deg, dec_hard_max_deg;
+    float dec_default_min_deg, dec_default_max_deg;
+    int irun, ihold;
+    int ra_step_gpio, ra_dir_gpio, ra_uart_num, ra_uart_tx_gpio, ra_uart_rx_gpio;
+    int dec_step_gpio, dec_dir_gpio, dec_uart_num, dec_uart_tx_gpio, dec_uart_rx_gpio;
+    int led_gpio, buzzer_gpio;
+} ProfileSnapshot;
+
+const ProfileSnapshot *host_profile_snapshot(void) {
+    static ProfileSnapshot s = {0};
+    const MountProfile *p = &mount_profile;
+    s.id = p->id;
+    s.name = p->name;
+    s.geometry = (int) p->geometry;
+    s.ra_reference_offset_deg = p->ra_reference_offset_deg;
+    s.full_step_deg = p->full_step_deg;
+    s.gear_ratio = p->gear_ratio;
+    s.canonical_microsteps = p->canonical_microsteps;
+    s.slew_microsteps = p->slew_microsteps;
+    s.max_slew_dps = p->max_slew_dps;
+    s.max_manual_dps = p->max_manual_dps;
+    s.slew_min_speed_dps = p->slew.min_speed_dps;
+    s.slew_short_distance_deg = p->slew.short_distance_deg;
+    s.slew_gentle_distance_deg = p->slew.gentle_distance_deg;
+    s.slew_gentle_max_dps = p->slew.gentle_max_dps;
+    s.slew_accel_distance_deg = p->slew.accel_distance_deg;
+    s.slew_decel_distance_deg = p->slew.decel_distance_deg;
+    s.ra_hard_min_deg = p->axes[AXIS_RA].hard_min_deg;
+    s.ra_hard_max_deg = p->axes[AXIS_RA].hard_max_deg;
+    s.ra_default_min_deg = p->axes[AXIS_RA].default_min_deg;
+    s.ra_default_max_deg = p->axes[AXIS_RA].default_max_deg;
+    s.dec_hard_min_deg = p->axes[AXIS_DEC].hard_min_deg;
+    s.dec_hard_max_deg = p->axes[AXIS_DEC].hard_max_deg;
+    s.dec_default_min_deg = p->axes[AXIS_DEC].default_min_deg;
+    s.dec_default_max_deg = p->axes[AXIS_DEC].default_max_deg;
+    s.irun = p->hardware.irun;
+    s.ihold = p->hardware.ihold;
+    s.ra_step_gpio = p->hardware.axes[AXIS_RA].step_gpio;
+    s.ra_dir_gpio = p->hardware.axes[AXIS_RA].dir_gpio;
+    s.ra_uart_num = p->hardware.axes[AXIS_RA].uart_num;
+    s.ra_uart_tx_gpio = p->hardware.axes[AXIS_RA].uart_tx_gpio;
+    s.ra_uart_rx_gpio = p->hardware.axes[AXIS_RA].uart_rx_gpio;
+    s.dec_step_gpio = p->hardware.axes[AXIS_DEC].step_gpio;
+    s.dec_dir_gpio = p->hardware.axes[AXIS_DEC].dir_gpio;
+    s.dec_uart_num = p->hardware.axes[AXIS_DEC].uart_num;
+    s.dec_uart_tx_gpio = p->hardware.axes[AXIS_DEC].uart_tx_gpio;
+    s.dec_uart_rx_gpio = p->hardware.axes[AXIS_DEC].uart_rx_gpio;
+    s.led_gpio = p->hardware.led_gpio;
+    s.buzzer_gpio = p->hardware.buzzer_gpio;
+    return &s;
+}
 
 /* State accessors. */
 int host_status(void) { return (int) motors_current_state().status; }
@@ -522,7 +600,6 @@ int host_fill_queue_with_slew(int n) {
             .ra_speed = 0.1f,
             .dec_speed = 0.0f,
             .tracking_mode = TRACKING_NONE,
-            .resume_tracking = TRACKING_NONE,
             .relative = false,
         };
         if (!motors_queue_put(&cmd)) {
@@ -545,10 +622,15 @@ int host_enqueue_slew(float ra_target_deg, float dec_target_deg, float speed_dps
         .ra_speed = speed_dps,
         .dec_speed = speed_dps,
         .tracking_mode = TRACKING_NONE,
-        .resume_tracking = TRACKING_NONE,
         .relative = false,
     };
     return motors_queue_put(&cmd) ? 1 : 0;
+}
+
+/* Real slew producer — drives the production admission path (validation,
+ * tracking pause/resume, enqueue), not a raw enqueue. */
+int host_slew_to_angle(float ra_deg, float dec_deg, int speed_rate) {
+    return motors_slew_to_angle(ra_deg, dec_deg, speed_rate) == MOTOR_OK ? 1 : 0;
 }
 
 /* Active microstep resolution (via the motors/TMC layer) — lets a test assert

@@ -4,9 +4,7 @@
  * (500:1 total), no RA reference offset.
  *
  * Electronics: same ESP32-S3 44-pin + TMC2209 wiring as NRM-HA.  GPIO numbers
- * are the raw ESP32-S3 pin numbers.  Pending physical verification: NRM uses
- * GPIO 4 for the buzzer, BFT uses GPIO 6 — kept as configured, not changed
- * until confirmed on the real board.
+ * are the raw ESP32-S3 pin numbers.  Both mounts drive the buzzer on GPIO 4.
  */
 #include "mount_profile.h"
 
@@ -68,7 +66,7 @@ const MountProfile mount_profile = {
             },
         },
         .led_gpio = 5,
-        .buzzer_gpio = 6,
+        .buzzer_gpio = 4,
         .irun = 14,
         .ihold = 10,
     },

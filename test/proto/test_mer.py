@@ -3,6 +3,10 @@ import pytest
 
 from conftest import setup_site_time, wait_not_moving, wait_tracking
 
+# Pier side and meridian flip are German-equatorial behaviors (fork: unknown side,
+# no flip).
+pytestmark = pytest.mark.geometry("german")
+
 
 def _pier_num(proto):
     return 0 if proto.state()["pier_side"] == "east" else 1

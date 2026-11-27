@@ -102,8 +102,13 @@ class PhdCalibrationTests(unittest.TestCase):
         self.h.wait_not_guiding(timeout=1.5)
         ra_delta = self.h.lib.host_ra_steps() - ra0
         self.assertGreater(ra_delta, 0, "East must not reverse mechanical RA")
-        # ~0.5x sidereal over ~0.5 s ≈ 11 steps, well below full sidereal (~22).
-        self.assertLess(ra_delta, 20, "East did not decelerate RA")
+        # East runs at 0.5x sidereal during the pulse, so the RA advance over the
+        # ~0.5 s window stays below full sidereal.  The bound is expressed in
+        # steps via DEG_PER_STEP so it scales with the profile's reduction
+        # (300:1 -> ~22 steps, 500:1 -> ~37 steps): a hardcoded count would be
+        # correct for only one profile.
+        full_sidereal_steps = SIDEREAL_DPS * 0.5 / DEG_PER_STEP
+        self.assertLess(ra_delta, full_sidereal_steps, "East did not decelerate RA")
 
     # ── canonical DEC round-trip ──
 

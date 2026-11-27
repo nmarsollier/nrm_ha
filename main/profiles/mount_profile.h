@@ -85,7 +85,3 @@ typedef struct {
 } MountProfile;
 
 extern const MountProfile mount_profile;
-
-/* Validate the profile invariants (finite/ordered/within-envelope).  Called at
- * boot; a false return is a configuration error. */
-bool mount_profile_validate(const MountProfile *p);

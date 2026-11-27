@@ -4,6 +4,7 @@ import time
 import pytest
 
 from client import DeviceError
+from conftest import move_dec_off_pole, setup_site_time, wait_not_moving
 
 DIRS = {0: "north", 1: "south", 2: "east", 3: "west"}
 
@@ -18,12 +19,14 @@ def _quiet(proto):
 @pytest.mark.parametrize("direction", [0, 1, 2, 3])
 def test_pulse_guide_directions(proto, direction):
     """ACTION guide accepts the four celestial directions."""
+    move_dec_off_pole(proto)          # N/S guide is invalid at the pole on a fork
     proto.action("guide", direction=DIRS[direction], duration_ms=100)
     assert proto.state()["guiding"] in (True, False)
 
 
 def test_pulse_duration_controls_correction(proto):
     """A pulse of valid duration ends (guiding becomes false)."""
+    move_dec_off_pole(proto)
     proto.action("guide", direction="north", duration_ms=300)
     time.sleep(0.5)
     assert proto.state()["guiding"] is False
@@ -39,6 +42,7 @@ def test_set_guide_rates(proto):
 
 def test_guide_ra_and_dec(proto):
     """Guide simultaneously in RA and DEC (both axes accepted)."""
+    move_dec_off_pole(proto)
     proto.action("guide", direction="north", duration_ms=200)
     proto.action("guide", direction="east", duration_ms=200)
 
@@ -108,3 +112,20 @@ def test_config_wrong_type_rejected(proto):
         proto.config_set(lat="north")   # string where a number is required
     after = proto.config_get()["config"]
     assert after["lat"] == cfg["lat"], "a mistyped lat must not be silently ignored"
+
+
+@pytest.mark.geometry("fork")
+def test_guide_at_pole_rejected(proto):
+    """A N/S guide at the celestial pole is rejected without moving; E/W is
+    allowed as a mechanical rotation (fork)."""
+    setup_site_time(proto)
+    proto.action("home")
+    wait_not_moving(proto)
+
+    proto.config_set(guide_rate_dec=0.5)
+    with pytest.raises(DeviceError):
+        proto.action("guide", direction="north", duration_ms=100)
+    with pytest.raises(DeviceError):
+        proto.action("guide", direction="south", duration_ms=100)
+    proto.action("guide", direction="east", duration_ms=100)
+    proto.action("guide", direction="west", duration_ms=100)

@@ -2,7 +2,7 @@
 import time
 
 
-def test_set_site(profile, proto):
+def test_set_site(proto):
     """Set the observing site via CONFIG and read it back."""
     proto.config_set(lat=-32.89, lon=-68.83, elevation=750)
     cfg = proto.config_get()["config"]

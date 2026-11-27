@@ -11,13 +11,13 @@ def _quiet(proto):
     proto.control(tracking="none")
 
 
-def test_goto_duration_matches_ramp(proto):
+def test_goto_duration_matches_ramp(proto, caps):
     """A goto takes the time the acceleration ramp dictates."""
     setup_site_time(proto)
-    assert_goto_duration(proto, 6.0, -60.0, 6.0)
+    assert_goto_duration(proto, caps, 6.0, -60.0)
 
 
-def test_short_goto_duration(proto):
+def test_short_goto_duration(proto, caps):
     """A short goto (triangular ramp) still matches the model."""
     setup_site_time(proto)
-    assert_goto_duration(proto, 6.0, -65.0, 6.0)
+    assert_goto_duration(proto, caps, 6.0, -65.0)

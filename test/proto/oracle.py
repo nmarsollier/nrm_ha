@@ -3,60 +3,59 @@
 Spherical angular distance between equatorial coordinates, handling the RA
 24 h / 0 h wrap and careful with polar singularities. RA in hours; DEC in degrees.
 
-Also the slew-time model: a closed-form replica of the firmware ramp profile
-(main/motors/motors_motion_task.c) so a test can predict how long a goto must
-take from the observed axis distance.
+Also the slew-time model: a closed-form replica of the firmware ramp profile so a
+test can predict how long a goto must take from the observed axis distance.  All
+mechanical ramp parameters are passed in explicitly — the oracle keeps no
+per-mount constants; the caller supplies the CAPABILITIES ``slew`` ramp.
 """
 import math
 
 
-# ── slew ramp constants (mirror motors_motion_task.c) ─────────────
-MIN_SLEW_DPS = 0.8        # MIN_SLEW_CDS / 100
-ACCEL_DIST_DEG = 5.0      # ACCEL_DIST_CDS / 100
-DECEL_DIST_DEG = 5.0      # DECEL_DIST_CDS / 100
-SHORT_SLEW_DEG = 2.0      # SHORT_SLEW_CDS / 100
-GENTLE_SLEW_DEG = 8.0     # GENTLE_SLEW_CDS / 100
-
-
-def capped_speed(speed_dps, distance_deg):
+def capped_speed(speed_dps, distance_deg, min_speed_dps, short_distance_deg,
+                 gentle_distance_deg, gentle_max_dps):
     """Target speed after the gentle-slew cap (motors ramp_velocity)."""
-    if distance_deg < SHORT_SLEW_DEG:
-        return MIN_SLEW_DPS
-    if distance_deg < GENTLE_SLEW_DEG:
-        return min(speed_dps, MIN_SLEW_DPS * 4.0)  # 3.2 dps cap
+    if distance_deg < short_distance_deg:
+        return min_speed_dps
+    if distance_deg < gentle_distance_deg:
+        return min(speed_dps, gentle_max_dps)
     return speed_dps
 
 
-def slew_time(distance_deg, speed_dps, accel=ACCEL_DIST_DEG, decel=DECEL_DIST_DEG):
-    """Exact single-axis slew duration (s) under the firmware ramp.
+def slew_time(distance_deg, speed_dps, ramp):
+    """Exact single-axis slew duration (s) under the ramp profile `ramp`.
 
-    Velocity ramps linearly with *distance* from MIN_SLEW_DPS up to the capped
-    target and back down to MIN_SLEW_DPS — a trapezoid, or a triangle when the
-    move is shorter than the accel+decel window.  Below SHORT_SLEW_DEG the axis
-    runs at constant MIN_SLEW_DPS.  dt = ∫ dx / v(x) has the closed form below.
+    Velocity ramps linearly with *distance* from ``min_speed_dps`` up to the
+    capped target and back down to ``min_speed_dps`` — a trapezoid, or a triangle
+    when the move is shorter than the accel+decel window.  Below
+    ``short_distance_deg`` the axis runs at constant ``min_speed_dps``.
+    dt = ∫ dx / v(x) has the closed form below.
 
-    `accel`/`decel` default to the NRM window (5°/5°); pass the profile's ramp
-    window for a profile-aware oracle.
+    `ramp` is the CAPABILITIES ``slew`` object: min_speed_dps,
+    short_distance_deg, gentle_distance_deg, gentle_max_dps, accel_distance_deg,
+    decel_distance_deg.
     """
     if distance_deg <= 0.0:
         return 0.0
-    capped = capped_speed(speed_dps, distance_deg)
-    if distance_deg < SHORT_SLEW_DEG:
-        return distance_deg / MIN_SLEW_DPS
-    ramp_ln = math.log(capped / MIN_SLEW_DPS) / (capped - MIN_SLEW_DPS)
+    min_speed = ramp["min_speed_dps"]
+    short = ramp["short_distance_deg"]
+    accel = ramp["accel_distance_deg"]
+    decel = ramp["decel_distance_deg"]
+    capped = capped_speed(speed_dps, distance_deg, min_speed, short,
+                          ramp["gentle_distance_deg"], ramp["gentle_max_dps"])
+    if distance_deg < short:
+        return distance_deg / min_speed
+    ramp_ln = math.log(capped / min_speed) / (capped - min_speed)
     if distance_deg <= accel + decel:  # triangular
         return distance_deg * ramp_ln
-    # trapezoidal: accel + cruise + decel
     t_accel = accel * ramp_ln
     t_decel = decel * ramp_ln
     return t_accel + t_decel + (distance_deg - accel - decel) / capped
 
 
-def goto_time(ra_dist_deg, dec_dist_deg, speed_dps,
-              accel=ACCEL_DIST_DEG, decel=DECEL_DIST_DEG):
+def goto_time(ra_dist_deg, dec_dist_deg, speed_dps, ramp):
     """Duration of a two-axis slew: the slower axis (larger distance) wins."""
-    return max(slew_time(ra_dist_deg, speed_dps, accel, decel),
-               slew_time(dec_dist_deg, speed_dps, accel, decel))
+    return max(slew_time(ra_dist_deg, speed_dps, ramp),
+               slew_time(dec_dist_deg, speed_dps, ramp))
 
 
 def angular_separation_deg(ra1_h, dec1_deg, ra2_h, dec2_deg):

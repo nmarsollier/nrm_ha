@@ -4,7 +4,7 @@ import time
 import pytest
 
 from client import DeviceError
-from conftest import axis_position, wait_not_moving, wait_slewing, wait_until
+from conftest import axis_position, setup_site_time, wait_not_moving, wait_slewing, wait_until
 
 
 @pytest.fixture(autouse=True)
@@ -94,14 +94,15 @@ def test_change_rate_without_release(proto):
     wait_not_moving(proto)
 
 
-@pytest.mark.parametrize("axis,limit", [(0, 100.0), (1, 150.0)])
-def test_move_axis_limit(proto, axis, limit):
+@pytest.mark.parametrize("axis", [0, 1])
+def test_move_axis_limit(proto, axis):
     """MoveAxis stops at the axis limit, never passes it, and moves back."""
+    limit = proto.state()["limits"]["ra_max"] if axis == 0 else proto.state()["limits"]["dec_max"]
     proto.action("home")
     wait_not_moving(proto)
 
-    # Manual motion is capped at 1.0 deg/s; 100° (RA) / 150° (DEC) at that
-    # rate needs up to 150 s, so the poll timeout reflects the real travel.
+    # Manual motion is capped at 1.0 deg/s; the travel to the limit at that
+    # rate needs up to ~150 s, so the poll timeout reflects the real travel.
     rate = {"ra": 1.0, "dec": 1.0}
     if axis == 0:
         proto.control(manual_ra_dps=rate["ra"])
@@ -133,3 +134,30 @@ def test_move_axis_limit(proto, axis, limit):
     pos2 = axis_position(proto)
     val2 = pos2["ra_deg"] if axis == 0 else pos2["dec_deg"]
     assert val2 < limit, f"axis {axis} did not move away from the limit"
+
+
+@pytest.mark.geometry("fork")
+def test_relative_move_crosses_pole(proto):
+    """A relative DEC move through the pole does not bias the next GOTO: the
+    destination is chosen by minimum travel, not by a remembered side (fork)."""
+    setup_site_time(proto)
+    proto.action("home")
+    wait_not_moving(proto)
+
+    # Positive side: relative move DEC +30.
+    proto.action("move", axis="dec", degrees=30.0, speed=4)
+    wait_not_moving(proto)
+    assert abs(proto.state()["dec_axis_deg"] - 30) < 1.0
+
+    # Cross the pole: +30 -> -30.
+    proto.action("move", axis="dec", degrees=-60.0, speed=4)
+    wait_not_moving(proto)
+    assert abs(proto.state()["dec_axis_deg"] + 30) < 1.0
+
+    # From (0,-30) the minimum-travel solution for (HA=-60, dec=-60) is the
+    # unflipped (R=-60, D=+30): |dR|=60 beats the flipped equivalent's |dR|=120.
+    lst = proto.state()["lst"]
+    proto.action("goto", ra=(lst + 4.0) % 24.0, dec=-60.0, speed=4)
+    wait_not_moving(proto)
+    assert proto.state()["dec_axis_deg"] > 1, \
+        f"min-travel did not pick the positive side: dec_axis={proto.state()['dec_axis_deg']}"

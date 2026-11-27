@@ -21,7 +21,8 @@ CFLAGS := -shared -fPIC -std=c11 -O2 -Wall -Wextra $(STUB_INC) $(PROD_INC)
 
 MOTOR_SRCS := \
   motors_current_state.c motors_enter_error_state.c motors_get_tracking_speed.c \
-  motors_get_move_axis_speed.c motors_move_axis_speed.c motors_start_tracking.c \
+  motors_get_move_axis_speed.c motors_get_slewing_speed.c motors_slew_to_angle.c \
+  motors_move_axis_speed.c motors_start_tracking.c \
   motors_stop.c motors_park.c motors_unpark.c motors_tools.c motors_hw.c motors_rmt.c \
   motors_command_queue.c motors_motion_task.c motors_pulse_guide.c \
   motors_is_pulse_guiding.c motors_microsteps.c motors_power.c
@@ -35,8 +36,7 @@ PROD_SRCS := $(addprefix $(ROOT)/main/motors/,$(MOTOR_SRCS)) \
              $(ROOT)/main/motion/axis_units.c \
              $(ROOT)/main/motion/slew_ramp.c \
              $(ROOT)/main/geometry/geometry_common.c \
-             $(ROOT)/main/profiles/profile_$(PROFILE).c \
-             $(ROOT)/main/profiles/mount_profile_validate.c
+             $(ROOT)/main/profiles/profile_$(PROFILE).c
 
 HOST_SRCS := $(HOSTDIR)host_main.c $(HOSTDIR)host_rtos.c $(HOSTDIR)host_rmt.c \
              $(HOSTDIR)host_gpio.c $(HOSTDIR)host_time.c $(HOSTDIR)tmc_stubs.c

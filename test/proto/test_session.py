@@ -1,7 +1,7 @@
 """SESSION — a long mixed session stays coherent (tracking + guide + goto + park)."""
 import pytest
 
-from conftest import setup_site_time, wait_not_moving, wait_tracking
+from conftest import move_dec_off_pole, setup_site_time, wait_not_moving, wait_tracking
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +19,7 @@ def test_prolonged_mixed_session(proto):
     """Tracking + guide + small goto + cancel + park, staying coherent."""
     setup_site_time(proto)
 
+    move_dec_off_pole(proto)          # DEC guide is invalid at the pole on a fork
     proto.control(tracking="sidereal")
     wait_tracking(proto, "sidereal")
 

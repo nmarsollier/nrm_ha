@@ -5,8 +5,7 @@
  *
  * Electronics: ESP32-S3 44-pin, TMC2209 per axis on single-wire UART
  * (UART1 = RA, UART2 = DEC).  GPIO numbers are the raw ESP32-S3 pin numbers.
- * Pending physical verification: NRM uses GPIO 4 for the buzzer, BFT uses
- * GPIO 6 — kept as configured, not changed until confirmed on the real board.
+ * Both mounts drive the buzzer on GPIO 4.
  */
 #include "mount_profile.h"
 
