@@ -11,6 +11,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "TMC_SET_CHOP_MODE";
@@ -22,7 +23,7 @@ static const char *TAG = "TMC_SET_CHOP_MODE";
  * StealthChop.  The other GCONF bits (pdn_disable, mstep_reg_select) are
  * preserved by the read-modify-write.  Retries 3 times before giving up.
  */
-static esp_err_t tmc_set_gconf_spread(const TmcAxis *axis, bool spread_cycle) {
+static esp_err_t tmc_set_gconf_spread(int axis, bool spread_cycle) {
     bool spread_high = false;
     if (!tmc_read_spread_pin(axis, &spread_high)) {
         return ESP_FAIL;
@@ -65,7 +66,7 @@ esp_err_t tmc2209_set_chop_mode(TmcChopMode mode)
             result = ESP_FAIL;
             break;
         }
-        if (tmc_set_gconf_spread(&tmc_axes[i], spread_cycle) != ESP_OK) {
+        if (tmc_set_gconf_spread(i, spread_cycle) != ESP_OK) {
             result = ESP_FAIL;
             break;
         }
@@ -76,8 +77,6 @@ esp_err_t tmc2209_set_chop_mode(TmcChopMode mode)
         ESP_LOGI(TAG, "chop mode set to %s on both axes",
                  spread_cycle ? "SpreadCycle" : "StealthChop");
     } else {
-        tmc_status = TMC_ERROR;
-        tmc_error = TMC_ERROR_CHOP_MODE_SET;
         ESP_LOGE(TAG, "chop mode switch to %s failed — not trusted",
                  spread_cycle ? "SpreadCycle" : "StealthChop");
     }

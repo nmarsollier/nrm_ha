@@ -11,7 +11,7 @@
  * pins, so GPIO level maps to the driver pin with no inversion.
  */
 
-#include "board/board_config.h"
+#include "mount_profile.h"
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -32,8 +32,8 @@ esp_err_t motors_hw_init(void) {
      * peripheral and configured by motors_rmt_init().
      */
     const uint64_t pin_mask =
-            (1ULL << RA_DIR_GPIO) |
-            (1ULL << DEC_DIR_GPIO);
+            (1ULL << mount_profile.hardware.axes[AXIS_RA].dir_gpio) |
+            (1ULL << mount_profile.hardware.axes[AXIS_DEC].dir_gpio);
 
     gpio_config_t config = {
         .pin_bit_mask = pin_mask,
@@ -63,7 +63,7 @@ void motors_hw_set_direction_ra(MotorDirection direction) {
     int dir = dir_high ? 1 : 0;
     if (last_dir_ra != dir) {
         last_dir_ra = dir;
-        gpio_set_level(RA_DIR_GPIO, dir);
+        gpio_set_level((gpio_num_t) mount_profile.hardware.axes[AXIS_RA].dir_gpio, dir);
         esp_rom_delay_us(DIR_SETUP_TIME_US);
     }
 }
@@ -74,7 +74,7 @@ void motors_hw_set_direction_dec(MotorDirection direction) {
     int dir = dir_high ? 1 : 0;
     if (last_dir_dec != dir) {
         last_dir_dec = dir;
-        gpio_set_level(DEC_DIR_GPIO, dir);
+        gpio_set_level((gpio_num_t) mount_profile.hardware.axes[AXIS_DEC].dir_gpio, dir);
         esp_rom_delay_us(DIR_SETUP_TIME_US);
     }
 }

@@ -27,11 +27,11 @@ static void nan_dec_default_min(MountProfile *p) { p->axes[AXIS_DEC].default_min
 static void nan_dec_default_max(MountProfile *p) { p->axes[AXIS_DEC].default_max_deg = NAN; }
 static void nan_ra_default_min(MountProfile *p) { p->axes[AXIS_RA].default_min_deg = NAN; }
 static void nan_ra_default_max(MountProfile *p) { p->axes[AXIS_RA].default_max_deg = NAN; }
-static void bad_microsteps(MountProfile *p) { p->axes[AXIS_RA].canonical_microsteps = 3; }
+static void bad_microsteps(MountProfile *p) { p->canonical_microsteps = 3; }
 static void unordered_hard_limits(MountProfile *p) { p->axes[AXIS_RA].hard_max_deg = p->axes[AXIS_RA].hard_min_deg - 1.0f; }
-static void zero_gear(MountProfile *p) { p->axes[AXIS_RA].gear_ratio = 0.0f; }
+static void zero_gear(MountProfile *p) { p->gear_ratio = 0.0f; }
 static void default_outside_envelope(MountProfile *p) { p->axes[AXIS_RA].default_max_deg = p->axes[AXIS_RA].hard_max_deg + 1.0f; }
-static void noncanonical_slew(MountProfile *p) { p->axes[AXIS_RA].canonical_microsteps = 16; p->axes[AXIS_RA].slew_microsteps = 3; }
+static void noncanonical_slew(MountProfile *p) { p->canonical_microsteps = 16; p->slew_microsteps = 3; }
 
 bool host_reject_nan_dec_min(void) { return rejected_when(nan_dec_default_min); }
 bool host_reject_nan_dec_max(void) { return rejected_when(nan_dec_default_max); }

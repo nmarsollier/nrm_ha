@@ -21,7 +21,7 @@ bool tmc2209_probe(void)
     uint32_t value = 0;
     for (size_t i = 0; i < TMC_AXIS_COUNT; i++) {
         if (!tmc_uart_ok[i]
-            || tmc_read_register(&tmc_axes[i], TMC_REG_DRV_STATUS, &value) != ESP_OK) {
+            || tmc_read_register(i, TMC_REG_DRV_STATUS, &value) != ESP_OK) {
             ok = false;
             break;
         }

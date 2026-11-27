@@ -69,7 +69,6 @@ class ForkTests(unittest.TestCase):
             str(ROOT / "main/motion/slew_ramp.c"),
             str(ROOT / "main/geometry/geometry_common.c"),
             str(ROOT / "main/geometry/geometry_german.c"),
-            str(ROOT / "main/geometry/geometry_fork_horizon.c"),
             str(ROOT / "main/profiles/profile_nrm_ha.c"),
             str(ROOT / "main/mount/mount_coordinate_tools.c"),
             str(ROOT / "main/mount/mount_get_lst.c"),

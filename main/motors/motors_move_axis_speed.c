@@ -4,7 +4,7 @@
  * Positive rate = forward, negative = reverse, zero = stop that axis.
  * Used by MoveAxis, joystick, and guiding.
  *
- * Speeds are clamped to [-MOTORS_MAX_MOVE_AXIS_SPEED_DPS, +MOTORS_MAX_MOVE_AXIS_SPEED_DPS].
+ * Speeds are clamped to the profile's manual ceiling (max_manual_dps).
  *
  * The manual session is owned here: a non-zero rate opens it (saving the tracking
  * mode to restore), a zero closes it (draining the MoveAxis and restoring the
@@ -58,7 +58,7 @@ MotorResultCode motors_set_move_axis_speed(float ra_speed, float dec_speed) {
     }
 
     /* Clamp to the manual move-axis ceiling. */
-    float max_dps = MOTORS_MAX_MOVE_AXIS_SPEED_DPS;
+    float max_dps = mount_profile.max_manual_dps;
     if (ra_speed > max_dps) ra_speed = max_dps;
     if (ra_speed < -max_dps) ra_speed = -max_dps;
     if (dec_speed > max_dps) dec_speed = max_dps;
@@ -165,7 +165,7 @@ MotorResultCode motors_set_move_axis_rate(int axis, float rate) {
         return MOTOR_ERR_PARKED;
     }
 
-    float max_dps = MOTORS_MAX_MOVE_AXIS_SPEED_DPS;
+    float max_dps = mount_profile.max_manual_dps;
     if (rate > max_dps) rate = max_dps;
     if (rate < -max_dps) rate = -max_dps;
 

@@ -37,7 +37,6 @@ idf_component_register(
         "tmc/tmc_set_chop_mode.c"
         "tmc/tmc_get_chop_mode.c"
         "tmc/tmc_get_initialized.c"
-        "tmc/tmc_status.c"
 
         "led/led_init.c"
         "led/led_set_state.c"
@@ -100,12 +99,10 @@ idf_component_register(
         "runtime/runtime_setup.c"
 
         "utils/number_utils.c"
-        "utils/string_utils.c"
 
         "motion/axis_units.c"
         "motion/slew_ramp.c"
         "geometry/geometry_common.c"
-        "geometry/geometry_fork_horizon.c"
         ${MOUNT_GEOMETRY_SRC}
 
         ${PROTO_CDC_SRCS}
@@ -115,7 +112,6 @@ idf_component_register(
 
         INCLUDE_DIRS
         "."
-        "board"
         "buzzer"
         "geometry"
         "motion"

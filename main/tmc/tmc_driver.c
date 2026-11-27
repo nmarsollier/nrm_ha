@@ -9,10 +9,11 @@
 
 #include "tmc.h"
 #include "tmc_internal.h"
-#include "board/board_config.h"
+#include "mount_profile.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "TMC_DRIVER";
@@ -70,7 +71,7 @@ static bool tmc_mres_to_microsteps(uint8_t mres, uint16_t *microsteps) {
  * Only the bits set in `mask` must match — reserved bits that the hardware
  * ignores are simply excluded. Retries on flaky single-wire UART reads.
  */
-static esp_err_t tmc_write_verified(const TmcAxis *axis, uint8_t reg,
+static esp_err_t tmc_write_verified(int axis, uint8_t reg,
                                     uint32_t value, uint32_t mask,
                                     uint32_t *readback)
 {
@@ -95,7 +96,7 @@ static esp_err_t tmc_write_verified(const TmcAxis *axis, uint8_t reg,
  * IFCNT increments on every valid write. Write-only registers cannot be read
  * back, so IFCNT is the only available proof of acceptance.
  */
-static esp_err_t tmc_write_only_verified(const TmcAxis *axis, uint8_t reg,
+static esp_err_t tmc_write_only_verified(int axis, uint8_t reg,
                                          uint32_t value)
 {
     uint32_t before = 0, after = 0;
@@ -118,7 +119,7 @@ static esp_err_t tmc_write_only_verified(const TmcAxis *axis, uint8_t reg,
  * caller then assumes SPREAD=LOW (spread_high stays false), matching the init
  * default below.
  */
-bool tmc_read_spread_pin(const TmcAxis *axis, bool *spread_high) {
+bool tmc_read_spread_pin(int axis, bool *spread_high) {
     uint32_t ioin = 0;
     if (tmc_read_register(axis, TMC_REG_IOIN, &ioin) != ESP_OK) {
         return false;
@@ -129,13 +130,14 @@ bool tmc_read_spread_pin(const TmcAxis *axis, bool *spread_high) {
 
 /* ── Driver init (write + verify) ──────────────────────────── */
 
-static esp_err_t tmc_init_driver(const TmcAxis *axis, uint16_t microsteps)
+static esp_err_t tmc_init_driver(int axis, uint16_t microsteps)
 {
     esp_err_t result;
     uint32_t verify = 0;
+    const AxisHardwareProfile *hw = &mount_profile.hardware.axes[axis];
 
     ESP_LOGI(TAG, "--- Initialising axis %s [UART %d, TX %d, RX %d] ---",
-             axis->name, axis->uart_num, axis->tx_gpio, axis->rx_gpio);
+             tmc_axis_name(axis), hw->uart_num, hw->uart_tx_gpio, hw->uart_rx_gpio);
 
     /* ── GCONF: StealthChop base (chopper mode forced at runtime) ──
      * The SPREAD pin inverts en_SpreadCycle (spread_forzado = en_SpreadCycle
@@ -152,24 +154,20 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, uint16_t microsteps)
     uint32_t gconf_mask = (1U << 7) | (1U << 6) | (1U << 2);
     result = tmc_write_verified(axis, TMC_REG_GCONF, gconf, gconf_mask, &verify);
     if (result != ESP_OK) {
-        tmc_status = TMC_ERROR;
-        tmc_error = TMC_ERROR_GCONF_WRITE;
-        ESP_LOGE(TAG, "%s: GCONF write/verify failed (0x%08lX)", axis->name, (unsigned long)verify);
+        ESP_LOGE(TAG, "%s: GCONF write/verify failed (0x%08lX)", tmc_axis_name(axis), (unsigned long)verify);
         return result;
     }
     ESP_LOGI(TAG, "%s: GCONF verified — StealthChop forced (SPREAD=%s) (0x%08lX)",
-             axis->name, spread_high ? "HIGH" : "LOW", (unsigned long)verify);
+             tmc_axis_name(axis), spread_high ? "HIGH" : "LOW", (unsigned long)verify);
 
     /* ── IHOLD_IRUN (write-only) ──
      * Field layout: IHOLD [4:0], IRUN [12:8], IHOLDDELAY [19:16]. */
-    uint32_t ihold_irun = (uint32_t)TMC_IHOLD       /* IHOLD [4:0] */
-                        | ((uint32_t)TMC_IRUN << 8) /* IRUN  [12:8] */
-                        | (1U << 16);               /* IHOLDDELAY = 1 */
+    uint32_t ihold_irun = (uint32_t)mount_profile.hardware.ihold       /* IHOLD [4:0] */
+                        | ((uint32_t)mount_profile.hardware.irun << 8) /* IRUN  [12:8] */
+                        | (1U << 16);                                  /* IHOLDDELAY = 1 */
     result = tmc_write_only_verified(axis, TMC_REG_IHOLD_IRUN, ihold_irun);
     if (result != ESP_OK) {
-        tmc_status = TMC_ERROR;
-        tmc_error = TMC_ERROR_IHOLD_WRITE;
-        ESP_LOGE(TAG, "%s: IHOLD_IRUN write not accepted", axis->name);
+        ESP_LOGE(TAG, "%s: IHOLD_IRUN write not accepted", tmc_axis_name(axis));
         return result;
     }
 
@@ -187,9 +185,7 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, uint16_t microsteps)
                            | (0xFU << 24) | (1U << 28);
     result = tmc_write_verified(axis, TMC_REG_CHOPCONF, chopconf, chopconf_mask, &verify);
     if (result != ESP_OK) {
-        tmc_status = TMC_ERROR;
-        tmc_error = TMC_ERROR_CHOPCONF_VERIFY;
-        ESP_LOGE(TAG, "%s: CHOPCONF write/verify failed (0x%08lX)", axis->name, (unsigned long)verify);
+        ESP_LOGE(TAG, "%s: CHOPCONF write/verify failed (0x%08lX)", tmc_axis_name(axis), (unsigned long)verify);
         return result;
     }
 
@@ -197,7 +193,7 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, uint16_t microsteps)
     tmc_mres_to_microsteps((uint8_t)((verify >> 24) & 0x0F), &verified_msteps);
 
     ESP_LOGI(TAG, "%s: CHOPCONF verified — %u µsteps (0x%08lX)",
-             axis->name, verified_msteps, (unsigned long)verify);
+             tmc_axis_name(axis), verified_msteps, (unsigned long)verify);
 
     /* ── PWMCONF: silent StealthChop PWM ──
      * PWM_AUTOSCALE + PWM_AUTOGRAD auto-tune the current regulation for the
@@ -213,12 +209,10 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, uint16_t microsteps)
                           | (0x3U << 20) | (0xFU << 24) | (0xFU << 28);
     result = tmc_write_verified(axis, TMC_REG_PWMCONF, pwmconf, pwmconf_mask, &verify);
     if (result != ESP_OK) {
-        tmc_status = TMC_ERROR;
-        tmc_error = TMC_ERROR_PWMCONF_VERIFY;
-        ESP_LOGE(TAG, "%s: PWMCONF write/verify failed (0x%08lX)", axis->name, (unsigned long)verify);
+        ESP_LOGE(TAG, "%s: PWMCONF write/verify failed (0x%08lX)", tmc_axis_name(axis), (unsigned long)verify);
         return result;
     }
-    ESP_LOGI(TAG, "%s: PWMCONF verified — StealthChop auto-scale (0x%08lX)", axis->name, (unsigned long)verify);
+    ESP_LOGI(TAG, "%s: PWMCONF verified — StealthChop auto-scale (0x%08lX)", tmc_axis_name(axis), (unsigned long)verify);
 
     /* ── DRV_STATUS: confirm the chopper mode and cross-check IHOLD ──
      * bit 30 (stealth): 1 = StealthChop, 0 = SpreadCycle. CS_ACTUAL (bits
@@ -227,27 +221,23 @@ static esp_err_t tmc_init_driver(const TmcAxis *axis, uint16_t microsteps)
         bool stealth = (verify & (1U << 30)) != 0;
         uint8_t cs_actual = (uint8_t)((verify >> 16) & 0x1F);
         ESP_LOGI(TAG, "%s: DRV_STATUS=0x%08lX — %s (CS_ACTUAL=%u, IHOLD=%u)",
-                 axis->name, (unsigned long)verify,
-                 stealth ? "StealthChop" : "SpreadCycle", cs_actual, (unsigned)TMC_IHOLD);
+                 tmc_axis_name(axis), (unsigned long)verify,
+                 stealth ? "StealthChop" : "SpreadCycle", cs_actual, (unsigned)mount_profile.hardware.ihold);
         if (!stealth) {
             ESP_LOGW(TAG, "%s: StealthChop expected at standstill — check SPREAD pin (HIGH inverts en_SpreadCycle)",
-                     axis->name);
+                     tmc_axis_name(axis));
         }
     } else {
-        ESP_LOGW(TAG, "%s: DRV_STATUS read failed — chopper mode unknown", axis->name);
+        ESP_LOGW(TAG, "%s: DRV_STATUS read failed — chopper mode unknown", tmc_axis_name(axis));
     }
 
     ESP_LOGI(TAG, "%s: init complete (µsteps=%u, irun=%u, ihold=%u)",
-             axis->name, verified_msteps, (unsigned)TMC_IRUN, (unsigned)TMC_IHOLD);
+             tmc_axis_name(axis), verified_msteps,
+             (unsigned)mount_profile.hardware.irun, (unsigned)mount_profile.hardware.ihold);
     return ESP_OK;
 }
 
 /* ── Shared init helpers ───────────────────────────────────── */
-
-void tmc_reset_diagnostics(void) {
-    tmc_status = TMC_NOT_INIT;
-    tmc_error = TMC_ERROR_NONE;
-}
 
 /* Configure and verify every driver's registers. Assumes the UARTs are already
  * installed and the buses have settled.  `microsteps` is the initial resolution
@@ -268,9 +258,9 @@ esp_err_t tmc_configure_drivers(uint16_t microsteps) {
             all_ok = false;  /* UART setup already failed for this axis */
             continue;
         }
-        esp_err_t result = tmc_init_driver(&tmc_axes[i], microsteps);
+        esp_err_t result = tmc_init_driver(i, microsteps);
         if (result != ESP_OK) {
-            ESP_LOGE(TAG, "Error initialising axis %s", tmc_axes[i].name);
+            ESP_LOGE(TAG, "Error initialising axis %s", tmc_axis_name(i));
             all_ok = false;
         }
         vTaskDelay(pdMS_TO_TICKS(15));
@@ -286,7 +276,5 @@ esp_err_t tmc_configure_drivers(uint16_t microsteps) {
     tmc_microsteps = microsteps;
     tmc_chop_mode = TMC_CHOP_STEALTH;
     tmc2209_set_initialized(true);
-    tmc_status = TMC_OK;
-    tmc_error = TMC_ERROR_NONE;
     return ESP_OK;
 }

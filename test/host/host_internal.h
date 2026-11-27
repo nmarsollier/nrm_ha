@@ -4,7 +4,7 @@
 #include <stdbool.h>
 
 /* DIR GPIO level for each axis, as last written by gpio_set_level.
- * Index 0 = RA (RA_DIR_GPIO), index 1 = DEC (DEC_DIR_GPIO). */
+ * Index 0 = RA, index 1 = DEC (from the profile's DIR GPIOs). */
 extern int host_dir_level[2];
 
 /* Synchronized DIR accessors (host_gpio.c). */

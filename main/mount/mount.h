@@ -201,12 +201,6 @@ MountResult mount_set_move_axis_speed(float ra_speed, float dec_speed);
  * other axis's current rate. */
 MountResult mount_set_move_axis_rate(int axis, float rate);
 
-/* Convert RA from HMS struct to decimal hours. */
-float mount_get_ra_hours(void);
-
-/* Convert DEC from DMS struct to decimal degrees. */
-float mount_get_dec_deg(void);
-
 /* Compute the current Local Sidereal Time for the configured site. */
 float mount_get_lst(void);
 

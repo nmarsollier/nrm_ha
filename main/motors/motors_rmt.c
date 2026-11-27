@@ -13,8 +13,9 @@
  */
 
 #include "motors_internal.h"
-#include "board/board_config.h"
+#include "mount_profile.h"
 
+#include "driver/gpio.h"
 #include "driver/rmt_tx.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -183,13 +184,15 @@ esp_err_t motors_rmt_init(void)
 
     memset(&s_rmt, 0, sizeof(s_rmt));
 
-    esp_err_t err = create_channel(RA_STEP_GPIO, &s_rmt.ra, on_ra_tx_done, true);
+    esp_err_t err = create_channel((gpio_num_t) mount_profile.hardware.axes[AXIS_RA].step_gpio,
+                                   &s_rmt.ra, on_ra_tx_done, true);
     if (err != ESP_OK) {
         motors_rmt_deinit();
         return err;
     }
 
-    err = create_channel(DEC_STEP_GPIO, &s_rmt.dec, on_dec_tx_done, false);
+    err = create_channel((gpio_num_t) mount_profile.hardware.axes[AXIS_DEC].step_gpio,
+                         &s_rmt.dec, on_dec_tx_done, false);
     if (err != ESP_OK) {
         motors_rmt_deinit();
         return err;

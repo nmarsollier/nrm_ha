@@ -1,7 +1,6 @@
 #pragma once
 
 #include "led.h"
-#include "board/board_config.h"
 #include "driver/ledc.h"
 
 /* ── LEDC hardware configuration ──────────────────────────── */

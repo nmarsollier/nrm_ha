@@ -4,7 +4,6 @@
  */
 #include "motors.h"
 #include "motors_internal.h"
-#include "utils/utils.h"
 #include <string.h>
 
 /*
@@ -79,26 +78,6 @@ TrackingMode motors_tracking_from_string(const char *value) {
     return TRACKING_NONE;
 }
 
-const char *motors_tracking_valid_values(void) {
-    static char buffer[35];
-    static bool initialized = false;
-
-    if (initialized) {
-        return buffer;
-    }
-
-    const char *values[4];
-    values[0] = motors_tracking_to_string(TRACKING_NONE);
-    values[1] = motors_tracking_to_string(TRACKING_SIDEREAL);
-    values[2] = motors_tracking_to_string(TRACKING_LUNAR);
-    values[3] = motors_tracking_to_string(TRACKING_SOLAR);
-
-    string_join(buffer, sizeof(buffer), values, 4, "|", "[", "]");
-    initialized = true;
-
-    return buffer;
-}
-
 /*
  * Validate axis positions against the configured mechanical limits.
  */
@@ -111,9 +90,9 @@ bool motors_is_valid_dec(float value) {
 }
 
 bool motors_is_valid_ra_steps(int64_t steps) {
-    return motors_is_valid_ra(motors_steps_to_deg(AXIS_RA, steps));
+    return motors_is_valid_ra(motors_steps_to_deg(steps));
 }
 
 bool motors_is_valid_dec_steps(int64_t steps) {
-    return motors_is_valid_dec(motors_steps_to_deg(AXIS_DEC, steps));
+    return motors_is_valid_dec(motors_steps_to_deg(steps));
 }

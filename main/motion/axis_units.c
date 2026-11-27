@@ -1,4 +1,4 @@
-/* Motion — axis_units.c — mechanical unit conversion (per axis). */
+/* Motion — axis_units.c — mechanical unit conversion. */
 #include "axis_units.h"
 
 #include <math.h>
@@ -6,13 +6,12 @@
 
 #include "mount_profile.h"
 
-double axis_deg_per_step(AxisId axis) {
-    const AxisProfile *a = &mount_profile.axes[axis];
-    return (double) a->full_step_deg
-           / ((double) a->canonical_microsteps * (double) a->gear_ratio);
+double axis_deg_per_step(void) {
+    return (double) mount_profile.full_step_deg
+           / ((double) mount_profile.canonical_microsteps * (double) mount_profile.gear_ratio);
 }
 
-bool axis_deg_to_steps(AxisId axis, double degrees, int64_t *out_steps) {
+bool axis_deg_to_steps(double degrees, int64_t *out_steps) {
     if (out_steps == NULL) {
         return false;
     }
@@ -20,7 +19,7 @@ bool axis_deg_to_steps(AxisId axis, double degrees, int64_t *out_steps) {
     if (!isfinite(degrees)) {
         return false;
     }
-    double step = axis_deg_per_step(axis);
+    double step = axis_deg_per_step();
     double steps = degrees / step + (degrees >= 0.0 ? 0.5 : -0.5);
     /* Reject an out-of-range result rather than saturate it: a caller must be
      * able to tell an invalid conversion from a real position. */
@@ -31,6 +30,6 @@ bool axis_deg_to_steps(AxisId axis, double degrees, int64_t *out_steps) {
     return true;
 }
 
-double axis_steps_to_deg(AxisId axis, int64_t steps) {
-    return (double) steps * axis_deg_per_step(axis);
+double axis_steps_to_deg(int64_t steps) {
+    return (double) steps * axis_deg_per_step();
 }

@@ -7,20 +7,13 @@
 
 #include "tmc.h"
 #include "tmc_internal.h"
-#include "board/board_config.h"
+#include "mount_profile.h"
 
 #include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_err.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-
-/* ── Per-axis table ────────────────────────────────────────── */
-
-const TmcAxis tmc_axes[TMC_AXIS_COUNT] = {
-    { .name = "RA",  .uart_num = TMC_RA_UART_NUM,  .tx_gpio = TMC_RA_TX_GPIO,  .rx_gpio = TMC_RA_RX_GPIO },
-    { .name = "DEC", .uart_num = TMC_DEC_UART_NUM, .tx_gpio = TMC_DEC_TX_GPIO, .rx_gpio = TMC_DEC_RX_GPIO },
-};
 
 /* Per-axis UART readiness — set by tmc2209_hw_init() as each bus is installed. */
 bool tmc_uart_ok[TMC_AXIS_COUNT];
@@ -77,8 +70,10 @@ static uint8_t tmc_crc(const uint8_t *data, size_t len)
  * The written frame loops back into the RX FIFO (RX is on the same wire);
  * the echo is drained here so it never leaks into a subsequent read.
  */
-esp_err_t tmc_write_register(const TmcAxis *axis, uint8_t reg, uint32_t value)
+esp_err_t tmc_write_register(int axis, uint8_t reg, uint32_t value)
 {
+    const AxisHardwareProfile *a = &mount_profile.hardware.axes[axis];
+    uart_port_t uart = (uart_port_t) a->uart_num;
     uint8_t request[8] = {
         0x05,
         TMC2209_ADDRESS,
@@ -91,18 +86,18 @@ esp_err_t tmc_write_register(const TmcAxis *axis, uint8_t reg, uint32_t value)
     };
     request[7] = tmc_crc(request, 7);
 
-    uart_flush_input(axis->uart_num);
+    uart_flush_input(uart);
 
-    int written = uart_write_bytes(axis->uart_num, request, sizeof(request));
+    int written = uart_write_bytes(uart, request, sizeof(request));
     if (written != (int)sizeof(request)) {
         return ESP_FAIL;
     }
 
-    uart_wait_tx_done(axis->uart_num, pdMS_TO_TICKS(10));
+    uart_wait_tx_done(uart, pdMS_TO_TICKS(10));
 
     /* Absorb the 8-byte loopback echo from the single-wire bus. */
     uint8_t echo_buffer[8];
-    uart_read_bytes(axis->uart_num, echo_buffer, sizeof(request), pdMS_TO_TICKS(10));
+    uart_read_bytes(uart, echo_buffer, sizeof(request), pdMS_TO_TICKS(10));
 
     return ESP_OK;
 }
@@ -119,9 +114,14 @@ esp_err_t tmc_write_register(const TmcAxis *axis, uint8_t reg, uint32_t value)
  * Retries up to 6 attempts on timeout or invalid response — single-wire
  * UART reads are inherently prone to occasional corruption.
  */
-esp_err_t tmc_read_register(const TmcAxis *axis, uint8_t reg, uint32_t *value)
+esp_err_t tmc_read_register(int axis, uint8_t reg, uint32_t *value)
 {
     if (value == NULL) return ESP_ERR_INVALID_ARG;
+
+    const AxisHardwareProfile *a = &mount_profile.hardware.axes[axis];
+    uart_port_t uart = (uart_port_t) a->uart_num;
+    gpio_num_t tx_gpio = (gpio_num_t) a->uart_tx_gpio;
+    gpio_num_t rx_gpio = (gpio_num_t) a->uart_rx_gpio;
 
     uint8_t request[4] = {
         0x05,
@@ -137,24 +137,24 @@ esp_err_t tmc_read_register(const TmcAxis *axis, uint8_t reg, uint32_t *value)
         if (attempt > 0)
             vTaskDelay(pdMS_TO_TICKS(10));
 
-        uart_flush_input(axis->uart_num);
+        uart_flush_input(uart);
 
-        int written = uart_write_bytes(axis->uart_num, request, sizeof(request));
+        int written = uart_write_bytes(uart, request, sizeof(request));
         if (written != (int)sizeof(request)) return ESP_FAIL;
 
-        uart_wait_tx_done(axis->uart_num, pdMS_TO_TICKS(10));
+        uart_wait_tx_done(uart, pdMS_TO_TICKS(10));
 
         /* Drain the 4-byte loopback echo before floating TX. */
         uint8_t echo_buf[4];
-        uart_read_bytes(axis->uart_num, echo_buf, sizeof(request), pdMS_TO_TICKS(10));
+        uart_read_bytes(uart, echo_buf, sizeof(request), pdMS_TO_TICKS(10));
 
         /*
          * Float TX so the TMC2209 output has a clean, high-impedance
          * line to drive for the remainder of its 8-byte response frame
          * (the internal pull-up holds the idle HIGH level).
          */
-        gpio_set_direction(axis->tx_gpio, GPIO_MODE_INPUT);
-        gpio_set_pull_mode(axis->tx_gpio, GPIO_PULLUP_ONLY);
+        gpio_set_direction(tx_gpio, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(tx_gpio, GPIO_PULLUP_ONLY);
 
         /* Collect the remaining bytes of the combined (echo + reply)
          * stream. The reply is a fixed 8-byte datagram, so stop as soon as
@@ -169,7 +169,7 @@ esp_err_t tmc_read_register(const TmcAxis *axis, uint8_t reg, uint32_t *value)
         TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(50);
 
         while (xTaskGetTickCount() < deadline && len < (int)sizeof(response)) {
-            int n = uart_read_bytes(axis->uart_num, response + len,
+            int n = uart_read_bytes(uart, response + len,
                                     sizeof(response) - len, pdMS_TO_TICKS(5));
             if (n > 0) len += n;
             if (len >= 8) break;   /* full reply frame received */
@@ -177,9 +177,9 @@ esp_err_t tmc_read_register(const TmcAxis *axis, uint8_t reg, uint32_t *value)
 
         /* Restore TX — drive HIGH before re-enabling the output so the
          * bus doesn't glitch LOW while the IO MUX is reconnected. */
-        gpio_set_level(axis->tx_gpio, 1);
-        gpio_set_direction(axis->tx_gpio, GPIO_MODE_OUTPUT);
-        uart_set_pin(axis->uart_num, axis->tx_gpio, axis->rx_gpio,
+        gpio_set_level(tx_gpio, 1);
+        gpio_set_direction(tx_gpio, GPIO_MODE_OUTPUT);
+        uart_set_pin(uart, tx_gpio, rx_gpio,
                      UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
         if (len < 8) {

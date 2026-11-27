@@ -61,8 +61,3 @@ bool host_fork_reverse(float lat, float lon, double time,
 float host_fork_slew_duration(float distance, float speed) {
     return slew_ramp_duration(&mount_profile.slew, distance, speed);
 }
-
-bool host_fork_path_above_horizon(float ra_from, float dec_from,
-                                  float ra_to, float dec_to, float lat) {
-    return geometry_path_above_horizon(ra_from, dec_from, ra_to, dec_to, lat);
-}

@@ -3,7 +3,7 @@
 
 #include "driver/gpio.h"
 #include "host_internal.h"
-#include "board/board_config.h"
+#include "mount_profile.h"
 
 int host_dir_level[2] = {0, 0};
 static pthread_mutex_t s_dir_mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -16,9 +16,9 @@ esp_err_t gpio_config(const gpio_config_t *cfg) {
 esp_err_t gpio_set_level(gpio_num_t gpio, uint32_t level) {
     /* Track the two DIR pins so the RMT mock can attribute a STEP's direction. */
     pthread_mutex_lock(&s_dir_mtx);
-    if (gpio == RA_DIR_GPIO) {
+    if (gpio == mount_profile.hardware.axes[AXIS_RA].dir_gpio) {
         host_dir_level[0] = level ? 1 : 0;
-    } else if (gpio == DEC_DIR_GPIO) {
+    } else if (gpio == mount_profile.hardware.axes[AXIS_DEC].dir_gpio) {
         host_dir_level[1] = level ? 1 : 0;
     }
     pthread_mutex_unlock(&s_dir_mtx);

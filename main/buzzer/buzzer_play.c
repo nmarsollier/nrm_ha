@@ -8,6 +8,7 @@
  * duration_ms == 0 marks the end of the pattern.
  */
 #include "buzzer_internal.h"
+#include "mount_profile.h"
 
 #include "driver/gpio.h"
 #include "esp_timer.h"
@@ -36,7 +37,7 @@ static const BuzzerStep *s_steps;
 static uint32_t          s_index;
 
 static void set_buzzer(bool beep_on) {
-    gpio_set_level(BUZZER_GPIO,
+    gpio_set_level((gpio_num_t) mount_profile.hardware.buzzer_gpio,
                    beep_on ? BUZZER_ACTIVE_LEVEL : BUZZER_IDLE_LEVEL);
 }
 

@@ -70,7 +70,7 @@ void motors_update_power(bool power_ok) {
         return;
     }
 
-    if (tmc2209_reinit(mount_profile.axes[AXIS_RA].canonical_microsteps) == ESP_OK) {
+    if (tmc2209_reinit(mount_profile.canonical_microsteps) == ESP_OK) {
         ESP_LOGI(TAG, "TMC power restored — motors back to READY");
         /* tmc2209_reinit() re-configured both drivers at the tracking
          * resolution and recorded it, so the microstep state is already in

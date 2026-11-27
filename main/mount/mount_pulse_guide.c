@@ -92,7 +92,7 @@ MountResult mount_pulse_guide(GuideDirection direction, uint32_t duration_ms) {
              * celestial pole (D = 180°·n), or would exceed the mechanical
              * limit — a truncated move must be a clear rejection. */
             float arc_deg = offset * (duration_ms / 1000.0f);
-            float pole_eps = motors_steps_to_deg(AXIS_DEC, 1);   /* one microstep */
+            float pole_eps = motors_steps_to_deg(1);   /* one microstep */
             float d_start = dec_axis_deg;
             float d_end = dec_axis_deg + arc_deg;
             float a = fminf(d_start, d_end) - pole_eps;

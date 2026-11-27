@@ -1,9 +1,10 @@
 /*
  * tmc.h — TMC2209 driver public API (two axes: RA and DEC).
  *
- * The coil currents (TMC_IRUN / TMC_IHOLD) live in board_config.h.  The initial
- * microstep resolution is supplied by the caller (the motors layer, from the
- * selected mount profile): the driver applies one resolution to both axes.
+ * The coil currents (IRUN/IHOLD) live in the selected mount profile
+ * (mount_profile.hardware).  The initial microstep resolution is supplied by the
+ * caller (the motors layer, from the selected mount profile): the driver applies
+ * one resolution to both axes.
  */
 
 #pragma once
@@ -83,32 +84,3 @@ TmcChopMode tmc2209_get_chop_mode(void);
  * Used for error-state LED signalling.
  */
 bool tmc2209_is_initialized(void);
-
-/* --------------------------------------------------------------------------
- * Init diagnostics — status and failure reason.
- * -------------------------------------------------------------------------- */
-
-/* Init status. */
-typedef enum {
-    TMC_NOT_INIT = 0,   /* init not run / not reached */
-    TMC_OK,             /* configured and verified */
-    TMC_ERROR,          /* failed — see tmc2209_get_error() */
-} TmcStatus;
-
-/* Failure reason (valid when status == TMC_ERROR). */
-typedef enum {
-    TMC_ERROR_NONE = 0,
-    TMC_ERROR_UART,            /* uart_driver_install / param_config / set_pin */
-    TMC_ERROR_GCONF_WRITE,     /* GCONF write + readback */
-    TMC_ERROR_IHOLD_WRITE,     /* IHOLD_IRUN write (IFCNT verify) */
-    TMC_ERROR_CHOPCONF_VERIFY, /* CHOPCONF write + readback / MRES mismatch */
-    TMC_ERROR_PWMCONF_VERIFY,  /* PWMCONF write + readback */
-    TMC_ERROR_MRES_SET,        /* runtime microstep switch: CHOPCONF.MRES write + readback */
-    TMC_ERROR_CHOP_MODE_SET    /* runtime chop mode switch: GCONF.en_SpreadCycle write + readback */
-} TmcError;
-
-TmcStatus tmc2209_get_status(void);
-TmcError  tmc2209_get_error(void);
-
-const char *tmc2209_status_to_string(TmcStatus status);
-const char *tmc2209_error_to_string(TmcError error);

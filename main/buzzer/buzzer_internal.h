@@ -1,7 +1,6 @@
 #pragma once
 
 #include "buzzer.h"
-#include "board/board_config.h"
 
 #include <stdbool.h>
 #include <stdint.h>

@@ -9,6 +9,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "TMC_SET_MICROSTEPS";
@@ -19,7 +20,7 @@ static const char *TAG = "TMC_SET_MICROSTEPS";
  * replaced (preserving TOFF/HSTRT/HEND/TBL/INTPOL), and the write is confirmed
  * by reading MRES back.  Retries 3 times before giving up.
  */
-static esp_err_t tmc_set_chopconf_mres(const TmcAxis *axis, uint8_t mres) {
+static esp_err_t tmc_set_chopconf_mres(int axis, uint8_t mres) {
     uint32_t chopconf = 0;
     if (tmc_read_register(axis, TMC_REG_CHOPCONF, &chopconf) != ESP_OK) {
         return ESP_FAIL;
@@ -56,7 +57,7 @@ esp_err_t tmc2209_set_microsteps(uint16_t microsteps)
             result = ESP_FAIL;
             break;
         }
-        if (tmc_set_chopconf_mres(&tmc_axes[i], mres) != ESP_OK) {
+        if (tmc_set_chopconf_mres(i, mres) != ESP_OK) {
             result = ESP_FAIL;
             break;
         }
@@ -66,8 +67,6 @@ esp_err_t tmc2209_set_microsteps(uint16_t microsteps)
         tmc_microsteps = microsteps;   /* verified on both axes */
         ESP_LOGI(TAG, "microsteps set to %u on both axes", (unsigned) microsteps);
     } else {
-        tmc_status = TMC_ERROR;
-        tmc_error = TMC_ERROR_MRES_SET;
         ESP_LOGE(TAG, "microstep switch to %u failed — not trusted", (unsigned) microsteps);
     }
 

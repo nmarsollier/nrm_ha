@@ -22,8 +22,8 @@ MotorsState motors_current_state(void) {
     return copy;
 }
 
-float motors_steps_to_deg(AxisId axis, int64_t steps) {
-    return (float) axis_steps_to_deg(axis, steps);
+float motors_steps_to_deg(int64_t steps) {
+    return (float) axis_steps_to_deg(steps);
 }
 
 float motors_get_ra_deg(void) {
@@ -31,7 +31,7 @@ float motors_get_ra_deg(void) {
     portENTER_CRITICAL(&motors_state_lock);
     steps = motors_state.ra_steps;
     portEXIT_CRITICAL(&motors_state_lock);
-    return motors_steps_to_deg(AXIS_RA, steps);
+    return motors_steps_to_deg(steps);
 }
 
 float motors_get_dec_deg(void) {
@@ -39,5 +39,5 @@ float motors_get_dec_deg(void) {
     portENTER_CRITICAL(&motors_state_lock);
     steps = motors_state.dec_steps;
     portEXIT_CRITICAL(&motors_state_lock);
-    return motors_steps_to_deg(AXIS_DEC, steps);
+    return motors_steps_to_deg(steps);
 }

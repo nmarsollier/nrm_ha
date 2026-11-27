@@ -404,7 +404,22 @@ float host_slew_duration(float distance_deg, float speed_dps) {
 /* Mechanical scale — read from the compiled profile so the contract test can
  * check it against the declared reduction (rather than trusting it blindly). */
 float host_deg_per_step(void) {
-    return motors_get_deg_per_microstep(AXIS_RA);
+    return motors_get_deg_per_microstep();
+}
+
+/* Speed ceilings — read from the compiled profile so the contract test can
+ * check the per-mount max speeds against the declared values. */
+float host_max_slew_dps(void) { return mount_profile.max_slew_dps; }
+float host_max_manual_dps(void) { return mount_profile.max_manual_dps; }
+
+/* Per-axis mechanical envelope — asymmetric for BFT DEC [-135, 50]. */
+float host_hard_min_deg(int axis) {
+    if (axis != AXIS_RA && axis != AXIS_DEC) return 0.0f;
+    return mount_profile.axes[axis].hard_min_deg;
+}
+float host_hard_max_deg(int axis) {
+    if (axis != AXIS_RA && axis != AXIS_DEC) return 0.0f;
+    return mount_profile.axes[axis].hard_max_deg;
 }
 
 /* DIR polarity for an axis (1 = positive rotation is HIGH), from the profile. */
@@ -568,13 +583,13 @@ int64_t host_dec_steps(void) { return motors_current_state().dec_steps; }
 
 void host_set_ra_deg(float deg) {
     portENTER_CRITICAL(&motors_state_lock);
-    motors_state.ra_steps = motors_deg_to_steps(AXIS_RA, deg);
+    motors_state.ra_steps = motors_deg_to_steps(deg);
     portEXIT_CRITICAL(&motors_state_lock);
 }
 
 void host_set_dec_deg(float deg) {
     portENTER_CRITICAL(&motors_state_lock);
-    motors_state.dec_steps = motors_deg_to_steps(AXIS_DEC, deg);
+    motors_state.dec_steps = motors_deg_to_steps(deg);
     portEXIT_CRITICAL(&motors_state_lock);
 }
 

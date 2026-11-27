@@ -2,8 +2,7 @@
 
 Compiles the shared mount layer against geometry_fork.c + profile_bft.c and
 verifies the profile-specific behaviours: an explicit meridian-flip request is
-rejected, the geometric-horizon check rejects a below-horizon trajectory (not
-merely a mechanical-limit one), and the DEC guide sign follows the hemisphere.
+rejected and the DEC guide sign follows the hemisphere.
 """
 import ctypes as C
 from pathlib import Path
@@ -31,7 +30,6 @@ class ForkMountBftTests(unittest.TestCase):
             str(ROOT / "main/motion/slew_ramp.c"),
             str(ROOT / "main/geometry/geometry_common.c"),
             str(ROOT / "main/geometry/geometry_fork.c"),
-            str(ROOT / "main/geometry/geometry_fork_horizon.c"),
             str(ROOT / "main/profiles/profile_bft.c"),
             str(ROOT / "main/mount/mount_coordinate_tools.c"),
             str(ROOT / "main/mount/mount_get_lst.c"),
@@ -91,14 +89,6 @@ class ForkMountBftTests(unittest.TestCase):
         self.assertEqual(self.lib.host_slew_called(), 1)
         self.assertAlmostEqual(self.lib.host_slew_dec(), 30.0, delta=0.5)
         self.assertLess(abs(self.lib.host_slew_ra()), 1.0)
-
-    def test_horizon_rejects_below_horizon(self):
-        # From HOME (R=0,D=0), DEC=-30 at HA=-12h resolves to R=0, D=-60: it is
-        # mechanically reachable (inside [-135, 50]) but below the horizon at
-        # lat -32.89, so the goto is rejected AND no motor command is sent.
-        target_ra = (self.lst + 12.0) % 24.0
-        self.assertFalse(self.lib.host_slew(target_ra, -30.0, 4))
-        self.assertEqual(self.lib.host_slew_called(), 0)
 
     # ── PulseGuide ───────────────────────────────────────────────────
     def test_pulse_guide_dec_sign_four_combinations(self):

@@ -30,7 +30,7 @@ uint16_t motors_microsteps_active(void) {
 uint32_t motors_steps_per_pulse(void) {
     /* Precondition: the active resolution is verified (non-zero).  The caller
      * (motors_microsteps_prepare) refuses motion before this is ever reached. */
-    return (uint32_t) mount_profile.axes[AXIS_RA].canonical_microsteps
+    return (uint32_t) mount_profile.canonical_microsteps
            / (uint32_t) tmc2209_get_microsteps();
 }
 
@@ -88,15 +88,15 @@ bool motors_microsteps_prepare(MotionCommandType type, int64_t ra_dist, int64_t 
         return false;
     }
 
-    uint16_t target = mount_profile.axes[AXIS_RA].canonical_microsteps;
+    uint16_t target = mount_profile.canonical_microsteps;
     TmcChopMode chop = TMC_CHOP_STEALTH;
 
     if (type == MOTION_CMD_SLEW) {
-        float ra_deg = motors_steps_to_deg(AXIS_RA, ra_dist);
-        float dec_deg = motors_steps_to_deg(AXIS_DEC, dec_dist);
+        float ra_deg = motors_steps_to_deg(ra_dist);
+        float dec_deg = motors_steps_to_deg(dec_dist);
         float max_deg = fmaxf(fabsf(ra_deg), fabsf(dec_deg));
         if (max_deg > mount_profile.slew.gentle_distance_deg) {
-            target = mount_profile.axes[AXIS_RA].slew_microsteps;
+            target = mount_profile.slew_microsteps;
             chop = TMC_CHOP_SPREAD;
         }
     }

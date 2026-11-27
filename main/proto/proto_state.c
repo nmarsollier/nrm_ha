@@ -19,8 +19,8 @@ static const char *pier_side_name(int pier_side) {
 
 void proto_state_snapshot(char *out, size_t cap, uint32_t id) {
     MotorsState s = motors_current_state();
-    float ra_axis = motors_steps_to_deg(AXIS_RA, s.ra_steps);
-    float dec_axis = motors_steps_to_deg(AXIS_DEC, s.dec_steps);
+    float ra_axis = motors_steps_to_deg(s.ra_steps);
+    float dec_axis = motors_steps_to_deg(s.dec_steps);
 
     AxisCoordinates axis = { .ra_axis_deg = ra_axis, .dec_axis_deg = dec_axis };
     EquatorialCoordinates eq = axis_to_equatorial(axis);

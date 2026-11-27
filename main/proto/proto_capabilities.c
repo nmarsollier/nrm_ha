@@ -10,8 +10,8 @@
 #include "mount_profile.h"
 
 /* Firmware version reported in the CAPABILITIES handshake.  Kept separate from
- * the board electronics config (board_config.h): it describes the firmware
- * build, not the board. */
+ * the mount profile (mount_profile.h): it describes the firmware build, not the
+ * board. */
 #define MOUNT_FIRMWARE_VERSION "0.1.0" /* TODO: bump to the real version */
 
 void proto_handle_capabilities(const char *req, uint32_t id, char *out, size_t cap) {
@@ -30,7 +30,7 @@ void proto_handle_capabilities(const char *req, uint32_t id, char *out, size_t c
         mount_profile.id, mount_profile.name, MOUNT_FIRMWARE_VERSION);
 
     for (int rate = 1; rate <= 4; rate++) {
-        proto_buf_append(out, cap, &len, "%s%.1f",
+        proto_buf_append(out, cap, &len, "%s%.3f",
                          rate > 1 ? "," : "", motors_get_slewing_speed(rate));
     }
 

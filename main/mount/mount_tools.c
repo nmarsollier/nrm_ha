@@ -7,22 +7,6 @@
 
 #include "motors.h"
 
-/*
- * Current RA in decimal hours, read directly from the authoritative
- * motor position (axis degrees).  RA hour = axis_deg / 15.
- */
-float mount_get_ra_hours(void) {
-    AxisCoordinates axis = {.ra_axis_deg = motors_get_ra_deg(),
-                            .dec_axis_deg = motors_get_dec_deg()};
-    return axis_to_equatorial(axis).ra_hours;
-}
-
-float mount_get_dec_deg(void) {
-    AxisCoordinates axis = {.ra_axis_deg = motors_get_ra_deg(),
-                            .dec_axis_deg = motors_get_dec_deg()};
-    return axis_to_equatorial(axis).dec_deg;
-}
-
 MountResult mount_result_error(const char *message) {
     MountResult result = {
         .ok = false,

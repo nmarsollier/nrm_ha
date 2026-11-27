@@ -9,20 +9,22 @@
  * idle level is LOW (silent) and the pin is pulsed HIGH to beep.
  */
 #include "buzzer_internal.h"
+#include "mount_profile.h"
 
 #include "driver/gpio.h"
 #include "esp_err.h"
 
 void buzzer_init(void) {
+    gpio_num_t buzzer = (gpio_num_t) mount_profile.hardware.buzzer_gpio;
     gpio_config_t conf = {
-        .pin_bit_mask = 1ULL << BUZZER_GPIO,
+        .pin_bit_mask = 1ULL << buzzer,
         .mode         = GPIO_MODE_OUTPUT,
         .pull_up_en   = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type    = GPIO_INTR_DISABLE,
     };
     ESP_ERROR_CHECK(gpio_config(&conf));
-    gpio_set_level(BUZZER_GPIO, BUZZER_IDLE_LEVEL);
+    gpio_set_level(buzzer, BUZZER_IDLE_LEVEL);
 
     buzzer_play(BUZZER_PATTERN_BOOT);
 }

@@ -20,21 +20,21 @@
 static const char *TAG = "MOTORS_LIMITS";
 static const char *NVS_NS = "mount";
 
-#define LIMITS_DEFAULT_RA_MIN  -100.0f
-#define LIMITS_DEFAULT_RA_MAX   100.0f
-#define LIMITS_DEFAULT_DEC_MIN -150.0f
-#define LIMITS_DEFAULT_DEC_MAX  150.0f
-
 /*
- * Absolute mechanical range (degrees).  Each axis is physically meaningful
- * within a half-turn: the DEC body sweeps ±180° between the two celestial
- * poles and the RA body points below the horizon beyond ±180°.  Stored limits
- * must stay inside this range and keep min < max, or the clamp logic breaks.
+ * Factory defaults and the mechanical envelope come from the selected mount
+ * profile: default_min/max seed the operational limits on first boot and reset,
+ * and hard_min/max bound every stored or runtime limit.  The envelope is
+ * per-axis and may be asymmetric (e.g. BFT DEC [-135, 50]).
  */
-#define LIMITS_MECHANICAL_RA_RANGE  180.0f
-#define LIMITS_MECHANICAL_DEC_RANGE 180.0f
+static void limits_load_defaults(void) {
+    motors_state.limits.ra_min  = mount_profile.axes[AXIS_RA].default_min_deg;
+    motors_state.limits.ra_max  = mount_profile.axes[AXIS_RA].default_max_deg;
+    motors_state.limits.dec_min = mount_profile.axes[AXIS_DEC].default_min_deg;
+    motors_state.limits.dec_max = mount_profile.axes[AXIS_DEC].default_max_deg;
+}
 
-/* True when a full limit config is usable: finite, ordered, within range. */
+/* True when a full limit config is usable: finite, ordered, within the
+ * profile's per-axis mechanical envelope. */
 static bool limits_are_valid(float ra_min, float ra_max,
                              float dec_min, float dec_max) {
     if (!isfinite(ra_min) || !isfinite(ra_max)
@@ -44,8 +44,12 @@ static bool limits_are_valid(float ra_min, float ra_max,
     if (ra_min >= ra_max || dec_min >= dec_max) {
         return false;
     }
-    if (ra_min < -LIMITS_MECHANICAL_RA_RANGE || ra_max > LIMITS_MECHANICAL_RA_RANGE
-        || dec_min < -LIMITS_MECHANICAL_DEC_RANGE || dec_max > LIMITS_MECHANICAL_DEC_RANGE) {
+    /* Operational limits must stay inside the profile's per-axis mechanical
+     * envelope (asymmetric, so compare against hard_min/hard_max directly). */
+    if (ra_min < mount_profile.axes[AXIS_RA].hard_min_deg
+        || ra_max > mount_profile.axes[AXIS_RA].hard_max_deg
+        || dec_min < mount_profile.axes[AXIS_DEC].hard_min_deg
+        || dec_max > mount_profile.axes[AXIS_DEC].hard_max_deg) {
         return false;
     }
     return true;
@@ -82,10 +86,7 @@ static bool apply_limits_if_valid(float ra_min, float ra_max,
 /* ── NVS persistence ─────────────────────────────────────── */
 
 void motors_limits_load(void) {
-    motors_state.limits.ra_min  = LIMITS_DEFAULT_RA_MIN;
-    motors_state.limits.ra_max  = LIMITS_DEFAULT_RA_MAX;
-    motors_state.limits.dec_min = LIMITS_DEFAULT_DEC_MIN;
-    motors_state.limits.dec_max = LIMITS_DEFAULT_DEC_MAX;
+    limits_load_defaults();
 
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NS, NVS_READONLY, &h);
@@ -107,15 +108,13 @@ void motors_limits_load(void) {
     nvs_close(h);
 
     /* A partially-written or corrupted NVS could yield NaN/inf, min >= max, or
-     * values outside the mechanical range.  Never boot with a broken clamp —
-     * fall back to the factory defaults. */
+     * values outside the profile's mechanical envelope (e.g. limits persisted by
+     * a previous profile with a wider range).  Never boot with a broken clamp —
+     * fall back to the profile's factory defaults. */
     if (!limits_are_valid(motors_state.limits.ra_min, motors_state.limits.ra_max,
                           motors_state.limits.dec_min, motors_state.limits.dec_max)) {
         ESP_LOGW(TAG, "Stored limits invalid, using factory defaults");
-        motors_state.limits.ra_min  = LIMITS_DEFAULT_RA_MIN;
-        motors_state.limits.ra_max  = LIMITS_DEFAULT_RA_MAX;
-        motors_state.limits.dec_min = LIMITS_DEFAULT_DEC_MIN;
-        motors_state.limits.dec_max = LIMITS_DEFAULT_DEC_MAX;
+        limits_load_defaults();
     }
 }
 
@@ -259,10 +258,7 @@ bool motors_limits_reset(void) {
     }
     portENTER_CRITICAL(&motors_state_lock);
     if (motors_state.status != MOTORS_STATUS_ERROR) {
-        motors_state.limits.ra_min  = LIMITS_DEFAULT_RA_MIN;
-        motors_state.limits.ra_max  = LIMITS_DEFAULT_RA_MAX;
-        motors_state.limits.dec_min = LIMITS_DEFAULT_DEC_MIN;
-        motors_state.limits.dec_max = LIMITS_DEFAULT_DEC_MAX;
+        limits_load_defaults();
     }
     portEXIT_CRITICAL(&motors_state_lock);
     motors_limits_save();

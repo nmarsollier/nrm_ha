@@ -19,13 +19,20 @@ static bool valid_microsteps(uint16_t m) {
     }
 }
 
-static bool valid_axis(const AxisProfile *a) {
-    if (!isfinite(a->full_step_deg) || a->full_step_deg <= 0.0f) return false;
-    if (!isfinite(a->gear_ratio) || a->gear_ratio <= 0.0f) return false;
-    if (!valid_microsteps(a->canonical_microsteps)) return false;
-    if (!valid_microsteps(a->slew_microsteps)) return false;
+/* Scale and speed ceilings are shared by both axes, so they are validated once. */
+static bool valid_common(const MountProfile *p) {
+    if (!isfinite(p->full_step_deg) || p->full_step_deg <= 0.0f) return false;
+    if (!isfinite(p->gear_ratio) || p->gear_ratio <= 0.0f) return false;
+    if (!valid_microsteps(p->canonical_microsteps)) return false;
+    if (!valid_microsteps(p->slew_microsteps)) return false;
     /* Canonical resolution must be a whole multiple of the coarse one. */
-    if (a->canonical_microsteps % a->slew_microsteps != 0) return false;
+    if (p->canonical_microsteps % p->slew_microsteps != 0) return false;
+    if (!isfinite(p->max_slew_dps) || p->max_slew_dps <= 0.0f) return false;
+    if (!isfinite(p->max_manual_dps) || p->max_manual_dps <= 0.0f) return false;
+    return true;
+}
+
+static bool valid_axis(const AxisProfile *a) {
     if (!isfinite(a->hard_min_deg) || !isfinite(a->hard_max_deg)) return false;
     if (a->hard_min_deg >= a->hard_max_deg) return false;
     /* Defaults must be finite and ordered inside the hard envelope (a NaN would
@@ -33,8 +40,6 @@ static bool valid_axis(const AxisProfile *a) {
     if (!isfinite(a->default_min_deg) || !isfinite(a->default_max_deg)) return false;
     if (a->default_min_deg < a->hard_min_deg || a->default_max_deg > a->hard_max_deg) return false;
     if (a->default_min_deg >= a->default_max_deg) return false;
-    if (!isfinite(a->max_slew_dps) || a->max_slew_dps <= 0.0f) return false;
-    if (!isfinite(a->max_manual_dps) || a->max_manual_dps <= 0.0f) return false;
     return true;
 }
 
@@ -45,16 +50,14 @@ bool mount_profile_validate(const MountProfile *p) {
     if (p->geometry != GEOMETRY_GERMAN && p->geometry != GEOMETRY_FORK) return false;
     if (!isfinite(p->ra_reference_offset_deg)) return false;
 
+    if (!valid_common(p)) return false;
+
     if (!valid_axis(&p->axes[AXIS_RA])) return false;
     if (!valid_axis(&p->axes[AXIS_DEC])) return false;
 
-    /* The TMC2209 driver applies a single resolution to both axes (one CHOPCONF
-     * per driver, configured with one value), so the canonical and slew
-     * microsteps must agree across RA and DEC. */
-    if (p->axes[AXIS_RA].canonical_microsteps != p->axes[AXIS_DEC].canonical_microsteps
-        || p->axes[AXIS_RA].slew_microsteps != p->axes[AXIS_DEC].slew_microsteps) {
-        return false;
-    }
+    /* TMC2209 IRUN/IHOLD are 5-bit fields (IHOLD_IRUN [4:0] / [12:8]); a larger
+     * value would bleed into adjacent bits and corrupt the register. */
+    if (p->hardware.irun > 31 || p->hardware.ihold > 31) return false;
 
     const SlewProfile *s = &p->slew;
     if (!isfinite(s->min_speed_dps) || s->min_speed_dps <= 0.0f) return false;

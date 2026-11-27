@@ -152,7 +152,7 @@ float motors_get_dec_deg(void);
 /* Convert an absolute microstep counter to degrees.  Public so the protocol
  * layer can derive degrees from a single coherent MotorsState snapshot rather
  * than re-reading each axis separately. */
-float motors_steps_to_deg(AxisId axis, int64_t steps);
+float motors_steps_to_deg(int64_t steps);
 
 /*
  * Current active microstep resolution on both drivers (the profile's canonical
@@ -252,8 +252,6 @@ bool motors_status_is_parked(MotorsStatus status);
 const char *motors_tracking_to_string(TrackingMode tracking);
 
 TrackingMode motors_tracking_from_string(const char *value);
-
-const char *motors_tracking_valid_values(void);
 
 /* Move both axes to absolute angles in degrees. */
 MotorResultCode motors_slew_to_angle(float ra_deg, float dec_deg, int speed_rate);

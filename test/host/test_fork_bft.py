@@ -30,7 +30,6 @@ class ForkBftTests(unittest.TestCase):
             str(ROOT / "main/motion/slew_ramp.c"),
             str(ROOT / "main/geometry/geometry_common.c"),
             str(ROOT / "main/geometry/geometry_fork.c"),
-            str(ROOT / "main/geometry/geometry_fork_horizon.c"),
             str(ROOT / "main/profiles/profile_bft.c"),
             str(ROOT / "test/host/fork_driver.c"),
             "-lm", "-o", str(lib),
@@ -49,8 +48,6 @@ class ForkBftTests(unittest.TestCase):
         cls.lib.host_fork_limits.argtypes = [C.c_float] * 4
         cls.lib.host_fork_slew_duration.argtypes = [C.c_float, C.c_float]
         cls.lib.host_fork_slew_duration.restype = C.c_float
-        cls.lib.host_fork_path_above_horizon.argtypes = [C.c_float] * 5
-        cls.lib.host_fork_path_above_horizon.restype = C.c_bool
 
         # Independent sidereal angle at the fixed UTC instant (USNO formula).
         jd = NOW / 86400 + 2440587.5
@@ -176,7 +173,7 @@ class ForkBftTests(unittest.TestCase):
             ok, _ = self.reverse(ra_h, dec_d, (0, 0))
             self.assertFalse(ok, (ra_h, dec_d))
 
-    # ── shared helpers (slew duration + horizon) ────────────────────
+    # ── shared helpers (slew duration) ──────────────────────────────
     def test_slew_duration_singular_case(self):
         # At exactly min speed the estimator's log(v/vmin)/(v-vmin) is 0/0; it
         # must resolve to the analytic limit 1/vmin, never NaN.
@@ -184,11 +181,6 @@ class ForkBftTests(unittest.TestCase):
         self.assertTrue(math.isfinite(d))
         self.assertGreater(d, 0.0)
         self.assertAlmostEqual(d, 6.25, places=3)   # 5 deg * (1 / 0.8 deg/s)
-
-    def test_horizon(self):
-        # At lat 0, sin(alt) = sin(D)cos(R): D=+45 above, D=-45 below.
-        self.assertTrue(self.lib.host_fork_path_above_horizon(0, 45, 0, 45, 0))
-        self.assertFalse(self.lib.host_fork_path_above_horizon(0, -45, 0, -45, 0))
 
 
 if __name__ == "__main__":

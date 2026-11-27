@@ -15,7 +15,6 @@ esp_err_t tmc2209_reinit(uint16_t microsteps)
     if (tmc_uart_lock() != ESP_OK) {
         return ESP_FAIL;
     }
-    tmc_reset_diagnostics();
     esp_err_t result = tmc_configure_drivers(microsteps);
     tmc_uart_unlock();
     return result;

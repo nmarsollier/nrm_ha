@@ -69,10 +69,9 @@ time_t host_time(time_t *t) {
 MotorsState motors_current_state(void) { return state; }
 float motors_get_dec_deg(void) { return dec_position; }
 float motors_get_ra_deg(void) { return ra_position; }
-float motors_steps_to_deg(AxisId axis, int64_t steps) {
-    const AxisProfile *a = &mount_profile.axes[axis];
-    float deg_per_step = a->full_step_deg
-                         / ((float) a->canonical_microsteps * a->gear_ratio);
+float motors_steps_to_deg(int64_t steps) {
+    float deg_per_step = mount_profile.full_step_deg
+                         / ((float) mount_profile.canonical_microsteps * mount_profile.gear_ratio);
     return (float) steps * deg_per_step;
 }
 float motors_get_slewing_speed(int speed_rate) {

@@ -68,7 +68,7 @@ void setup_init(void) {
      * motors_init() can detect whether the drivers are alive.  The initial
      * resolution is the profile's canonical (tracking) microsteps.  Logs its own
      * failure. */
-    tmc2209_hw_init(mount_profile.axes[AXIS_RA].canonical_microsteps);
+    tmc2209_hw_init(mount_profile.canonical_microsteps);
 
     esp_err_t motors_err = motors_init();
     if (motors_err != ESP_OK) {

@@ -15,7 +15,7 @@ PROFILE ?= nrm_ha
 STUB_INC := -I$(HOSTDIR)stubs -I$(HOSTDIR)
 PROD_INC := -I$(ROOT)/main -I$(ROOT)/main/mount \
             -I$(ROOT)/main/motors -I$(ROOT)/main/tmc -I$(ROOT)/main/utils \
-            -I$(ROOT)/main/profiles -I$(ROOT)/main/board -I$(ROOT)/main/geometry -I$(ROOT)/main/motion
+            -I$(ROOT)/main/profiles -I$(ROOT)/main/geometry -I$(ROOT)/main/motion
 
 CFLAGS := -shared -fPIC -std=c11 -O2 -Wall -Wextra $(STUB_INC) $(PROD_INC)
 
@@ -32,7 +32,6 @@ MOUNT_SRCS := \
 
 PROD_SRCS := $(addprefix $(ROOT)/main/motors/,$(MOTOR_SRCS)) \
              $(addprefix $(ROOT)/main/mount/,$(MOUNT_SRCS)) \
-             $(ROOT)/main/utils/string_utils.c \
              $(ROOT)/main/motion/axis_units.c \
              $(ROOT)/main/motion/slew_ramp.c \
              $(ROOT)/main/geometry/geometry_common.c \

@@ -62,16 +62,6 @@ double geometry_gmst_hours(double unix_seconds);
 /* Local sidereal time in hours [0,24) for a longitude at a fractional instant. */
 float geometry_lst(float lon_deg, double unix_seconds);
 
-/* sin(geometric altitude) of a mechanical position at a site latitude
- * (fork geometry).  Pure. */
-double geometry_altitude_sin(float ra_axis_deg, float dec_axis_deg, float lat);
-
-/* True when every mechanical position in the axis-aligned rectangle from
- * (ra_from, dec_from) to (ra_to, dec_to) is at or above the geometric horizon
- * (fork geometry).  Pure. */
-bool geometry_path_above_horizon(float ra_from, float dec_from,
-                                 float ra_to, float dec_to, float lat);
-
 /* Reverse conversion — axis (mechanical) to equatorial (sky).  Pure. */
 EquatorialCoordinates geometry_axis_to_equatorial(const GeometryContext *ctx,
                                                   AxisCoordinates axis);

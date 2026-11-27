@@ -69,9 +69,9 @@ static double pole_sign(float lat) {
  * (the limits are never rounded outward).  Returns false when the interval
  * contains no representable step (lo > hi) or the float round-trip lands
  * outside the limits. */
-static bool quantize_within(AxisId axis, double degrees, float limit_min,
+static bool quantize_within(double degrees, float limit_min,
                             float limit_max, float *out) {
-    double step = axis_deg_per_step(axis);
+    double step = axis_deg_per_step();
     int64_t lo = (int64_t) ceil(limit_min / step);
     int64_t hi = (int64_t) floor(limit_max / step);
     if (lo > hi) {
@@ -79,13 +79,13 @@ static bool quantize_within(AxisId axis, double degrees, float limit_min,
     }
 
     int64_t steps;
-    if (!axis_deg_to_steps(axis, degrees, &steps)) {
+    if (!axis_deg_to_steps(degrees, &steps)) {
         return false;   /* non-finite or out-of-range destination */
     }
     if (steps < lo) steps = lo;
     if (steps > hi) steps = hi;
 
-    double deg = axis_steps_to_deg(axis, steps);
+    double deg = axis_steps_to_deg(steps);
     if (deg < limit_min || deg > limit_max) {
         return false;   /* float round-trip landed outside the limits */
     }
@@ -151,7 +151,7 @@ bool geometry_equatorial_to_axis(const GeometryContext *ctx,
 
     double p = pole_sign(ctx->lat_deg);
     double dec = eq.dec_deg;
-    double step = axis_steps_to_deg(AXIS_RA, 1);   /* one microstep: tie tolerance + quantization */
+    double step = axis_steps_to_deg(1);   /* one microstep: tie tolerance + quantization */
     const GeometryLimits *limits = &ctx->limits;
 
     /* Celestial-pole target: RA is arbitrary. Keep the current R (if valid) and
@@ -175,7 +175,7 @@ bool geometry_equatorial_to_axis(const GeometryContext *ctx,
             return false;
         }
         float d_q;
-        if (!quantize_within(AXIS_DEC, best_d, limits->dec_min, limits->dec_max, &d_q)) {
+        if (!quantize_within(best_d, limits->dec_min, limits->dec_max, &d_q)) {
             return false;
         }
         out->ra_axis_deg = current.ra_axis_deg;
@@ -232,8 +232,8 @@ bool geometry_equatorial_to_axis(const GeometryContext *ctx,
                  * the interval holds no representable step. The cost is compared
                  * on the float values, not the quantized ones. */
                 float R_q, D_q;
-                if (!quantize_within(AXIS_RA, R_arr, limits->ra_min, limits->ra_max, &R_q) ||
-                    !quantize_within(AXIS_DEC, D, limits->dec_min, limits->dec_max, &D_q)) {
+                if (!quantize_within(R_arr, limits->ra_min, limits->ra_max, &R_q) ||
+                    !quantize_within(D, limits->dec_min, limits->dec_max, &D_q)) {
                     continue;
                 }
 

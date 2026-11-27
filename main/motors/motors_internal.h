@@ -162,29 +162,15 @@ bool motors_is_valid_ra_steps(int64_t steps);
 bool motors_is_valid_dec_steps(int64_t steps);
 
 /* =========================================================================
- * Mechanical constants — hardware configuration.
+ * Mechanical conversion — degrees per canonical microstep.
  * ========================================================================= */
 
-/* Maximum safe slew speed in deg/s — hardware ceiling for this reduction. */
-#define MOTORS_MAX_SLEW_SPEED_DPS 6.0f
-
-/* Maximum manual move-axis speed in deg/s — ceiling for continuous
- * MoveAxis / joystick motion.  Lower than the slew ceiling because manual
- * motion runs at constant velocity (no acceleration ramp). */
-#define MOTORS_MAX_MOVE_AXIS_SPEED_DPS 1.0f
-
 /*
- * Angular displacement per microstep for one mount axis.
- *
- *   full_step_deg        = NEMA 17 full-step angle (1.8°)
- *   canonical_microsteps = 64 (TMC2209 CHOPCONF.MRES)
- *   gear_ratio           = total reduction (motor shaft : axis)
- *
- * Each axis reads its own AxisProfile so RA and DEC can have independent
- * reductions.
+ * Angular displacement per microstep — shared by both axes (same motor,
+ * reduction and canonical resolution; see MountProfile).
  */
-static inline float motors_get_deg_per_microstep(AxisId axis) {
-    return (float) axis_deg_per_step(axis);
+static inline float motors_get_deg_per_microstep(void) {
+    return (float) axis_deg_per_step();
 }
 
 /* =========================================================================
@@ -266,15 +252,13 @@ void motors_hw_reset_dir_cache(void);
  * ========================================================================= */
 
 /* Convert between steps and degrees using the active microstep resolution.
- * Defined in motors_current_state.c; declared public in motors.h. */
-float motors_steps_to_deg(AxisId axis, int64_t steps);
-
-static inline int64_t motors_deg_to_steps(AxisId axis, float degrees) {
+ * Declared public in motors.h; the inline deg->steps conversion follows. */
+static inline int64_t motors_deg_to_steps(float degrees) {
     int64_t steps;
     /* Callers keep the angle finite and within the mechanical limits, so this
      * conversion never fails in practice; on a defensive failure, fall back to
      * 0 (home) rather than propagate an invalid step count into a distance. */
-    if (!axis_deg_to_steps(axis, (double) degrees, &steps)) {
+    if (!axis_deg_to_steps((double) degrees, &steps)) {
         return 0;
     }
     return steps;
